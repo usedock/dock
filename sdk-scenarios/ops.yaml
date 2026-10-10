@@ -54,28 +54,28 @@ http:
     status: 200
 
 # The API has no file routes. SDK file helpers run one docks.exec call and
-# reshape its result. `command` is the exact exec body; `{path}` is the path in
-# single quotes (a single quote in a path is not supported), `{contentBase64}`
-# is the base64 of the UTF-8 content. `data` is what a step's `expect.data`
-# is matched against.
+# reshape its result. `command` is the exact exec body. `{path}` is the path as
+# one POSIX shell word: wrapped in single quotes, each ' inside written as '''
+# (it's.txt -> 'it'''s.txt'). `{contentBase64}` is the base64 of the UTF-8
+# content. `data` is what a step's `expect.data` is matched against.
 composite:
   docks.files.write:
     via: docks.exec
     args: [dockId, path, content]
-    command: "mkdir -p \"$(dirname '{path}')\" && printf '%s' '{contentBase64}' | base64 -d > '{path}'"
+    command: "mkdir -p -- \"$(dirname -- {path})\" && printf '%s' '{contentBase64}' | base64 -d > {path}"
     data:
       path: "{path}"
   docks.files.read:
     via: docks.exec
     args: [dockId, path]
-    command: "base64 -w0 '{path}'"
+    command: "base64 -w0 -- {path}"
     # stdout is base64; data.content is its UTF-8 decoding.
     data:
       content: "base64decode(stdout)"
   docks.files.list:
     via: docks.exec
     args: [dockId, path]
-    command: "ls -1A '{path}'"
+    command: "ls -1A -- {path}"
     # data.entries is stdout split on newlines, empty lines dropped, in ls order.
     data:
       entries: "lines(stdout)"

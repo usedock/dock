@@ -70,6 +70,12 @@ Messages are never asserted.
   reshaped into the `data` described there (`path`, `content`, `entries`). A
   non-zero exit code from the command is an SDK error for these helpers, not a
   scenario failure to hide.
+- File helpers are shell commands, so the SDK must quote the path: `{path}`
+  becomes one single-quoted word with each `'` written as `'\''`
+  (`it's.txt` -> `'it'\''s.txt'`), and `--` stops option parsing. Content is
+  never placed in the command as text, only as base64. Never substitute a raw
+  path: a name like `x'; rm -rf ~; '` would run as a command. The exec command
+  limit (64 KB) caps one write at about 48 KB of content.
 
 The validation spec checks every `http` op against the route decorators in
 `apps/backend/src/**/*.controller.ts`, so a renamed or removed route fails CI

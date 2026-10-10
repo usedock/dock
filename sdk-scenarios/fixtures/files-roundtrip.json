@@ -45,7 +45,7 @@
         "method": "POST",
         "path": "/v1/docks/22222222-2222-4222-8222-222222222222/exec",
         "body": {
-          "command": "mkdir -p \"$(dirname '/home/user/work/notes/hello.txt')\" && printf '%s' 'aGVsbG8gZnJvbSBkb2NrCnNlY29uZCBsaW5lCg==' | base64 -d > '/home/user/work/notes/hello.txt'"
+          "command": "mkdir -p -- \"$(dirname -- '/home/user/work/notes/hello.txt')\" && printf '%s' 'aGVsbG8gZnJvbSBkb2NrCnNlY29uZCBsaW5lCg==' | base64 -d > '/home/user/work/notes/hello.txt'"
         }
       },
       "response": {
@@ -68,7 +68,7 @@
         "method": "POST",
         "path": "/v1/docks/22222222-2222-4222-8222-222222222222/exec",
         "body": {
-          "command": "base64 -w0 '/home/user/work/notes/hello.txt'"
+          "command": "base64 -w0 -- '/home/user/work/notes/hello.txt'"
         }
       },
       "response": {
@@ -91,7 +91,7 @@
         "method": "POST",
         "path": "/v1/docks/22222222-2222-4222-8222-222222222222/exec",
         "body": {
-          "command": "ls -1A '/home/user/work/notes'"
+          "command": "ls -1A -- '/home/user/work/notes'"
         }
       },
       "response": {

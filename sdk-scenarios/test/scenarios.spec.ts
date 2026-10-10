@@ -1,4 +1,6 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
@@ -139,6 +141,101 @@ describe('scenarios', () => {
     const stepIds = new Set(doc.steps.map((s) => s.id));
     for (const e of fixture.exchanges) {
       expect(stepIds.has(e.step) || /^cleanup\.\d+$/.test(e.step), `fixture has stray step ${e.step}`).toBe(true);
+    }
+  });
+});
+
+// POSIX single-quote escaping, the same as the backend's shellQuote.
+const shellWord = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
+
+function renderCommand(op: CompositeOp, args: Record<string, string>): string {
+  const b64 = Buffer.from(args.content ?? '', 'utf8').toString('base64');
+  return op.command.replace(/\{path\}/g, () => shellWord(args.path)).replace(/\{contentBase64\}/g, b64);
+}
+
+function subsetMatch(want: unknown, got: unknown): boolean {
+  if (want === '$any') return got !== null && got !== undefined;
+  if (Array.isArray(want)) return Array.isArray(got) && got.length === want.length && want.every((w, i) => subsetMatch(w, got[i]));
+  if (want && typeof want === 'object') {
+    return !!got && typeof got === 'object' && Object.entries(want).every(([k, w]) => subsetMatch(w, (got as Record<string, unknown>)[k]));
+  }
+  return want === got;
+}
+
+function substitute(value: unknown, vars: Record<string, unknown>): unknown {
+  if (typeof value === 'string') {
+    const whole = /^\$\{(\w+)\}$/.exec(value);
+    return whole ? vars[whole[1]] : value.replace(/\$\{(\w+)\}/g, (_, n: string) => String(vars[n]));
+  }
+  if (Array.isArray(value)) return value.map((v) => substitute(v, vars));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, substitute(v, vars)]));
+  return value;
+}
+
+// Reference offline runner: the fixtures must satisfy their scenario under the README's fake-server rules.
+describe('fixture replay', () => {
+  interface Exchange { request: { method: string; path: string; body?: unknown; headers?: unknown }; response: { status: number; body: Record<string, any> } }
+
+  it.each(scenarios)('$file passes against its fixture', ({ doc }) => {
+    const fixture = JSON.parse(readFileSync(join(root, 'fixtures', `${doc.name}.json`), 'utf8')) as { variables: Record<string, string>; exchanges: Exchange[] };
+    const vars: Record<string, unknown> = { ...fixture.variables };
+    const used = new Set<number>();
+    const call = (opName: string, args: Record<string, any>) => {
+      const composite = ops.composite[opName];
+      const http = ops.http[composite?.via ?? opName];
+      const path = http.path.replace(/\{(\w+)\}/g, (_, n: string) => args[n]);
+      const body: Record<string, unknown> = {};
+      const headers: Record<string, string> = {};
+      if (composite) body.command = renderCommand(composite, args);
+      else for (const k of http.body ?? []) if (args[k] !== undefined) body[k] = args[k];
+      for (const [h, t] of Object.entries(http.headers ?? {})) headers[h] = t.replace(/\{(\w+)\}/g, (_, n: string) => args[n]);
+      const i = fixture.exchanges.findIndex((e, idx) => !used.has(idx) && e.request.method === http.method && e.request.path === path
+        && subsetMatch(e.request.body ?? {}, body) && subsetMatch(e.request.headers ?? {}, headers));
+      if (i < 0) return { status: 404, body: { ok: false, code: 'dock_not_found' } as Record<string, any>, miss: `${http.method} ${path} ${JSON.stringify(body)}` };
+      used.add(i);
+      const { status, body: res } = structuredClone(fixture.exchanges[i].response);
+      if (composite && res.ok) {
+        expect(res.data.exitCode, `${opName} exit code`).toBe(0);
+        const out = res.data.stdout as string;
+        res.data = opName.endsWith('.write') ? { path: args.path } : opName.endsWith('.read')
+          ? { content: Buffer.from(out, 'base64').toString('utf8') } : { entries: out.split('\n').filter(Boolean) };
+      }
+      return { status, body: res, miss: undefined };
+    };
+    for (const step of doc.steps as (Step & { expect: Record<string, any> })[]) {
+      const res = call(step.op, substitute(step.args ?? {}, vars) as Record<string, any>);
+      expect(res.miss, `${step.id}: no exchange matches`).toBeUndefined();
+      for (const [name, p] of Object.entries(step.capture ?? {})) vars[name] = p.split('.').reduce<any>((o, k) => o?.[k], res.body);
+      const want = substitute(step.expect, vars) as Record<string, any>;
+      expect([res.status, res.body.ok], step.id).toEqual([want.status, want.ok]);
+      if (want.code) expect(res.body.code, step.id).toBe(want.code);
+      if (want.data !== undefined) expect(subsetMatch(want.data, res.body.data), `${step.id}: ${JSON.stringify(res.body.data)}`).toBe(true);
+    }
+    for (const step of doc.cleanup ?? []) call(step.op, substitute(step.args ?? {}, vars) as Record<string, any>);
+    expect(fixture.exchanges.map((_, i) => i).filter((i) => !used.has(i)), 'unused exchanges').toEqual([]);
+  });
+});
+
+// The file templates run in bash with GNU coreutils, as in the dock image.
+const bash = spawnSync('bash', ['-c', 'base64 -w0 </dev/null'], { encoding: 'utf8' });
+
+describe.skipIf(bash.status !== 0)('composite file commands', () => {
+  const run = (cwd: string, command: string) => spawnSync('bash', ['-c', command], { cwd, encoding: 'utf8' });
+
+  it.each(["it's.txt", '-n.txt', 'dir with space/$(touch pwned).txt', "x'; touch pwned; echo '"])('round-trips %j without running it', (name) => {
+    const cwd = mkdtempSync(join(tmpdir(), 'sdk-scenarios-'));
+    try {
+      const content = "line 1\n'quoted' $HOME `x`\n";
+      const write = run(cwd, renderCommand(ops.composite['docks.files.write'], { path: name, content }));
+      expect(write.status, write.stderr).toBe(0);
+      const read = run(cwd, renderCommand(ops.composite['docks.files.read'], { path: name }));
+      expect(read.status, read.stderr).toBe(0);
+      expect(Buffer.from(read.stdout, 'base64').toString('utf8')).toBe(content);
+      const list = run(cwd, renderCommand(ops.composite['docks.files.list'], { path: name }));
+      expect(list.status, list.stderr).toBe(0);
+      expect(existsSync(join(cwd, 'pwned'))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
     }
   });
 });
