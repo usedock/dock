@@ -1,3 +1,4 @@
+import { createAll } from './settle.ts';
 import { sdkVersion } from './sdk-version.ts';
 import type { ExecResult, Handle, Provider, ProviderInfo, Size } from './types.ts';
 
@@ -20,6 +21,10 @@ export class VercelProvider implements Provider {
 
   private sdk(): Promise<Vercel> {
     return import('@vercel/sandbox');
+  }
+
+  async prepare(): Promise<void> {
+    await this.sdk();
   }
 
   private box(h: Handle): Sbx {
@@ -54,19 +59,21 @@ export class VercelProvider implements Provider {
     const { Sandbox } = await this.sdk();
     const snap = await this.box(handle).snapshot();
     this.snapshots.set(handle.id, [...(this.snapshots.get(handle.id) ?? []), snap.snapshotId]);
-    return Promise.all(
-      Array.from({ length: n }, async () => {
+    return createAll(
+      n,
+      async () => {
         const sbx = await Sandbox.create({ ...this.creds, source: { type: 'snapshot', snapshotId: snap.snapshotId } });
         this.boxes.set(sbx.name, sbx);
         return { id: sbx.name };
-      }),
+      },
+      (c) => this.destroy(c),
     );
   }
 
   async destroy(handle: Handle): Promise<void> {
-    const sbx = this.box(handle);
+    // Forget the handle only after the delete succeeds, so cleanup can retry it.
+    await this.box(handle).delete({ deleteOrphanSnapshots: true });
     this.boxes.delete(handle.id);
-    await sbx.delete({ deleteOrphanSnapshots: true });
     const { Snapshot } = await this.sdk();
     for (const snapshotId of this.snapshots.get(handle.id) ?? []) {
       const snap = await Snapshot.get({ ...this.creds, snapshotId });

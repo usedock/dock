@@ -1,3 +1,4 @@
+import { createAll } from './settle.ts';
 import { DEFAULT_SIZE, type ExecResult, type Handle, type Provider, type ProviderInfo, type Size } from './types.ts';
 
 export class DockApiError extends Error {
@@ -21,8 +22,14 @@ export interface DockOptions {
 
 interface DockView {
   id: string;
+  name?: string;
   state: string;
   runtime?: string;
+}
+
+interface OperationView {
+  id: string;
+  status: string;
 }
 
 const LIVE_STATES = new Set(['ready', 'idle', 'running']);
@@ -70,6 +77,10 @@ export class DockProvider implements Provider {
     throw new DockApiError(json.code ?? 'bad_response', json.message ?? `HTTP ${res.status}`, res.status);
   }
 
+  async prepare(): Promise<void> {
+    await this.workspaceId();
+  }
+
   private workspaceId(): Promise<string> {
     this.workspace ??= this.opts.workspaceId ? Promise.resolve(this.opts.workspaceId) : this.discoverWorkspace();
     return this.workspace;
@@ -103,12 +114,24 @@ export class DockProvider implements Provider {
 
   async create(size: Size = DEFAULT_SIZE): Promise<Handle> {
     const workspaceId = await this.workspaceId();
-    const dock = await this.call<DockView>('POST', '/docks', { workspaceId, name: benchName(), ...size });
+    const name = benchName();
+    const dock = await this.reclaimOnFailure(name, this.call<DockView>('POST', '/docks', { workspaceId, name, ...size }));
     try {
       return await this.untilLive(dock);
     } catch (err) {
       // The dock exists server-side even though it never became ready.
       await this.destroy({ id: dock.id }).catch(() => undefined);
+      throw err;
+    }
+  }
+
+  /** A failed or timed-out create may still have made the dock; find it by its unique name and delete it. */
+  private async reclaimOnFailure(name: string, call: Promise<DockView>): Promise<DockView> {
+    try {
+      return await call;
+    } catch (err) {
+      const docks = await this.call<DockView[]>('GET', '/docks?all=true').catch(() => []);
+      await Promise.allSettled(docks.filter((d) => d.name === name).map((d) => this.destroy({ id: d.id })));
       throw err;
     }
   }
@@ -129,42 +152,38 @@ export class DockProvider implements Provider {
   }
 
   async branch(handle: Handle, n: number): Promise<Handle[]> {
-    const settled = await Promise.allSettled(
-      Array.from({ length: n }, async () => {
-        const dock = await this.call<DockView>('POST', `/docks/${handle.id}/branch`, { name: benchName() });
+    return createAll(
+      n,
+      async () => {
+        const name = benchName();
+        const dock = await this.reclaimOnFailure(name, this.call<DockView>('POST', `/docks/${handle.id}/branch`, { name }));
         try {
           return await this.untilLive(dock);
         } catch (err) {
           await this.destroy({ id: dock.id }).catch(() => undefined);
           throw err;
         }
-      }),
+      },
+      (c) => this.destroy(c),
     );
-    const copies = settled.flatMap((s) => (s.status === 'fulfilled' ? [s.value] : []));
-    const failed = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
-    if (failed) {
-      // Copies already made are removed so a partial branch leaks nothing.
-      await Promise.allSettled(copies.map((c) => this.destroy(c)));
-      throw failed.reason;
-    }
-    return copies;
   }
 
   async destroy(handle: Handle): Promise<void> {
-    let op: { id: string };
+    let op: OperationView;
     try {
-      op = await this.call('DELETE', `/docks/${handle.id}`, undefined, { 'x-confirm-delete': handle.id });
+      // DELETE answers { operation }; it is usually already completed.
+      ({ operation: op } = await this.call<{ operation: OperationView }>('DELETE', `/docks/${handle.id}`, undefined, { 'x-confirm-delete': handle.id }));
     } catch (err) {
       if (err instanceof DockApiError && err.status === 404) return;
       throw err;
     }
     const deadline = Date.now() + this.readyTimeoutMs;
-    for (;;) {
-      const { status } = await this.call<{ status: string }>('GET', `/operations/${op.id}`);
+    for (let status = op.status; ; ) {
       if (status === 'completed') return;
       if (status === 'blocked') throw new Error(`Delete of ${handle.id} is blocked`);
       if (Date.now() > deadline) throw new Error(`Delete of ${handle.id} still ${status}`);
       await sleep(this.pollMs);
+      ({ status } = await this.call<OperationView>('GET', `/operations/${op.id}`));
     }
   }
 

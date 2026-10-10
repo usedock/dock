@@ -44,8 +44,8 @@ describe('report', () => {
     );
   });
 
-  it('names the file by date and provider', () => {
-    expect(reportFileName(report)).toBe('2026-10-11-dock.json');
+  it('names the file by date, time and provider', () => {
+    expect(reportFileName(report)).toBe('2026-10-11T12-00-00-dock.json');
   });
 
   it('renders success rate and tails in the table, plus failures and skips', () => {

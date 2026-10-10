@@ -40,7 +40,8 @@ export function buildReport(input: Omit<Report, 'schema' | 'date' | 'client'> & 
 }
 
 export function reportFileName(report: Report): string {
-  return `${report.date.slice(0, 10)}-${report.provider}.json`;
+  // Time to the second keeps same-day runs from overwriting each other.
+  return `${report.date.slice(0, 19).replace(/:/g, '-')}-${report.provider}.json`;
 }
 
 const ms = (v: number | null) => (v === null ? '-' : v.toFixed(0));

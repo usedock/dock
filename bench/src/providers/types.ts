@@ -25,6 +25,8 @@ export class UnsupportedError extends Error {}
 export interface Provider {
   name: string;
   supports: { stopResume: boolean; branch: boolean };
+  /** One-time setup (SDK load, workspace lookup) run before any clock starts. */
+  prepare?(): Promise<void>;
   create(size?: Size): Promise<Handle>;
   exec(handle: Handle, cmd: string): Promise<ExecResult>;
   stop(handle: Handle): Promise<void>;

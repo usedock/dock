@@ -1,3 +1,4 @@
+import { createAll } from './settle.ts';
 import { sdkVersion } from './sdk-version.ts';
 import { UnsupportedError, type ExecResult, type Handle, type Provider, type ProviderInfo } from './types.ts';
 
@@ -24,6 +25,10 @@ export class ModalProvider implements Provider {
       this.app = await this.client.apps.fromName('dock-bench', { createIfMissing: true });
     }
     return { client: this.client, app: this.app! };
+  }
+
+  async prepare(): Promise<void> {
+    await this.ctx();
   }
 
   private box(h: Handle): Sbx {
@@ -60,13 +65,13 @@ export class ModalProvider implements Provider {
 
   async branch(handle: Handle, n: number): Promise<Handle[]> {
     const image = await this.box(handle).snapshotFilesystem();
-    return Promise.all(Array.from({ length: n }, () => this.start(image)));
+    return createAll(n, () => this.start(image), (c) => this.destroy(c));
   }
 
   async destroy(handle: Handle): Promise<void> {
-    const sbx = this.box(handle);
+    // Forget the handle only after terminate succeeds, so cleanup can retry it.
+    await this.box(handle).terminate();
     this.boxes.delete(handle.id);
-    await sbx.terminate();
   }
 
   async info(): Promise<ProviderInfo> {

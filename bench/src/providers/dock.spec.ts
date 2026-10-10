@@ -57,7 +57,7 @@ describe('DockProvider', () => {
         return data(res, { id: 'd1', state: ++polls < 3 ? 'provisioning' : 'ready', runtime: 'microvm' });
       }
       if (req.path === '/v1/docks/d1/exec') return data(res, { exitCode: 0, stdout: '', stderr: '', durationMs: 3, truncated: false });
-      if (req.method === 'DELETE') return data(res, { id: 'op1', status: 'pending' }, 202);
+      if (req.method === 'DELETE') return data(res, { operation: { id: 'op1', status: 'pending' } }, 202);
       if (req.path === '/v1/operations/op1') return data(res, { id: 'op1', status: 'completed' });
       if (req.path === '/v1/health') return data(res, { status: 'ok' });
       send(res, 404, { ok: false, code: 'not_found', message: req.path });
@@ -96,12 +96,42 @@ describe('DockProvider', () => {
     handler = (req, res) => {
       if (req.method === 'POST' && req.path === '/v1/docks') return data(res, { id: 'd2', state: 'provisioning' }, 201);
       if (req.path === '/v1/docks/d2' && req.method === 'GET') return data(res, { id: 'd2', state: 'error' });
-      if (req.method === 'DELETE') return data(res, { id: 'op2', status: 'pending' }, 202);
+      if (req.method === 'DELETE') return data(res, { operation: { id: 'op2', status: 'completed' } }, 202);
       if (req.path === '/v1/operations/op2') return data(res, { id: 'op2', status: 'completed' });
       send(res, 404, { ok: false, code: 'not_found', message: req.path });
     };
     await expect(provider().create()).rejects.toThrow('state error');
     expect(requests.some((r) => r.method === 'DELETE' && r.path === '/v1/docks/d2')).toBe(true);
+    // An already-completed delete operation needs no poll.
+    expect(requests.some((r) => r.path.startsWith('/v1/operations'))).toBe(false);
+  });
+
+  it('polls the operation returned in the DELETE envelope until completed', async () => {
+    let polls = 0;
+    handler = (req, res) => {
+      if (req.method === 'DELETE') return data(res, { operation: { id: 'op9', targetType: 'dock', targetId: 'd9', status: 'pending' } }, 202);
+      if (req.path === '/v1/operations/op9') return data(res, { id: 'op9', status: ++polls < 2 ? 'pending' : 'completed' });
+      send(res, 404, { ok: false, code: 'not_found', message: req.path });
+    };
+    await expect(provider().destroy({ id: 'd9' })).resolves.toBeUndefined();
+    expect(polls).toBe(2);
+  });
+
+  it('deletes the dock by name when the create call itself fails', async () => {
+    let posted = '';
+    handler = (req, res) => {
+      if (req.method === 'POST' && req.path === '/v1/docks') {
+        posted = req.body.name;
+        return send(res, 503, { ok: false, code: 'no_host_capacity', message: 'full' });
+      }
+      if (req.method === 'GET' && req.path === '/v1/docks?all=true') {
+        return data(res, [{ id: 'other', name: 'bench-other', state: 'ready' }, { id: 'd5', name: posted, state: 'error' }]);
+      }
+      if (req.method === 'DELETE') return data(res, { operation: { id: 'op5', status: 'completed' } }, 202);
+      send(res, 404, { ok: false, code: 'not_found', message: req.path });
+    };
+    await expect(provider().create()).rejects.toMatchObject({ code: 'no_host_capacity' });
+    expect(requests.filter((r) => r.method === 'DELETE').map((r) => r.path)).toEqual(['/v1/docks/d5']);
   });
 
   it('treats deleting a missing dock as done', async () => {
@@ -116,7 +146,12 @@ describe('DockProvider', () => {
       if (req.path === '/v1/docks') return data(res, { id: 'd3', state: 'ready' }, 201);
       send(res, 404, { ok: false, code: 'not_found', message: req.path });
     };
-    await provider({ workspaceId: undefined }).create();
+    const p = provider({ workspaceId: undefined });
+    await p.prepare();
+    expect(requests.map((r) => r.path)).toEqual(['/v1/organizations', '/v1/organizations/org-1/workspaces']);
+    await p.create();
+    // Discovery ran in prepare, outside the create clock.
+    expect(requests.slice(2).map((r) => r.path)).toEqual(['/v1/docks']);
     expect(requests.find((r) => r.path === '/v1/docks')!.body.workspaceId).toBe('ws-found');
   });
 
@@ -152,7 +187,7 @@ describe('DockProvider', () => {
       }
       if (req.method === 'DELETE') {
         deleted.push(req.path);
-        return data(res, { id: 'op', status: 'pending' }, 202);
+        return data(res, { operation: { id: 'op', status: 'completed' } }, 202);
       }
       if (req.path === '/v1/operations/op') return data(res, { id: 'op', status: 'completed' });
       send(res, 404, { ok: false, code: 'not_found', message: req.path });

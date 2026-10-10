@@ -37,7 +37,7 @@ bun run bench --provider dock --scenario burst --iterations 100 --concurrency 10
 
 The workspace is the first one the key can see; set `DOCK_WORKSPACE_ID` to pick another. Docks are created at the default size (2 vCPU, 4 GiB, 20 GiB) and named `bench-...`. The Dock runtime (`microvm` or `gvisor`) is read from the created docks. The control plane does not report its version yet, so the version stays empty unless `/v1/health` returns one.
 
-Each run writes `results/<date>-<provider>.json` and prints a Markdown table. Same-day runs of the same provider overwrite each other, so use `--scenario all` or the `--out` directory flag to keep them apart.
+Each run writes `results/<UTC date and time>-<provider>.json` (for example `2026-10-11T12-00-00-dock.json`) and prints a Markdown table.
 
 Flags: `--provider`, `--scenario`, `--iterations` (default 100), `--concurrency` (default 100, used by `burst` and `resume`), `--out` (default `results`).
 
@@ -55,7 +55,7 @@ Results from different providers are comparable only when run from the same clie
 
 ## Add a provider
 
-1. Implement the `Provider` interface from `src/providers/types.ts` (`create`, `exec`, `stop`, `resume`, `branch`, `destroy`, `info`). Set `supports` to false for what the vendor cannot do and throw `UnsupportedError` from those methods.
+1. Implement the `Provider` interface from `src/providers/types.ts` (`create`, `exec`, `stop`, `resume`, `branch`, `destroy`, `info`, and optionally `prepare` for one-time setup that must stay outside the clock). Set `supports` to false for what the vendor cannot do and throw `UnsupportedError` from those methods.
 2. Keep the adapter thin and import the vendor SDK lazily inside methods.
 3. Register it in `src/providers/index.ts` with the environment variables it requires.
 4. Add a spec next to it; `src/providers/dock.spec.ts` shows the pattern with a fake HTTP server.

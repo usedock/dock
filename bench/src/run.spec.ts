@@ -108,7 +108,7 @@ describe('TrackedProvider', () => {
     expect(t.cleanupFailures).toEqual([`${a.id}: stuck`]);
   });
 
-  it('destroys a create that resolves after close (Ctrl-C mid create)', async () => {
+  it('close waits for an in-flight create and destroys it before resolving (Ctrl-C mid create)', async () => {
     const p = new FakeProvider();
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
@@ -119,11 +119,42 @@ describe('TrackedProvider', () => {
     };
     const t = new TrackedProvider(p);
     const pending = t.create();
-    await t.close();
-    release();
-    await pending;
+    let closed = false;
+    const closing = t.close().then(() => (closed = true));
     await new Promise((r) => setTimeout(r, 0));
+    expect(closed).toBe(false);
+    release();
+    await closing;
+    // The CLI exits right after close, so nothing may be left for a later tick.
     expect(p.live.size).toBe(0);
+    await pending;
+  });
+
+  it('refuses new creates once closed', async () => {
+    const p = new FakeProvider();
+    const t = new TrackedProvider(p);
+    await t.close();
+    await expect(t.create()).rejects.toThrow('Run interrupted');
+    await expect(t.branch({ id: 'x' }, 3)).rejects.toThrow('Run interrupted');
+    expect(p.creates).toBe(0);
+    expect(p.live.size).toBe(0);
+  });
+});
+
+describe('runBenchmark prepare', () => {
+  it('runs provider setup once before any clock starts', async () => {
+    const p = new FakeProvider();
+    const order: string[] = [];
+    (p as Provider).prepare = async () => {
+      order.push('prepare');
+    };
+    const create = p.create.bind(p);
+    p.create = async () => {
+      order.push('create');
+      return create();
+    };
+    await runBenchmark({ provider: p, scenario: 'burst', iterations: 2, concurrency: 2 });
+    expect(order).toEqual(['prepare', 'create', 'create']);
   });
 });
 

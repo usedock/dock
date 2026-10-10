@@ -1,3 +1,4 @@
+import { createAll } from './settle.ts';
 import { sdkVersion } from './sdk-version.ts';
 import type { ExecResult, Handle, Provider, ProviderInfo } from './types.ts';
 
@@ -14,6 +15,10 @@ export class E2BProvider implements Provider {
 
   private sdk(): Promise<E2B> {
     return import('e2b');
+  }
+
+  async prepare(): Promise<void> {
+    await this.sdk();
   }
 
   private box(h: Handle): Sbx {
@@ -53,14 +58,15 @@ export class E2BProvider implements Provider {
     const { Sandbox } = await this.sdk();
     const snap = await this.box(handle).createSnapshot();
     this.snapshots.set(handle.id, [...(this.snapshots.get(handle.id) ?? []), snap.snapshotId]);
-    const copies = await Promise.all(
-      Array.from({ length: n }, async () => {
+    return createAll(
+      n,
+      async () => {
         const sbx = await Sandbox.create(snap.snapshotId, { apiKey: this.apiKey });
         this.boxes.set(sbx.sandboxId, sbx);
         return { id: sbx.sandboxId };
-      }),
+      },
+      (c) => this.destroy(c),
     );
-    return copies;
   }
 
   async destroy(handle: Handle): Promise<void> {

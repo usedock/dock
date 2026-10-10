@@ -19,11 +19,12 @@ export async function runBenchmark(opts: RunOptions): Promise<Report> {
   const scenarios = resolveScenarios(opts.scenario);
   const results: ScenarioResult[] = [];
   try {
+    await tracked.prepare();
     for (const s of scenarios) {
       results.push(await runScenario(s, { provider: tracked, iterations: opts.iterations, concurrency: opts.concurrency }));
     }
   } finally {
-    await tracked.cleanup();
+    await tracked.close();
   }
   return buildReport({
     provider: tracked.name,
