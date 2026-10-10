@@ -7,7 +7,9 @@
 #   ./setup.sh --url https://dock.example.com    public, automatic HTTPS
 #   ./setup.sh --ports-domain ports.example.com  serve dock ports at *.ports.example.com
 #
-# Re-runs keep the existing .env and just rebuild and restart the stack.
+#   ./setup.sh --build                           build images from this checkout instead of pulling
+#
+# Re-runs keep the existing .env and just pull (or rebuild) and restart the stack.
 set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -20,6 +22,7 @@ WITH_HOST=0
 RUNTIME=""
 ALLOW_VULNERABLE=""
 PORTS_DOMAIN=""
+BUILD=0
 
 log() { printf 'setup: %s\n' "$*"; }
 die() {
@@ -29,11 +32,13 @@ die() {
 
 usage() {
   cat <<'USAGE'
-Usage: setup.sh [--url <public url>] [--host] [--runtime microvm|gvisor]
+Usage: setup.sh [--url <public url>] [--host] [--build] [--runtime microvm|gvisor]
                 [--ports-domain DOMAIN] [--allow-vulnerable NAMES]
 
   --url      origin users and hosts reach, default http://localhost:8088.
              A https:// DNS name gets a certificate automatically (ports 80/443).
+  --build    build the images from this checkout (development) instead of
+             pulling ghcr.io/usedock/* at DOCK_VERSION from .env.
   --host     also enroll this machine as a host (Linux, needs sudo).
   --runtime  host runtime for --host: gvisor (default) or microvm (Firecracker, needs /dev/kvm).
   --ports-domain
@@ -55,6 +60,10 @@ while [ "$#" -gt 0 ]; do
       URL="${2%/}"
       URL_GIVEN=1
       shift 2
+      ;;
+    --build)
+      BUILD=1
+      shift
       ;;
     --host)
       WITH_HOST=1
@@ -195,6 +204,10 @@ else
 fi
 
 PUBLIC_URL="$(env_get DOCK_PUBLIC_URL)"
+# An .env from before published images has no DOCK_VERSION; take the pinned one.
+if [ -z "$(env_get DOCK_VERSION)" ]; then
+  put_env DOCK_VERSION "$(sed -n 's/^DOCK_VERSION=//p' "${SELF_DIR}/.env.example" | head -n 1)"
+fi
 if [ -n "$PORTS_DOMAIN" ]; then
   configure_ports "$PORTS_DOMAIN"
 elif [ -z "$(env_get DOCK_PORTS_DOMAIN)" ]; then
@@ -205,8 +218,13 @@ elif [ -z "$(env_get DOCK_PORTS_DOMAIN)" ]; then
 fi
 FLEET_TOKEN="$(env_get FLEET_TOKEN)"
 
-log "building and starting the control plane (first run takes a few minutes)"
-( cd "$SELF_DIR" && docker compose up -d --build )
+if [ "$BUILD" = "1" ]; then
+  log "building and starting the control plane from source (first run takes a few minutes)"
+  ( cd "$SELF_DIR" && docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build )
+else
+  log "pulling dock $(env_get DOCK_VERSION) images and starting the control plane"
+  ( cd "$SELF_DIR" && docker compose pull --quiet && docker compose up -d )
+fi
 
 log "waiting for ${PUBLIC_URL}/v1/health"
 ready=0

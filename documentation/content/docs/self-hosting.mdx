@@ -38,13 +38,18 @@ From `deploy/self-host/`:
 ./setup.sh --url https://dock.example.com   # public instance, automatic HTTPS
 ```
 
-`setup.sh` writes `.env` with fresh secrets on the first run, starts the stack,
+`setup.sh` writes `.env` with fresh secrets on the first run, pulls the images, starts the stack,
 and waits until the API is healthy. `--host` enrolls the same machine as a
 host (it asks for sudo, and the first run builds the Dock image; it expects a
 `usedock/docklet` checkout next to this repository at `../docklet`: clone
 https://github.com/usedock/docklet there, or set `DOCKLET_DIR`).
 Re-running keeps `.env`. To configure by hand, copy `.env.example` to `.env`,
-fill it, and run `docker compose up -d --build`.
+fill it, and run `docker compose up -d`.
+
+The stack runs prebuilt images (`ghcr.io/usedock/dock-api`, `dock-api-migrate`,
+and `dock-dashboard`, for linux/amd64 and linux/arm64) at the release in
+`DOCK_VERSION`, pinned in `.env.example`. To build from source instead, run
+`./setup.sh --build`.
 
 Open `DOCK_PUBLIC_URL` and sign up. On a self-hosted instance:
 
@@ -64,7 +69,7 @@ Open `DOCK_PUBLIC_URL` and sign up. On a self-hosted instance:
   DNS record `*.ports.example.com` pointing at the server. Caddy issues each certificate on first use, only for
   exposed names.
 
-Upgrade with `git pull && docker compose up -d --build`; migrations run before
+Upgrade by setting `DOCK_VERSION` in `.env` to the new release and running `docker compose pull && docker compose up -d`; migrations run before
 the API starts. Back up the `pgdata` and `minio-data` volumes and keep `.env`.
 
 Installs created before the single baseline migration (October 2026) cannot

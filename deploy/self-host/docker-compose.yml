@@ -1,8 +1,9 @@
 # Self-hosted Dock control plane: Postgres, Redis, Restate, MinIO, the API
 # (migrated on start, workflows registered with Restate), the dashboard, and
 # Caddy serving both on one origin. Hosts join over the fleet API.
-# From this directory: `./setup.sh` (writes .env, starts everything), or fill .env by hand
-# and `docker compose up -d --build`.
+# From this directory: `./setup.sh` (writes .env, pulls and starts everything), or fill .env by hand
+# and `docker compose up -d`. Images come from GHCR at DOCK_VERSION; to build from source add
+# `-f docker-compose.yml -f docker-compose.build.yml` (setup.sh --build).
 name: dock
 services:
   db:
@@ -78,9 +79,7 @@ services:
 
   # Applies pending Drizzle migrations, then exits; the API waits for it.
   migrate:
-    build:
-      context: ../../apps/backend
-      target: build
+    image: 'ghcr.io/usedock/dock-api-migrate:${DOCK_VERSION:?set DOCK_VERSION}'
     environment:
       NODE_ENV: production
       DATABASE_URL: 'postgres://dock:${POSTGRES_PASSWORD}@db:5432/dock'
@@ -91,7 +90,7 @@ services:
     restart: 'no'
 
   backend:
-    build: ../../apps/backend
+    image: 'ghcr.io/usedock/dock-api:${DOCK_VERSION:?set DOCK_VERSION}'
     env_file: .env
     environment:
       NODE_ENV: production
@@ -146,11 +145,7 @@ services:
     restart: 'no'
 
   dashboard:
-    build:
-      context: ../../apps/dashboard
-      args:
-        NEXT_PUBLIC_BETTER_AUTH_BACKEND_URL: '${DOCK_PUBLIC_URL}'
-        NEXT_PUBLIC_APP_URL: '${DOCK_PUBLIC_URL}'
+    image: 'ghcr.io/usedock/dock-dashboard:${DOCK_VERSION:?set DOCK_VERSION}'
     environment:
       NODE_ENV: production
       BETTER_AUTH_BACKEND_URL: http://backend:8000
