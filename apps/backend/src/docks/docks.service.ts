@@ -266,13 +266,23 @@ export class DocksService {
     throw new CapacityExhaustedException();
   }
 
-  /** Advisory pre-insert check so a refused size leaves no row; placeAndRun still decides at provision time. */
-  private async assertPlaceable(size: DockSize): Promise<void> {
+  /** The source dock's recorded family (from its host row) and runtime, for the branch pre-check. */
+  private async branchSource(dock: Dock): Promise<PlacementSource> {
+    const host = dock.hostId ? await this.hosts.getById(dock.hostId) : null;
+    return { cpuFamily: host?.cpuFamily, runtime: dock.runtime };
+  }
+
+  /** Advisory pre-insert check so a refused size, family or runtime leaves no row; placeAndRun still decides at provision time. */
+  private async assertPlaceable(size: DockSize, source?: PlacementSource): Promise<void> {
     if (this.config.get<string>('RUNTIME_DRIVER') !== 'restate') return;
     const fit = await this.hosts.sizeFit({ cpus: size.cpus, memoryMiB: size.memoryMiB });
     if (fit === 'none_online') throw new NoHostCapacityException();
     if (fit === 'too_large') throw validationError(`Requested size (${size.cpus} cpus, ${size.memoryMiB} MiB) exceeds the total capacity of every online host`);
     if (!(await this.hosts.anyOnlineWithHeadroom({ cpus: size.cpus, memoryMiB: size.memoryMiB }))) throw new CapacityExhaustedException();
+    if (!source || (source.cpuFamily == null && source.runtime == null && !source.baseFingerprint)) return;
+    // Room exists somewhere, so a miss here is family, runtime or base, as in placeOrThrow.
+    const ok = await this.hosts.canPlace({ cpuFamily: source.cpuFamily, runtime: source.runtime ?? null, baseFingerprint: source.baseFingerprint, cpus: size.cpus, memoryMiB: size.memoryMiB });
+    if (!ok) throw new NoHostCapacityException();
   }
 
   /**
@@ -367,7 +377,7 @@ export class DocksService {
     }
     // After the key replay, so a retry of a named create returns its dock instead of 409.
     const [dock] = await this.withKeyReleased(orgId, idempotencyKey, async () => {
-      await this.assertPlaceable(size);
+      await this.assertPlaceable(size, { cpuFamily: templateCpuFamily, runtime: templateRuntime, baseFingerprint: templateBase });
       return this.insertDock({
         workspaceId: input.workspaceId,
         name: await this.claimName(input.workspaceId, input.name),
@@ -760,7 +770,7 @@ export class DocksService {
       if (existing) return existing;
     }
     const [target] = await this.withKeyReleased(orgId, idempotencyKey, async () => {
-      await this.assertPlaceable(size);
+      await this.assertPlaceable(size, await this.branchSource(dock));
       return this.insertDock({
         workspaceId: dock.workspaceId,
         name: await this.claimName(dock.workspaceId, opts.name),

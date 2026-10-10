@@ -356,6 +356,13 @@ export class HostsService {
     });
   }
 
+  /** Advisory pre-insert twin of placeForDock: whether a host matching family, runtime and base has room; reserves nothing. */
+  async canPlace({ cpuFamily, runtime, baseFingerprint, cpus = DEFAULT_CPUS, memoryMiB = DEFAULT_MEMORY_MIB }: { cpuFamily?: string | null; runtime?: Runtime | null; baseFingerprint?: string | null; cpus?: number; memoryMiB?: number }): Promise<boolean> {
+    const online = await this.db.select().from(hosts).where(eq(hosts.state, 'online'));
+    const rows = baseFingerprint ? holdingBase(online, baseFingerprint, cpuFamily, runtime ?? null) : online;
+    return (await this.fitting(this.db, rows, { cpuFamily, runtime: runtime ?? null, cpus, memoryMiB, excludeHostIds: [] })) !== null;
+  }
+
   /** Any online host with room for the size, ignoring family and runtime; distinguishes exhaustion causes. */
   async anyOnlineWithHeadroom({ cpus = DEFAULT_CPUS, memoryMiB = DEFAULT_MEMORY_MIB, dockId, excludeHostIds = [] }: { cpus?: number; memoryMiB?: number; dockId?: string; excludeHostIds?: string[] } = {}): Promise<boolean> {
     const rows = await this.db.select().from(hosts).where(eq(hosts.state, 'online'));
