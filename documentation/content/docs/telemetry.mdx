@@ -15,20 +15,22 @@ Set this in the backend environment and restart:
 DOCK_TELEMETRY=on
 ```
 
-Set `DOCK_TELEMETRY=off`, or remove the line, to stop. `DOCK_TELEMETRY_URL`
+Set `DOCK_TELEMETRY=off`, leave it empty, or remove the line, to stop. `DOCK_TELEMETRY_URL`
 overrides the endpoint (default `https://api.usedock.io/v1/telemetry`).
 
 ## What is sent
 
-The report is a JSON `POST` with exactly these fields and no others:
+The report is a JSON `POST` with exactly these fields and no others. The
+counts are totals for the whole instance, across every organization and
+workspace:
 
 | Field | Type | Meaning |
 |---|---|---|
 | `version` | string | Control plane version |
 | `os` | string | Operating system of the control plane (`linux`, `darwin`, `win32`) |
 | `arch` | string | CPU architecture of the control plane (`x64`, `arm64`) |
-| `hosts` | number | Number of registered hosts |
-| `docks` | number | Number of docks |
+| `hosts` | number | Number of registered hosts, online or offline |
+| `docks` | number | Number of docks that exist, in any state (archived included; deleted docks are not counted) |
 | `runningDocks` | number | Number of docks in the `running` state |
 
 Example:
@@ -47,5 +49,5 @@ Example:
 ## What is not sent
 
 There is no instance id, and no organization, user, dock, host or workspace
-names. No IP addresses and no URLs are included in the report. Requests have a
+names. No IP addresses and no URLs are included in the report body; like any HTTPS request, the endpoint sees the address the request comes from. Requests have a
 short timeout; a failure is ignored and never affects the control plane.
