@@ -86,6 +86,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+# Check --host prerequisites before building the stack, not after.
+if [ "$WITH_HOST" = "1" ]; then
+  [ -f "${DOCKLET_DIR}/scripts/bootstrap-host.sh" ] || die "no docklet at ${DOCKLET_DIR}; clone https://github.com/usedock/docklet next to this repository or set DOCKLET_DIR"
+  [ "$(uname -s)" = "Linux" ] || die "--host needs Linux; run docks on a Linux machine with ${DOCKLET_DIR}/scripts/bootstrap-host.sh"
+fi
+
 command -v docker >/dev/null 2>&1 || die "Docker is required: https://docs.docker.com/engine/install/"
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required (docker compose)"
 docker info >/dev/null 2>&1 || die "cannot reach the Docker daemon; start Docker or add yourself to the docker group"
@@ -216,8 +222,6 @@ log "control plane up at ${PUBLIC_URL}"
 
 HOST_CMD=(bash "${DOCKLET_DIR}/scripts/bootstrap-host.sh" --fleet-url "$PUBLIC_URL" --fleet-token "$FLEET_TOKEN")
 if [ "$WITH_HOST" = "1" ]; then
-  [ -f "${DOCKLET_DIR}/scripts/bootstrap-host.sh" ] || die "no docklet at ${DOCKLET_DIR}; clone https://github.com/usedock/docklet next to this repository or set DOCKLET_DIR"
-  [ "$(uname -s)" = "Linux" ] || die "--host needs Linux; run docks on a Linux machine with ${DOCKLET_DIR}/scripts/bootstrap-host.sh"
   case "${RUNTIME:-gvisor}" in
     gvisor) HOST_CMD+=(--runtime gvisor --pool-size 0) ;;
     microvm) HOST_CMD+=(--runtime microvm) ;;

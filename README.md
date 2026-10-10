@@ -70,17 +70,19 @@ dock branch api --count 3
 Each app runs on its own; there is no root workspace. Bun is the package manager.
 
 ```sh
-# API
+# API (from the repo root)
 cd apps/backend
 bun install
-docker compose -f docker-compose.dev.yml up db redis mailpit
+cp .env.example .env   # then set SECRETS_ENCRYPTION_KEY to the output of `openssl rand -hex 32`
+docker compose -f docker-compose.dev.yml up -d db redis mailpit
+bun run db:migrate
 bun run start:dev
 bun run test
 
-# dashboard
+# dashboard (from the repo root)
 cd apps/dashboard && bun install && bun run dev
 
-# docs
+# docs (from the repo root)
 cd documentation && bun install && bun run dev
 ```
 

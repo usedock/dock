@@ -18,7 +18,7 @@ describe('mail templates', () => {
     });
     for (const { html } of [verify, reset]) {
       expect(html).toContain('>dock<');
-      expect(html).toContain('A persistent computer for every agent.');
+      expect(html).toContain('Isolated Linux machines for agents.');
       expect(html).toContain('hello@usedock.io');
     }
   });
@@ -100,7 +100,7 @@ describe('mail templates', () => {
         detail: 'dev crossed the disk warning line.',
       });
       expect(html).toContain('>dock<');
-      expect(html).toContain('A persistent computer for every agent.');
+      expect(html).toContain('Isolated Linux machines for agents.');
       expect(html).toContain('hello@usedock.io');
       expect(html).toContain('#b7f34a');
       expect(html).toContain('IBM Plex Mono');

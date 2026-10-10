@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { validateEnv } from './validate-env';
 
 function validEnv(): Record<string, unknown> {
@@ -210,5 +212,14 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...validEnv(), SENTRY_TRACES_SAMPLE_RATE: '2' })).toThrow(
       /SENTRY_TRACES_SAMPLE_RATE/,
     );
+  });
+
+  it('accepts .env.example once SECRETS_ENCRYPTION_KEY is filled in', () => {
+    const env: Record<string, unknown> = {};
+    for (const line of readFileSync(join(__dirname, '../../.env.example'), 'utf8').split(/\r?\n/)) {
+      const m = /^([A-Z0-9_]+)=(.*)$/.exec(line);
+      if (m) env[m[1]] = m[2];
+    }
+    expect(() => validateEnv({ ...env, SECRETS_ENCRYPTION_KEY: 'a'.repeat(64) })).not.toThrow();
   });
 });

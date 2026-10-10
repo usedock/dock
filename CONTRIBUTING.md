@@ -19,7 +19,9 @@ Each app runs on its own; there is no root workspace.
 ```sh
 cd apps/backend
 bun install
-docker compose -f docker-compose.dev.yml up db redis mailpit
+cp .env.example .env   # then set SECRETS_ENCRYPTION_KEY to the output of `openssl rand -hex 32`
+docker compose -f docker-compose.dev.yml up -d db redis mailpit
+bun run db:migrate
 bun run start:dev
 bun run test        # Vitest; every behavior change ships with colocated *.spec.ts tests
 bun run build       # nest build

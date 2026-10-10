@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://dashboard.usedock.io'),
   title: { default: 'Dock Dashboard', template: '%s | Dock Dashboard' },
-  description: 'A persistent computer for every agent. Sign in to manage your docks.',
+  description: 'Isolated Linux machines for agents. Sign in to manage your docks.',
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

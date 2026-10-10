@@ -57,7 +57,7 @@ Run per app from the repo root:
 | Purpose | Backend (`apps/backend`) | Dashboard (`apps/dashboard`) | Docs (`documentation`) |
 |---|---|---|---|
 | Install | `bun install` | `bun install` | `bun install` |
-| Dev | `docker compose -f docker-compose.dev.yml up db redis mailpit`, then `bun run start:dev` | `bun run dev` | `bun run dev` |
+| Dev | `cp .env.example .env` (set `SECRETS_ENCRYPTION_KEY`), `docker compose -f docker-compose.dev.yml up -d db redis mailpit`, `bun run db:migrate`, then `bun run start:dev` | `bun run dev` | `bun run dev` |
 | Build | `bun run build` | `bun run build` | `bun run build` |
 | Test / check | `bun run test` (single: `bunx vitest run <spec>`) | `bun run lint` | `bunx fumadocs-mdx && bun run typecheck` |
 
