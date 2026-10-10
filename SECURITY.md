@@ -12,7 +12,7 @@ We follow a 90-day disclosure window: we aim to ship a fix within 90 days of you
 
 ## Scope
 
-All repositories in the [usedock](https://github.com/usedock) organization, the published container images and release binaries. Escaping a dock to reach the host, another dock, connector credentials or the control plane database is always in scope.
+All repositories in the [usedock](https://github.com/usedock) organization, the container images and release binaries once published. Escaping a dock to reach the host, another dock, connector credentials or the control plane database is always in scope.
 
 ## Supported versions
 

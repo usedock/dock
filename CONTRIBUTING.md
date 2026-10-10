@@ -10,11 +10,11 @@ Thanks for helping build Dock.
 
 ## Contributor License Agreement
 
-Every contributor signs the [Dock CLA](https://github.com/usedock/dock/blob/main/CLA.md) once. It covers all repositories in the usedock organization. On your first pull request the CLA bot posts a comment; reply with the sentence it gives you to sign. You keep the copyright in your work.
+Every contributor signs the [Dock CLA](https://github.com/usedock/dock/blob/main/CLA.md). Signatures are stored per repository, so the CLA bot asks on your first pull request in each repository; reply with the sentence it gives you to sign. You keep the copyright in your work.
 
 ## Development
 
-Each app runs on its own; there is no root workspace.
+These steps apply once the code lands in this repo. Each app will run on its own; there is no root workspace.
 
 ```sh
 cd apps/backend
