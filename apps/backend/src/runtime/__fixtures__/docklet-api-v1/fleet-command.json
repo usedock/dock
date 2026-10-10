@@ -1,0 +1,1 @@
+{"id":"cmd_01JC8Z7M2P","op":"provision","idempotencyToken":"tok_provision_01","deadlineMs":600000,"payload":{"dockId":"dck_01JC8Z3Q5W","resources":{"cpus":2,"memoryMiB":2048,"diskGiB":10},"image":"ubuntu-24.04","idempotencyToken":"tok_provision_01"}}

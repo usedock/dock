@@ -114,6 +114,14 @@ export interface DockletSample {
   diskUsedBytes?: number;
   rxBytes: number;
   txBytes: number;
+  /** Guest-reported Docker breakdown; best effort, never billing truth. */
+  containers?: DockletContainerSample[];
+}
+
+export interface DockletContainerSample {
+  name: string;
+  cpuPercent: number;
+  memBytes: number;
 }
 
 interface RawResponse {
@@ -219,11 +227,10 @@ export class DockletClient {
   snapshotLoad(
     dockId: string,
     resources: DockletResources,
-    image: string,
     snapshotId: string,
     execAgent?: boolean,
   ): Promise<{ ip: string; hostId: string }> {
-    return this.call('/v1/snapshots/load', { dockId, resources, image, snapshotId, ...(execAgent ? { execAgent: true } : {}) });
+    return this.call('/v1/snapshots/load', { dockId, resources, snapshotId, ...(execAgent ? { execAgent: true } : {}) });
   }
 
   destroy(dockId: string): Promise<void> {

@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "types": ["vitest/globals", "node"] },
+  "include": ["src/runtime/docklet.contract.spec.ts"],
+  "exclude": []
+}

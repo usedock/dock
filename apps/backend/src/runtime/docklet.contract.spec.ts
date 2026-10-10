@@ -1,9 +1,15 @@
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { ConfigService } from '@nestjs/config';
+import { plainToInstance } from 'class-transformer';
+import { getMetadataStorage, validate } from 'class-validator';
+import { FleetHeartbeatDto, FleetRegisterDto, HostCommandResultDto, HostSampleDto, HostWorkloadDto } from '../fleet/dto/fleet.dto';
+import type { RegisterResult } from '../fleet/fleet.service';
+import type { HostCommandPayload, HostCommandQueue } from '../fleet/host-command-queue';
 import {
   DockletClient,
   DockletException,
+  type DockletContainerSample,
   type DockletFastRunCapabilities,
   type DockletFastRunCreate,
   type DockletFastRunExec,
@@ -13,134 +19,214 @@ import {
   type DockletProvision,
   type DockletResources,
   type DockletSample,
+  type DockletStatus,
   type DockletTransport,
 } from './docklet.client';
+import { FleetHostAgent } from './fleet-host-agent';
+import type { HostAgent } from './host-agent';
 
 const dir = join(__dirname, '__fixtures__', 'docklet-api-v1');
 const raw = (file: string) => readFileSync(join(dir, file), 'utf8');
-const load = (file: string): Record<string, unknown> => JSON.parse(raw(file));
+const load = (file: string): Record<string, any> => JSON.parse(raw(file));
+const sortedKeys = (value: object) => Object.keys(value).sort();
 
-type Presence = 'req' | 'opt';
-type KeyTable<T> = Record<keyof T, Presence>;
-// Compile-time: a table must name every key of its client type.
-const table = <T>(keys: KeyTable<T>): Record<string, Presence> => keys;
+// Compile-time: a table names exactly the keys of its client type (tsconfig.contract.json runs tsc on this file).
+type KeyTable<T> = Record<keyof T, true>;
+const table = <T>(keys: KeyTable<T>): string[] => Object.keys(keys);
+type Result<K extends keyof HostAgent> = Awaited<ReturnType<HostAgent[K]>>;
 
-interface Spec {
-  keys: Record<string, Presence>;
-  // Keys the docklet sends or accepts that the client does not model.
-  goOnly?: string[];
-  // Keys the client sends that the docklet ignores.
-  clientOnly?: string[];
-}
-
-const resources = table<DockletResources>({ cpus: 'req', memoryMiB: 'req', diskGiB: 'req' });
-const caps = table<DockletFastRunCapabilities>({ version: 'req', target: 'req', profile: 'req', capabilities: 'req' });
-const address: Record<string, Presence> = { ip: 'req', hostId: 'req' };
-
-// Fixtures whose payload the client models, keyed by file name.
-const specs: Record<string, Spec> = {
-  'resources.json': { keys: resources },
-  'fast-run-capabilities.json': { keys: caps },
-  'provision-request.json': {
-    keys: table<DockletProvision>({
-      dockId: 'req',
-      resources: 'req',
-      image: 'req',
-      snapshotId: 'opt',
-      execAgent: 'opt',
-      egressAllow: 'opt',
-      idempotencyToken: 'req',
-    }),
-  },
-  'provision-response.json': { keys: address },
-  'snapshot-load-response.json': { keys: address },
-  'pause-request.json': { keys: { dockId: 'req' }, goOnly: ['idempotencyToken'] },
-  'destroy-request.json': { keys: { dockId: 'req' }, goOnly: ['idempotencyToken'] },
-  'snapshot-create-request.json': {
-    keys: { dockId: 'req', parentId: 'req', kind: 'req', resumeAfter: 'req', memory: 'req', idempotencyToken: 'req' },
-  },
-  'snapshot-create-response.json': {
-    keys: { snapshotId: 'req', sizeBytes: 'req', cpuFamily: 'req', baseFingerprint: 'opt' },
-  },
-  'snapshot-load-request.json': {
-    keys: { dockId: 'req', resources: 'req', image: 'req', snapshotId: 'req', execAgent: 'opt' },
-    goOnly: ['idempotencyToken'],
-    clientOnly: ['image'],
-  },
-  'fast-run-create-request.json': {
-    keys: table<DockletFastRunCreate>({
-      runtimeId: 'req',
-      resources: 'req',
-      image: 'req',
-      capabilities: 'req',
-      egressAllow: 'opt',
-      guestToken: 'req',
-      idempotencyToken: 'req',
-    }),
-  },
-  'fast-run-create-response.json': { keys: { runtimeId: 'req', ip: 'req', hostId: 'req', capabilities: 'req' } },
-  'fast-run-exec-request.json': {
-    keys: table<DockletFastRunExec>({ runtimeId: 'req', script: 'req', timeoutSeconds: 'req', env: 'opt', idempotencyToken: 'req' }),
-  },
-  'fast-run-exec-response.json': {
-    keys: table<DockletFastRunExecResult>({ runtimeId: 'req', exitCode: 'req', stdout: 'req', stderr: 'req', truncated: 'opt', timedOut: 'opt' }),
-  },
-  'fast-run-read-request.json': { keys: table<DockletFastRunRead>({ runtimeId: 'req', path: 'req', idempotencyToken: 'req' }) },
-  'fast-run-read-response.json': {
-    keys: table<DockletFastRunReadResult>({ runtimeId: 'req', path: 'req', content: 'req', sizeBytes: 'req' }),
-  },
-  'fast-run-terminate-request.json': { keys: { runtimeId: 'req', idempotencyToken: 'req' } },
-  'stats-sample.json': {
-    keys: table<DockletSample>({
-      dockId: 'req',
-      at: 'opt',
-      source: 'opt',
-      cpuPercent: 'req',
-      memBytes: 'req',
-      memLimit: 'req',
-      diskBytes: 'req',
-      diskUsedBytes: 'opt',
-      rxBytes: 'req',
-      txBytes: 'req',
-    }),
-    goOnly: ['containers'],
-  },
-  'running-vm.json': { keys: { dockId: 'req', state: 'req', kind: 'opt' } },
+// Fixtures whose top-level keys must equal a client type's keys.
+const typed: Record<string, string[]> = {
+  'resources.json': table<DockletResources>({ cpus: true, memoryMiB: true, diskGiB: true }),
+  'fast-run-capabilities.json': table<DockletFastRunCapabilities>({ version: true, target: true, profile: true, capabilities: true }),
+  'provision-request.json': table<DockletProvision>({
+    dockId: true,
+    resources: true,
+    image: true,
+    snapshotId: true,
+    execAgent: true,
+    egressAllow: true,
+    idempotencyToken: true,
+  }),
+  'provision-response.json': table<Result<'provision'>>({ ip: true, hostId: true }),
+  'snapshot-load-response.json': table<Result<'snapshotLoad'>>({ ip: true, hostId: true }),
+  'snapshot-create-response.json': table<Result<'snapshotCreate'>>({ snapshotId: true, sizeBytes: true, cpuFamily: true, baseFingerprint: true }),
+  'fast-run-create-request.json': table<DockletFastRunCreate>({
+    runtimeId: true,
+    resources: true,
+    image: true,
+    capabilities: true,
+    egressAllow: true,
+    guestToken: true,
+    idempotencyToken: true,
+  }),
+  'fast-run-create-response.json': table<Result<'fastRunCreate'>>({ runtimeId: true, ip: true, hostId: true, capabilities: true }),
+  'fast-run-exec-request.json': table<DockletFastRunExec>({ runtimeId: true, script: true, timeoutSeconds: true, env: true, idempotencyToken: true }),
+  'fast-run-exec-response.json': table<DockletFastRunExecResult>({ runtimeId: true, exitCode: true, stdout: true, stderr: true, truncated: true, timedOut: true }),
+  'fast-run-read-request.json': table<DockletFastRunRead>({ runtimeId: true, path: true, idempotencyToken: true }),
+  'fast-run-read-response.json': table<DockletFastRunReadResult>({ runtimeId: true, path: true, content: true, sizeBytes: true }),
+  'stats-sample.json': table<DockletSample>({
+    dockId: true,
+    at: true,
+    source: true,
+    cpuPercent: true,
+    memBytes: true,
+    memLimit: true,
+    diskBytes: true,
+    diskUsedBytes: true,
+    rxBytes: true,
+    txBytes: true,
+    containers: true,
+  }),
+  'container-sample.json': table<DockletContainerSample>({ name: true, cpuPercent: true, memBytes: true }),
+  'running-vm.json': table<DockletStatus['running'][number]>({ dockId: true, state: true, kind: true }),
+  'fleet-register-response.json': table<RegisterResult>({ hostId: true, heartbeatSeconds: true, pollWaitSeconds: true, credential: true }),
+  'fleet-command.json': table<HostCommandPayload>({ id: true, op: true, idempotencyToken: true, deadlineMs: true, payload: true }),
 };
 
-// Fixtures the client passes through untyped (heartbeat body, readiness, envelopes).
-const untyped = [
-  'container-sample.json',
+// Request fixtures replayed through both host agents; the sent body must match.
+const requests: Record<string, (agent: HostAgent, f: Record<string, any>) => Promise<unknown>> = {
+  'provision-request.json': (a, f) => a.provision(f as DockletProvision),
+  'pause-request.json': (a, f) => a.pause(f.dockId),
+  'destroy-request.json': (a, f) => a.destroy(f.dockId),
+  'snapshot-create-request.json': (a, f) => a.snapshotCreate(f.dockId, f.parentId, f.kind, f.resumeAfter, f.memory, f.idempotencyToken),
+  'snapshot-load-request.json': (a, f) => a.snapshotLoad(f.dockId, f.resources, f.snapshotId, f.execAgent),
+  'fast-run-create-request.json': (a, f) => a.fastRunCreate(f as DockletFastRunCreate),
+  'fast-run-exec-request.json': (a, f) => a.fastRunExec(f as DockletFastRunExec),
+  'fast-run-read-request.json': (a, f) => a.fastRunRead(f as DockletFastRunRead),
+  'fast-run-terminate-request.json': (a, f) => a.fastRunTerminate(f.runtimeId, f.idempotencyToken),
+};
+
+// The direct client sends these ops' token only as the idempotency-token header, which the docklet falls back to.
+const headerTokenOnly = new Set(['pause-request.json', 'destroy-request.json', 'snapshot-load-request.json']);
+
+// Fleet bodies the docklet sends, validated as the control plane does (main.ts ValidationPipe).
+const fleetDtos: Record<string, new () => object> = {
+  'fleet-register-request.json': FleetRegisterDto,
+  'fleet-heartbeat-request.json': FleetHeartbeatDto,
+  'fleet-heartbeat-request-gvisor.json': FleetHeartbeatDto,
+  'fleet-result-ok.json': HostCommandResultDto,
+  'fleet-result-error.json': HostCommandResultDto,
+};
+
+const covered = [
+  'fleet-poll-response.json',
+  'fleet-poll-response-empty.json',
+  'envelope-ok.json',
+  'envelope-capacity-exhausted.json',
+  // Docklet-only shapes the backend never parses: local /v1/heartbeat ignores its body; readiness is not called.
   'heartbeat-request.json',
   'readiness-ready.json',
   'readiness-not-ready.json',
-  'envelope-ok.json',
-  'envelope-capacity-exhausted.json',
 ];
 
-describe('docklet api/v1 fixtures vs client types', () => {
-  const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
+const dtoKeys = (dto: Function) => [...new Set(getMetadataStorage().getTargetValidationMetadatas(dto, '', true, false).map((m) => m.propertyName))].sort();
 
+describe('docklet api/v1 fixtures vs client types', () => {
   it('classifies every fixture file', () => {
-    const known = new Set([...Object.keys(specs), ...untyped]);
+    const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
+    const known = new Set([...Object.keys(typed), ...Object.keys(requests), ...Object.keys(fleetDtos), ...covered]);
     expect(files.filter((f) => !known.has(f))).toEqual([]);
     expect([...known].filter((f) => !files.includes(f))).toEqual([]);
   });
 
-  it.each(Object.keys(specs))('%s matches the client shape', (file) => {
-    const { keys, goOnly = [], clientOnly = [] } = specs[file];
-    const present = Object.keys(load(file));
-    const modelled = Object.keys(keys).filter((k) => !clientOnly.includes(k));
-    // No fixture key outside the client or goOnly, and every client key is in the fixture.
-    expect(present.filter((k) => !modelled.includes(k) && !goOnly.includes(k))).toEqual([]);
-    expect(modelled.filter((k) => !present.includes(k))).toEqual([]);
+  it.each(Object.keys(typed))('%s has exactly the client keys', (file) => {
+    expect(sortedKeys(load(file))).toEqual([...typed[file]].sort());
   });
 
-  it('keeps nested resources and capabilities in the client shape', () => {
+  it('keeps nested resources, capabilities, samples and inventory in the client shape', () => {
+    const resources = typed['resources.json'].sort();
+    const caps = typed['fast-run-capabilities.json'].sort();
     const create = load('fast-run-create-request.json');
-    expect(Object.keys(create.resources as object).sort()).toEqual(Object.keys(resources).sort());
-    expect(Object.keys(create.capabilities as object).sort()).toEqual(Object.keys(caps).sort());
-    expect(Object.keys(load('provision-request.json').resources as object).sort()).toEqual(Object.keys(resources).sort());
+    expect(sortedKeys(create.resources)).toEqual(resources);
+    expect(sortedKeys(create.capabilities)).toEqual(caps);
+    expect(sortedKeys(load('fast-run-create-response.json').capabilities)).toEqual(caps);
+    expect(sortedKeys(load('provision-request.json').resources)).toEqual(resources);
+    expect(sortedKeys(load('snapshot-load-request.json').resources)).toEqual(resources);
+    expect(sortedKeys(load('stats-sample.json').containers[0])).toEqual(typed['container-sample.json'].sort());
+    expect(sortedKeys(load('heartbeat-request.json').runningVms[0])).toEqual(typed['running-vm.json'].sort());
+  });
+});
+
+describe('host agents send the docklet request fixtures', () => {
+  const recordClient = () => {
+    const sent: Array<{ body: Record<string, unknown>; headers: Record<string, string> }> = [];
+    const transport: DockletTransport = async (_method, _url, headers, body) => {
+      sent.push({ body: JSON.parse(body), headers });
+      return { status: 200, text: JSON.stringify({ ok: true, data: {} }) };
+    };
+    const config = { get: () => undefined } as unknown as ConfigService;
+    return { agent: new DockletClient(config, transport, 'http://docklet:8081'), sent };
+  };
+  const recordFleet = () => {
+    const sent: Array<{ body: Record<string, unknown>; token: string }> = [];
+    const queue = {
+      execute: async (_host: string, _op: string, body: Record<string, unknown>, token: string) => {
+        sent.push({ body, token });
+        return {};
+      },
+    } as unknown as HostCommandQueue;
+    return { agent: new FleetHostAgent(queue, 'h1'), sent };
+  };
+  const withoutToken = ({ idempotencyToken: _t, ...rest }: Record<string, unknown>) => rest;
+
+  it.each(Object.keys(requests))('%s via DockletClient', async (file) => {
+    const fixture = load(file);
+    const { agent, sent } = recordClient();
+    await requests[file](agent, fixture);
+    const [{ body, headers }] = sent;
+    if (headerTokenOnly.has(file)) {
+      expect(body).toEqual(withoutToken(fixture));
+      expect(headers['idempotency-token']).toEqual(expect.any(String));
+    } else {
+      expect(withoutToken(body)).toEqual(withoutToken(fixture));
+      expect(sortedKeys(body)).toEqual(sortedKeys(fixture));
+    }
+  });
+
+  it.each(Object.keys(requests))('%s via FleetHostAgent', async (file) => {
+    const fixture = load(file);
+    const { agent, sent } = recordFleet();
+    await requests[file](agent, fixture);
+    const [{ body, token }] = sent;
+    expect(withoutToken(body)).toEqual(withoutToken(fixture));
+    expect(sortedKeys(body)).toEqual(sortedKeys(fixture));
+    expect(body.idempotencyToken).toBe(token);
+  });
+});
+
+describe('fleet fixtures vs control-plane DTOs', () => {
+  it.each(Object.keys(fleetDtos))('%s passes the fleet ValidationPipe', async (file) => {
+    const errors = await validate(plainToInstance(fleetDtos[file], load(file)), { whitelist: true, forbidNonWhitelisted: true });
+    expect(errors.map((e) => e.toString())).toEqual([]);
+  });
+
+  it('declares no DTO field the docklet never sends', () => {
+    const sentBy = (dto: Function) =>
+      new Set(
+        Object.entries(fleetDtos)
+          .filter(([, d]) => d === dto)
+          .flatMap(([file]) => Object.keys(load(file))),
+      );
+    for (const dto of [FleetRegisterDto, FleetHeartbeatDto, HostCommandResultDto]) {
+      expect(dtoKeys(dto).filter((k) => !sentBy(dto).has(k))).toEqual([]);
+    }
+    const heartbeat = load('fleet-heartbeat-request.json');
+    expect(sortedKeys(heartbeat.samples[0])).toEqual(dtoKeys(HostSampleDto));
+    expect(sortedKeys(heartbeat.running[0])).toEqual(dtoKeys(HostWorkloadDto));
+  });
+
+  it('carries the host runtime on register and heartbeat', () => {
+    expect(load('fleet-register-request.json').runtime).toBe('microvm');
+    expect(load('fleet-heartbeat-request.json').runtime).toBe('microvm');
+    expect(load('fleet-heartbeat-request-gvisor.json').runtime).toBe('gvisor');
+  });
+
+  it('polls a command in the queue payload shape, or null', () => {
+    const poll = load('fleet-poll-response.json');
+    expect(sortedKeys(poll)).toEqual(['command']);
+    expect(sortedKeys(poll.command)).toEqual(typed['fleet-command.json'].sort());
+    expect(load('fleet-poll-response-empty.json')).toEqual({ command: null });
   });
 });
 

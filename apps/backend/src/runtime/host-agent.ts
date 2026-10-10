@@ -43,7 +43,6 @@ export interface HostAgent {
   snapshotLoad(
     dockId: string,
     resources: DockletResources,
-    image: string,
     snapshotId: string,
     execAgent?: boolean,
   ): Promise<{ ip: string; hostId: string }>;
