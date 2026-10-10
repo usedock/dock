@@ -640,7 +640,7 @@ describe('GithubService limits and reads', () => {
 
   it('lists runs for members in workspace scope', async () => {
     const ctx = setup();
-    ctx.selectQueue.push([workspace], [[runRow()]]);
+    ctx.selectQueue.push([workspace], [runRow()]);
     const rows = await ctx.service.listRuns('user-1', 'ws-1');
     expect(rows).toHaveLength(1);
     expect(ctx.orgs.requireMembership).toHaveBeenCalledWith('org-1', 'user-1');

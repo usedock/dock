@@ -43,7 +43,24 @@ export interface HostHeartbeatInput {
   runtime?: Runtime;
 }
 
-export type HostSummary = Omit<Host, 'running' | 'updatedAt' | 'credentialHash'> & { runningDocks: number };
+/** Public API shape of a host; built field by field so new columns are never exposed by default. */
+export type HostSummary = Pick<
+  Host,
+  | 'id'
+  | 'address'
+  | 'cpuFamily'
+  | 'kernel'
+  | 'runtime'
+  | 'kernelRelease'
+  | 'vcpuTotal'
+  | 'memTotalBytes'
+  | 'diskTotalBytes'
+  | 'maxDocks'
+  | 'usedDocks'
+  | 'state'
+  | 'lastHeartbeatAt'
+  | 'createdAt'
+> & { runningDocks: number };
 
 /** One dock placed on a host, with its owner so admins can tell tenants apart. */
 export interface HostDock {
@@ -69,8 +86,24 @@ export type HostDetail = HostSummary & {
   orphans: HostWorkload[];
 };
 
-function summarize({ running, updatedAt: _updatedAt, credentialHash: _credentialHash, ...host }: Host): HostSummary {
-  return { ...host, runningDocks: running.length };
+function summarize(host: Host): HostSummary {
+  return {
+    id: host.id,
+    address: host.address,
+    cpuFamily: host.cpuFamily,
+    kernel: host.kernel,
+    runtime: host.runtime,
+    kernelRelease: host.kernelRelease,
+    vcpuTotal: host.vcpuTotal,
+    memTotalBytes: host.memTotalBytes,
+    diskTotalBytes: host.diskTotalBytes,
+    maxDocks: host.maxDocks,
+    usedDocks: host.usedDocks,
+    runningDocks: host.running.length,
+    state: host.state,
+    lastHeartbeatAt: host.lastHeartbeatAt,
+    createdAt: host.createdAt,
+  };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

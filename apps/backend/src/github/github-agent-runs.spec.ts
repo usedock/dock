@@ -677,7 +677,9 @@ describe('promotion', () => {
     const user = { id: 'user-1', email: 'u@x.co', emailVerified: true, isInteractive: true };
     const out = await ctx.service.promoteRun(user as never, 'run-1');
     await ctx.service.settled();
-    expect(out).toMatchObject({ executionTarget: 'dock', attemptNumber: 2 });
+    expect(out).toMatchObject({ executionTarget: 'dock' });
+    expect(out).not.toHaveProperty('completionTokenHash');
+    expect(ctx.runs.get('run-1')).toMatchObject({ attemptNumber: 2 });
     expect(ctx.fastRuns.terminate).toHaveBeenCalledWith({ hostId: 'host-3', runtimeId: 'run-1' }, 'run:run-1:terminate');
     expect(ctx.docks.create.mock.calls[0][2]).toBe('run:run-1:provision:2');
     const { ref, prepare, launchToken, launchEnv } = ctx.launched();

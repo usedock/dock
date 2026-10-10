@@ -69,3 +69,13 @@ The Dock object is an explicit allowlist: `id`, `workspaceId`, `name`, `image`,
 `setupStatus`, `setupError`, `lastSnapshotAt`, `stateChangedAt`, `createdAt`,
 and `updatedAt`. Environment variable values and credential hashes are never
 returned.
+
+## Runs
+
+`GET /v1/github/runs`, `GET /v1/github/runs/:id` and
+`POST /v1/github/runs/:id/promote` return an explicit allowlist: `id`,
+`installationId`, `workspaceId`, `organizationId`, `repo`, `issueNumber`,
+`dockId`, `executionTarget`, `state`, `prNumber`, `prUrl`, `failureReason`,
+`agent`, `branch`, `baseBranch`, `promptVersion`, `testCommand`,
+`completionStatus`, `events`, `createdAt`, and `updatedAt`. Tokens, token
+hashes, and the run envelope are never returned.
