@@ -34,7 +34,8 @@ jobs:
           grep -q "output: 'export'" next.config.ts
       - run: bun run build
       - name: Serve the search index as JSON
-        run: printf '/api/search\n  Content-Type: application/json\n' > out/_headers
+        run: |
+          printf '/api/search\n  Content-Type: application/json\n' > out/_headers
       - name: Deploy to Cloudflare Pages
         run: bunx wrangler@4 pages deploy out --project-name usedock-docs --branch main --commit-hash "${GITHUB_SHA}" --commit-message "docs ${GITHUB_SHA::7}"
         env:
