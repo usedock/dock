@@ -1,0 +1,42 @@
+name: deploy docs
+
+# Builds documentation/ as a static export and deploys it to Cloudflare Pages
+# (project usedock-docs, served at docs.usedock.io) on every change to main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'documentation/**'
+      - '.github/workflows/deploy-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-docs
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: documentation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Switch to static export
+        run: |
+          sed -i "s/output: 'standalone'/output: 'export', images: { unoptimized: true }/" next.config.ts
+          grep -q "output: 'export'" next.config.ts
+      - run: bun run build
+      - name: Serve the search index as JSON
+        run: printf '/api/search\n  Content-Type: application/json\n' > out/_headers
+      - name: Deploy to Cloudflare Pages
+        run: bunx wrangler@4 pages deploy out --project-name usedock-docs --branch main --commit-hash "${GITHUB_SHA}" --commit-message "docs ${GITHUB_SHA::7}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
