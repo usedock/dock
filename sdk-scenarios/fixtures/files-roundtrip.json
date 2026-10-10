@@ -45,7 +45,7 @@
         "method": "POST",
         "path": "/v1/docks/22222222-2222-4222-8222-222222222222/exec",
         "body": {
-          "command": "mkdir -p -- \"$(dirname -- '/home/user/work/notes/hello.txt')\" && printf '%s' 'aGVsbG8gZnJvbSBkb2NrCnNlY29uZCBsaW5lCg==' | base64 -d > '/home/user/work/notes/hello.txt'"
+          "command": "d=$(dirname -- '/home/user/work/notes/hello.txt'; echo x) && mkdir -p -- \"${d%??}\" && printf '%s' 'aGVsbG8gZnJvbSBkb2NrCnNlY29uZCBsaW5lCg==' | base64 -d > '/home/user/work/notes/hello.txt'"
         }
       },
       "response": {
@@ -91,7 +91,7 @@
         "method": "POST",
         "path": "/v1/docks/22222222-2222-4222-8222-222222222222/exec",
         "body": {
-          "command": "ls -1A -- '/home/user/work/notes'"
+          "command": "test -d '/home/user/work/notes' && find -- '/home/user/work/notes' -mindepth 1 -maxdepth 1 -exec sh -c 'for f; do printf \"%s\" \"${f##*/}\" | base64 -w0; echo; done' sh {} +"
         }
       },
       "response": {
@@ -100,7 +100,7 @@
           "ok": true,
           "data": {
             "exitCode": 0,
-            "stdout": "hello.txt\n",
+            "stdout": "aGVsbG8udHh0\n",
             "stderr": "",
             "durationMs": 12,
             "truncated": false

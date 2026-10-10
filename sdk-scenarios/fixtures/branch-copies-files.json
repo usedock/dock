@@ -45,7 +45,7 @@
         "method": "POST",
         "path": "/v1/docks/44444444-4444-4444-8444-444444444444/exec",
         "body": {
-          "command": "mkdir -p -- \"$(dirname -- '/home/user/work/seed.txt')\" && printf '%s' 'c2VlZAo=' | base64 -d > '/home/user/work/seed.txt'"
+          "command": "d=$(dirname -- '/home/user/work/seed.txt'; echo x) && mkdir -p -- \"${d%??}\" && printf '%s' 'c2VlZAo=' | base64 -d > '/home/user/work/seed.txt'"
         }
       },
       "response": {
@@ -121,7 +121,7 @@
         "method": "POST",
         "path": "/v1/docks/55555555-5555-4555-8555-555555555555/exec",
         "body": {
-          "command": "mkdir -p -- \"$(dirname -- '/home/user/work/branch-only.txt')\" && printf '%s' 'YnJhbmNoCg==' | base64 -d > '/home/user/work/branch-only.txt'"
+          "command": "d=$(dirname -- '/home/user/work/branch-only.txt'; echo x) && mkdir -p -- \"${d%??}\" && printf '%s' 'YnJhbmNoCg==' | base64 -d > '/home/user/work/branch-only.txt'"
         }
       },
       "response": {
@@ -144,7 +144,7 @@
         "method": "POST",
         "path": "/v1/docks/44444444-4444-4444-8444-444444444444/exec",
         "body": {
-          "command": "ls -1A -- '/home/user/work'"
+          "command": "test -d '/home/user/work' && find -- '/home/user/work' -mindepth 1 -maxdepth 1 -exec sh -c 'for f; do printf \"%s\" \"${f##*/}\" | base64 -w0; echo; done' sh {} +"
         }
       },
       "response": {
@@ -153,7 +153,7 @@
           "ok": true,
           "data": {
             "exitCode": 0,
-            "stdout": "seed.txt\n",
+            "stdout": "c2VlZC50eHQ=\n",
             "stderr": "",
             "durationMs": 12,
             "truncated": false
