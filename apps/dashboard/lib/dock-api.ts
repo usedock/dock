@@ -395,7 +395,7 @@ export interface DockApi {
   saveTemplate: (dockId: string, name: string) => Promise<Template>;
   deleteTemplate: (name: string, organizationId: string) => Promise<unknown>;
   listEnvironments: (organizationId: string) => Promise<Environment[]>;
-  createEnvironment: (organizationId: string, name: string) => Promise<unknown>;
+  createEnvironment: (organizationId: string, name: string, secretsAccess?: 'members' | 'admins') => Promise<unknown>;
   getEnvironment: (ref: string, organizationId: string) => Promise<Environment>;
   updateEnvironment: (ref: string, organizationId: string, input: Record<string, unknown>) => Promise<unknown>;
   deleteEnvironment: (ref: string, organizationId: string) => Promise<unknown>;
@@ -576,8 +576,8 @@ export function createDockApi({ baseUrl = '', fetchImpl = fetch, headers = {} }:
     // Environments: versioned bundles with repos, vars, files, secrets.
     listEnvironments: (organizationId: string) =>
       get<Environment[]>(`/v1/environments?organizationId=${enc(organizationId)}`),
-    createEnvironment: (organizationId: string, name: string) =>
-      post<unknown>('/v1/environments', { organizationId, name }),
+    createEnvironment: (organizationId: string, name: string, secretsAccess?: 'members' | 'admins') =>
+      post<unknown>('/v1/environments', { organizationId, name, secretsAccess }),
     getEnvironment: (ref: string, organizationId: string) =>
       get<Environment>(`/v1/environments/${enc(ref)}?organizationId=${enc(organizationId)}`),
     updateEnvironment: (ref: string, organizationId: string, input: Record<string, unknown>) =>

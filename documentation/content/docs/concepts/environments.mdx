@@ -20,14 +20,19 @@ Dock, so anyone who can reach a Dock that received them can read them.
 
 The `secretsAccess` setting controls who that is:
 
-- `members` (default): any organization member can create, branch, or resume a
-  Dock from this Environment.
-- `admins`: only organization admins and owners can. When a member tries and
-  the Environment would pass something readable into the Dock, the request is
-  refused with `403 environment_secrets_admin_only` before anything is
-  provisioned. Nothing is silently stripped. Environments that would
-  pass nothing (no secrets or files, and every credential posture off, or
-  safe for third parties) are not restricted.
+- `members`: any organization member can create, branch, or resume a
+  Dock from this Environment, and read its secrets inside that Dock.
+- `admins` (default for new Environments): only organization admins and
+  owners can. A member is refused with `403 environment_secrets_admin_only`,
+  before anything is provisioned, only when the launch would pass something
+  readable into the Dock: at least one secret variable or file (with secrets
+  passing on), the Dock API key, or agent credentials (with agent credentials
+  passing on) while the organization has provider keys for the default agent or,
+  for a Dock another user created, that user has a connected ChatGPT sign-in
+  (a member's own sign-in never counts). Nothing is silently
+  stripped. An Environment that would pass none of these, such as the empty
+  `base` Environment of a new organization, or one marked safe for third
+  parties, does not restrict members.
 
 The restriction also covers reaching a Dock that already holds the bundle. For
 a Dock another member created, a member is refused on exec, terminal, SSH,
@@ -36,6 +41,8 @@ resuming, or creating from a template of that Dock, even with `noEnv` or a
 different Environment, because the copied disk carries the source's bundle. A
 member's own Docks are not restricted, since they could only create them if
 allowed. Admins and owners are never restricted.
+
+Environments created before this default changed keep their existing value.
 
 Only organization admins can change `secretsAccess`
 (`PATCH /v1/environments/:ref`). Things to know:

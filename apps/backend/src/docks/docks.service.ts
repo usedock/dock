@@ -699,7 +699,8 @@ export class DocksService {
       envVersionPin = `v${resolved.version.version}`;
     }
     const noEnv = opts.environment !== undefined ? (opts.noEnv ?? false) : opts.noEnv === true ? true : dock.noEnv;
-    await this.envs.assertSecretsLaunchable(callerId, orgId, environment, { pin: envVersionPin, noEnv });
+    // Apply re-runs as the dock's creator, so judge the creator's sign-in, not the resumer's.
+    await this.envs.assertSecretsLaunchable(callerId, orgId, environment, { pin: envVersionPin, noEnv, creatorId: dock.createdBy });
     await this.spendGate.requireSpend(orgId);
     await this.transition(id, ['archived'], { state: 'provisioning', liveSince: null });
     let refused = false;

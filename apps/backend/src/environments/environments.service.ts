@@ -5,12 +5,15 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { DB, Db } from '../database/database.module';
-import { requiredKeysFor } from '../github/run-agents';
+import { CHATGPT_DOCK_AGENTS } from '../chatgpt/chatgpt-dock';
+import { ChatgptService } from '../chatgpt/chatgpt.service';
+import { DEFAULT_DOCK_AGENTS, requiredKeysFor } from '../github/run-agents';
 import {
   ENV_NAME_RE,
   ENV_PROVIDERS,
@@ -189,6 +192,7 @@ export class EnvironmentsService {
     private readonly ops: OperationsService,
     config: ConfigService,
     private readonly creds: AgentCredentialsService,
+    @Optional() private readonly chatgpt?: ChatgptService,
   ) {
     this.key = Buffer.from(config.getOrThrow<string>('SECRETS_ENCRYPTION_KEY'), 'hex');
     this.githubAppConfigured = Boolean(config.get<string>('GITHUB_APP_ID') && config.get<string>('GITHUB_APP_PRIVATE_KEY'));
@@ -209,7 +213,7 @@ export class EnvironmentsService {
     return views;
   }
 
-  async create(callerId: string, orgId: string, rawName: string, secretsAccess: SecretsAccess = 'members'): Promise<EnvironmentView> {
+  async create(callerId: string, orgId: string, rawName: string, secretsAccess: SecretsAccess = 'admins'): Promise<EnvironmentView> {
     await this.orgs.requireMembership(orgId, callerId, 'admin');
     const name = this.checkedName(rawName);
     if (!(SECRETS_ACCESS as readonly string[]).includes(secretsAccess)) throw validationError('secretsAccess must be members or admins');
@@ -527,6 +531,7 @@ export class EnvironmentsService {
     await this.assertSecretsLaunchable(callerId, organizationId, dock.environment, {
       pin: dock.envVersionPin,
       noEnv: dock.noEnv,
+      creatorId: dock.createdBy,
       dockBoundAt: dock.envBoundAt ?? dock.createdAt,
     });
   }
@@ -540,7 +545,7 @@ export class EnvironmentsService {
     callerId: string,
     organizationId: string,
     name: string | undefined,
-    opts: { pin?: string | null; noEnv?: boolean; dockBoundAt?: Date } = {},
+    opts: { pin?: string | null; noEnv?: boolean; dockBoundAt?: Date; creatorId?: string | null } = {},
   ): Promise<void> {
     if (opts.noEnv) return;
     const dockBoundAt = opts.dockBoundAt;
@@ -564,7 +569,22 @@ export class EnvironmentsService {
     const pinned = match ? await this.versionAt(resolved.environment.id, Number(match[1])) : resolved.version;
     if (pinned.safeForThirdParties) return;
     const injectsSecrets = pinned.passSecrets && (Object.keys(pinned.envVars).length > 0 || pinned.secretFiles.length > 0);
-    if (injectsSecrets || pinned.passAgentsCredentials || pinned.passDockCredentials) throw new EnvironmentSecretsAdminOnlyException();
+    if (injectsSecrets || pinned.passDockCredentials) throw new EnvironmentSecretsAdminOnlyException();
+    // Mirrors what the apply step injects: org provider keys for the default agents, or the creator's ChatGPT sign-in.
+    if (pinned.passAgentsCredentials && (await this.agentCredentialsPresent(organizationId, callerId, opts.creatorId === undefined ? callerId : opts.creatorId))) {
+      throw new EnvironmentSecretsAdminOnlyException();
+    }
+  }
+
+  private async agentCredentialsPresent(organizationId: string, callerId: string, creatorId: string | null): Promise<boolean> {
+    const { providers } = await this.creds.varsFor(organizationId, requiredKeysFor(DEFAULT_DOCK_AGENTS));
+    if (providers.length) return true;
+    const chatgptAgents = DEFAULT_DOCK_AGENTS.filter((a) => (CHATGPT_DOCK_AGENTS as readonly string[]).includes(a));
+    // The caller's own sign-in is theirs to read; only another user's counts.
+    if (!chatgptAgents.length || !creatorId || creatorId === callerId) return false;
+    // Fail closed for members if the sign-in lookup is not wired.
+    if (!this.chatgpt) return true;
+    return this.chatgpt.usable(creatorId);
   }
 
   private async refuseMembers(organizationId: string, callerId: string): Promise<void> {

@@ -45,6 +45,7 @@ describe('EnvironmentsService', () => {
   let orgs: any;
   let ops: any;
   let creds: { varsFor: Mock };
+  let chatgpt: { usable: Mock };
   let service: EnvironmentsService;
 
   const selectQ = (rows: any[]) => {
@@ -96,7 +97,8 @@ describe('EnvironmentsService', () => {
     const config = { getOrThrow: vi.fn().mockReturnValue('a'.repeat(64)), get: vi.fn().mockReturnValue('configured') };
     const credsMock = { varsFor: vi.fn().mockResolvedValue({ vars: {}, providers: [] }) };
     creds = credsMock;
-    service = new EnvironmentsService(db as never, orgs as never, ops as never, config as never, creds as never);
+    chatgpt = { usable: vi.fn().mockResolvedValue(false) };
+    service = new EnvironmentsService(db as never, orgs as never, ops as never, config as never, creds as never, chatgpt as never);
   });
 
   it('provisions base lazily on first listing', async () => {
@@ -197,6 +199,19 @@ describe('EnvironmentsService', () => {
     const err = await catchErr(service.update(callerId, envId, undefined, { isDefault: false }));
     expect(err).toMatchObject({ status: 400, body: { code: 'validation_error' } });
     expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('defaults new environments to admins-only secrets and honors explicit members', async () => {
+    const seen: unknown[] = [];
+    const ins = (rows: unknown[]) => ({ values: (v: unknown) => { seen.push(v); return { returning: () => Promise.resolve(rows) }; } });
+    db.insert.mockReturnValueOnce(ins([envRow({ secretsAccess: 'admins' })])).mockReturnValueOnce(insertQ([versionRow()]));
+    queueTail();
+    await service.create(callerId, orgId, 'web');
+    expect(seen[0]).toMatchObject({ secretsAccess: 'admins' });
+    db.insert.mockReturnValueOnce(ins([envRow({ secretsAccess: 'members' })])).mockReturnValueOnce(insertQ([versionRow()]));
+    queueTail();
+    await service.create(callerId, orgId, 'web2', 'members');
+    expect(seen[1]).toMatchObject({ secretsAccess: 'members' });
   });
 
   it('frees a deleted name before creating it again', async () => {
@@ -444,6 +459,58 @@ describe('EnvironmentsService', () => {
       queue('admins', versionRow({ envVars: { A: seal('x') } }));
       const err = await catchErr(service.assertSecretsLaunchable(callerId, orgId, 'base'));
       expect(err).toMatchObject({ status: 403, body: expect.objectContaining({ code: 'environment_secrets_admin_only' }) });
+    });
+
+    // Column defaults of a fresh base environment: no dock key, agent credentials on.
+    const dockKeyOff = { passDockCredentials: false };
+
+    it('lets members launch the default base environment with nothing to pass', async () => {
+      member();
+      queue('admins', versionRow(dockKeyOff));
+      await expect(service.assertSecretsLaunchable(callerId, orgId, 'base')).resolves.toBeUndefined();
+    });
+
+    it('refuses members when agent credentials would be passed', async () => {
+      member();
+      creds.varsFor.mockResolvedValueOnce({ vars: { OPENAI_API_KEY: 'x' }, providers: ['openai'] });
+      queue('admins', versionRow(dockKeyOff));
+      const org = await catchErr(service.assertSecretsLaunchable(callerId, orgId, 'base'));
+      expect(org).toMatchObject({ status: 403, body: expect.objectContaining({ code: 'environment_secrets_admin_only' }) });
+      chatgpt.usable.mockResolvedValueOnce(true);
+      queue('admins', versionRow(dockKeyOff));
+      const sub = await catchErr(service.assertSecretsLaunchable(callerId, orgId, 'base', { creatorId: 'creator' }));
+      expect(sub.status).toBe(403);
+      // Read path: the dock creator's sign-in is what the dock holds, not the reader's.
+      chatgpt.usable.mockImplementationOnce(async (id: string) => id === 'creator');
+      queue('admins', versionRow(dockKeyOff));
+      const read = await catchErr(service.assertSecretsLaunchable(callerId, orgId, 'base', { creatorId: 'creator' }));
+      expect(read.status).toBe(403);
+    });
+
+    it('does not refuse a member over their own ChatGPT sign-in', async () => {
+      member();
+      chatgpt.usable.mockResolvedValue(true);
+      queue('admins', versionRow(dockKeyOff));
+      await expect(service.assertSecretsLaunchable(callerId, orgId, 'base')).resolves.toBeUndefined();
+      queue('admins', versionRow(dockKeyOff));
+      await expect(service.assertSecretsLaunchable(callerId, orgId, 'base', { creatorId: callerId })).resolves.toBeUndefined();
+    });
+
+    it('fails closed for members when the ChatGPT lookup is not wired', async () => {
+      member();
+      const unwired = new EnvironmentsService(db as never, orgs as never, ops as never, { getOrThrow: () => 'a'.repeat(64), get: () => undefined } as never, creds as never);
+      queue('admins', versionRow(dockKeyOff));
+      const err = await catchErr(unwired.assertSecretsLaunchable(callerId, orgId, 'base', { creatorId: 'creator' }));
+      expect(err).toMatchObject({ status: 403, body: expect.objectContaining({ code: 'environment_secrets_admin_only' }) });
+      queue('admins', versionRow(dockKeyOff));
+      await expect(unwired.assertSecretsLaunchable(callerId, orgId, 'base')).resolves.toBeUndefined();
+    });
+
+    it('does not refuse on agent credentials when the posture is off', async () => {
+      member();
+      creds.varsFor.mockResolvedValue({ vars: { OPENAI_API_KEY: 'x' }, providers: ['openai'] });
+      queue('admins', versionRow({ ...dockKeyOff, passAgentsCredentials: false }));
+      await expect(service.assertSecretsLaunchable(callerId, orgId, 'base')).resolves.toBeUndefined();
     });
 
     it('lets admins and owners through', async () => {
