@@ -77,7 +77,13 @@ export default function EnvironmentsPage() {
         title="Environments"
         description="Repositories, variables, and secret files that docks boot with. New docks use the default unless another is named."
         action={
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog
+            open={dialogOpen}
+            onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (!open) setSecretsAccess('admins');
+            }}
+          >
             <DialogTrigger render={<Button type="button" disabled={!selectedOrgId} />}>
               <Plus />
               New environment

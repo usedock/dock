@@ -22,12 +22,16 @@ The `secretsAccess` setting controls who that is:
 
 - `members`: any organization member can create, branch, or resume a
   Dock from this Environment, and read its secrets inside that Dock.
-- `admins` (default for new Environments): only organization admins and owners can. When a member tries and
-  the Environment would pass something readable into the Dock, the request is
-  refused with `403 environment_secrets_admin_only` before anything is
-  provisioned. Nothing is silently stripped. Environments that would
-  pass nothing (no secrets or files, and every credential posture off, or
-  safe for third parties) are not restricted.
+- `admins` (default for new Environments): only organization admins and
+  owners can. A member is refused with `403 environment_secrets_admin_only`,
+  before anything is provisioned, only when the launch would pass something
+  readable into the Dock: at least one secret variable or file (with secrets
+  passing on), the Dock API key, or agent credentials (with agent credentials
+  passing on) while the organization has provider keys for the default agent or
+  the Dock's creator has a connected ChatGPT sign-in. Nothing is silently
+  stripped. An Environment that would pass none of these, such as the empty
+  `base` Environment of a new organization, or one marked safe for third
+  parties, does not restrict members.
 
 The restriction also covers reaching a Dock that already holds the bundle. For
 a Dock another member created, a member is refused on exec, terminal, SSH,
