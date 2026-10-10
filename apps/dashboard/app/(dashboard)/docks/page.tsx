@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { MoreHorizontal, Plus } from 'lucide-react';
-import { API_BASE_URL, getDefaultApi, type Dock, type Environment, type GithubRun } from '@/lib/dock-api';
+import { apiSnippetBase, getDefaultApi, type Dock, type Environment, type GithubRun } from '@/lib/dock-api';
 import { formatAgo, formatDate, formatDuration, messageOf, runtimeLabel, sizeLabel } from '@/lib/format';
 import { useOrg } from '@/components/dashboard/org-context';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
@@ -377,7 +377,7 @@ function DocksTable() {
           <CodeBlock
             className="w-full max-w-xl text-left"
             lines={[
-              `curl -X POST ${API_BASE_URL}/v1/docks \\`,
+              `curl -X POST ${apiSnippetBase()}/v1/docks \\`,
               '  -H "Authorization: Bearer $DOCK_API_KEY" \\',
               '  -H "Content-Type: application/json" \\',
               `  -d '{"workspaceId":"${workspaceForCreate || '<workspace-id>'}"}'`,

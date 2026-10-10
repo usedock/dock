@@ -748,6 +748,11 @@ export function terminalSocketUrl(dockId: string, ticket: string, cols: number, 
   return url.toString();
 }
 
+// Origin for copyable snippets: the baked API base, else this instance's own origin.
+export function apiSnippetBase(): string {
+  return API_BASE_URL || (typeof window === 'undefined' ? '' : window.location.origin);
+}
+
 export function getDefaultApi(): DockApi {
   return createDockApi({ baseUrl: API_BASE_URL });
 }

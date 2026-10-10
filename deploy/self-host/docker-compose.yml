@@ -149,6 +149,7 @@ services:
     environment:
       NODE_ENV: production
       BETTER_AUTH_BACKEND_URL: http://backend:8000
+      DOCK_PUBLIC_URL: '${DOCK_PUBLIC_URL}'
     depends_on:
       backend:
         condition: service_healthy

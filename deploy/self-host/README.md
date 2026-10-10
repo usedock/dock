@@ -83,10 +83,19 @@ Open `DOCK_PUBLIC_URL` and sign up. Then:
   only when both its client id and secret are set. The OAuth callback URL is
   `<DOCK_PUBLIC_URL>/api/auth/callback/<google|github>`.
 
-Upgrade by setting `DOCK_VERSION` in `.env` to the new release, then `docker compose pull && docker compose up -d`; migrations run
-automatically before the API starts. Back up the `pgdata` and `minio-data`
-volumes and keep `.env` (losing `SECRETS_ENCRYPTION_KEY` makes stored provider
-keys and environment secrets unreadable).
+Upgrade with `git pull` (compose and Caddyfile changes ship with the release),
+then `./setup.sh --upgrade <version>`, for example `./setup.sh --upgrade 0.2.0`
+(bare version, no `v`). It sets `DOCK_VERSION` in `.env`, pulls, and restarts;
+migrations run automatically before the API starts. By hand, edit `DOCK_VERSION`
+in `.env`, then `docker compose pull && docker compose up -d`. Back up the
+`pgdata` and `minio-data` volumes and keep `.env` (losing `SECRETS_ENCRYPTION_KEY`
+makes stored provider keys and environment secrets unreadable).
+
+Release images are cosign-signed. Verify one with:
+
+```bash
+cosign verify ghcr.io/usedock/dock-api:<version>   --certificate-identity https://github.com/usedock/dock/.github/workflows/release.yml@refs/tags/v<version>   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 Installs created before the single baseline migration (October 2026) cannot
 upgrade in place: `migrate` fails with `relation "users" already exists` and

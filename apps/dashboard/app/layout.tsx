@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
@@ -14,11 +15,23 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://dashboard.usedock.io'),
-  title: { default: 'Dock Dashboard', template: '%s | Dock Dashboard' },
-  description: 'Isolated Linux machines for agents. Sign in to manage your docks.',
-};
+// Self-host bakes no URL: read the public origin per request instead of falling back to the cloud host.
+async function metadataOrigin(): Promise<string> {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL;
+  const h = await headers();
+  if (process.env.DOCK_PUBLIC_URL) return process.env.DOCK_PUBLIC_URL;
+  const host = h.get('x-forwarded-host') ?? h.get('host');
+  if (!host) return 'https://dashboard.usedock.io';
+  return `${h.get('x-forwarded-proto') ?? 'http'}://${host}`;
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    metadataBase: new URL(await metadataOrigin()),
+    title: { default: 'Dock Dashboard', template: '%s | Dock Dashboard' },
+    description: 'Isolated Linux machines for agents. Sign in to manage your docks.',
+  };
+}
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
