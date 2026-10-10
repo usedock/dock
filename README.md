@@ -24,8 +24,8 @@ Docks run on hosts driven by the [docklet](https://github.com/usedock/docklet), 
 | Term | Meaning |
 | --- | --- |
 | Dock | An isolated Linux machine with a persistent disk |
-| Image | The disk a dock starts from: `ubuntu-24.04`, `node-22`, or a dock you saved |
-| Size | `cpus`, `memory`, `disk` as numbers (default 2 vCPU, 4 GB, 20 GB) |
+| Image | The disk a dock starts from: `ubuntu-24.04` (the only image today) or a dock you saved |
+| Size | `cpus`, `memoryMiB`, `diskGiB` as numbers (default 2 vCPU, 4096 MiB, 20 GiB) |
 | Runtime | `microvm` or `gvisor`, chosen by the host |
 | Snapshot, Branch | A saved disk, and new docks started from it |
 | Connector | An integration that lets agents in a dock work in another tool (GitHub first), with credentials kept outside the dock |
@@ -98,6 +98,6 @@ Report vulnerabilities to [security@usedock.io](mailto:security@usedock.io), not
 
 ## License
 
-[AGPL-3.0-only](LICENSE).
+[AGPL-3.0-only](LICENSE). Third-party agent skills under `.agents/` keep their own licenses; see `.agents/THIRD_PARTY_NOTICES.md`.
 
 Copyright (C) 2026 Paranjay.

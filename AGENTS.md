@@ -22,7 +22,7 @@ Layout (no root workspace; each app runs on its own):
 ## Product truth
 
 - Headline: "Isolated Linux machines for agents. On your laptop, your servers, or our cloud."
-- A Dock has an image (`ubuntu-24.04`, `node-22`, or a saved dock), a size as numbers (`cpus`, `memoryMiB`, `diskGiB`; default 2 vCPU, 4 GB, 20 GB) and a runtime chosen by its host: `microvm` (Firecracker on KVM, whole disk persists) or `gvisor` (runsc on Docker, only `/home/user/work` persists). The runtime is read-only on the dock.
+- A Dock has an image (`ubuntu-24.04`, the only one today, or a saved dock), a size as numbers (`cpus`, `memoryMiB`, `diskGiB`; default 2 vCPU, 4 GB, 20 GB) and a runtime chosen by its host: `microvm` (Firecracker on KVM, whole disk persists) or `gvisor` (runsc on Docker, only `/home/user/work` persists). The runtime is read-only on the dock.
 - Dock never installs or versions coding agents; users bring their own (install them in the environment setup script).
 - Self-hosting is free; Dock Cloud is coming soon. The `dock` CLI and SDKs are not built yet; do not document them as working.
 - Vocabulary: `Dock`, `Image`, `Size`, `Runtime`, `Environment`, `Snapshot`, `Branch`, `Host`, `Connector`, `Template`, `Run`, `Workspace`. Never `box`, `computer`, `tier`, `class`, `toolbox`.
