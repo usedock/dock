@@ -1,0 +1,1 @@
+{"hostId":"host-fra-01","address":"10.0.0.5:8443","cpuFamily":"intel-icelake","kernel":"6.1.102","vcpuTotal":32,"vcpuFree":24,"memTotalBytes":137438953472,"memFreeBytes":103079215104,"diskTotalBytes":1099511627776,"diskFreeBytes":879609302220,"runningVms":[{"dockId":"dck_01JC8Z3Q5W","state":"running","kind":"dock"},{"dockId":"rt_01JC8Z6H9K","state":"running","kind":"fast"}]}

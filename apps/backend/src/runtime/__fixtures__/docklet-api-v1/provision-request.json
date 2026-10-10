@@ -1,0 +1,1 @@
+{"dockId":"dck_01JC8Z3Q5W","resources":{"cpus":2,"memoryMiB":2048,"diskGiB":10},"image":"ubuntu-24.04","snapshotId":"snap_01JC8Z4A2B","execAgent":true,"egressAllow":["api.github.com","*.npmjs.org"],"idempotencyToken":"tok_provision_01"}
