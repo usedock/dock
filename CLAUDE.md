@@ -2,7 +2,7 @@
 
 # Where things live
 
-This repo (`usedock/dock`) is the open core: `apps/backend`, `apps/dashboard`, `deploy/self-host`, `documentation`. The docklet lives in `usedock/docklet`, the site in `usedock/website`, cloud code in `usedock/cloud`. Make a change in the repo that owns the code.
+This repo (`usedock/dock`) is the open core: `apps/backend`, `apps/dashboard`, `deploy/self-host`, `documentation`. The docklet lives in `usedock/docklet`. The marketing site and cloud-only code live in private repos. Make a change in the repo that owns the code.
 
 # Claude Code
 

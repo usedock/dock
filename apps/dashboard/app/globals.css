@@ -49,7 +49,7 @@
 }
 
 /*
- * Dock brand tokens ported from the usedock/website design system (Field Ledger): warm-stone neutrals, ink text,
+ * Dock brand tokens ported from the Dock website design system (Field Ledger): warm-stone neutrals, ink text,
  * one burnt-orange accent. Mapped onto the shadcn semantic slots below so
  * every component in components/ui/ picks them up without per-component edits.
  */

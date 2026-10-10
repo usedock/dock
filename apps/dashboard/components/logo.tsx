@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 
-// Dock mark and wordmark, matching the usedock/website logo.
+// Dock mark and wordmark, matching the Dock website logo.
 export function Logo({ className }: { className?: string }) {
   return (
     <span className={cn('inline-flex items-center gap-2', className)}>

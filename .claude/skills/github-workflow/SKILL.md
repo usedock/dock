@@ -5,7 +5,7 @@ description: The Dock lifecycle for a piece of work on GitHub - create the issue
 
 # GitHub workflow
 
-Repo: `usedock/dock` (public), default branch `main`. CI (`.github/workflows/ci.yml`) runs the checks below on every PR; run them locally first. Use `gh` with `-R usedock/dock`. The docklet is in `usedock/docklet`, the site in `usedock/website`, cloud code in `usedock/cloud`: file issues there for work on those.
+Repo: `usedock/dock` (public), default branch `main`. CI (`.github/workflows/ci.yml`) runs the checks below on every PR; run them locally first. Use `gh` with `-R usedock/dock`. The docklet is in `usedock/docklet`: file issues there for docklet work. The marketing site and cloud-only code live in private repos; do not file issues or PRs for them here.
 
 ## 0. Epic (big or multi-part work)
 

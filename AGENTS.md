@@ -7,8 +7,7 @@ Dock: isolated Linux machines for agents. On your laptop, your servers, or our c
 This repo is the open core (AGPL-3.0-only): the control plane API, the dashboard, the self-host deploy and the documentation. Other parts live elsewhere:
 
 - the docklet (host agent, Go) lives in `usedock/docklet`
-- the marketing site lives in `usedock/website`
-- cloud-only code lives in `usedock/cloud`
+- the marketing site and cloud-only code live in private repos (not open to contributors)
 - client SDKs and the `dock` CLI are not built yet; planned repos are `usedock/dock-js`, `dock-python`, `dock-go`
 
 Layout (no root workspace; each app runs on its own):

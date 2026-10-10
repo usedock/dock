@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
-// Same family as the website (usedock/website; Geist / Geist Mono) for brand parity.
+// Same family as the website (Geist / Geist Mono) for brand parity.
 const geistSans = Geist({
   variable: "--font-sans",
   subsets: ["latin"],

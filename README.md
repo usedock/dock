@@ -17,7 +17,7 @@ This repo is the open core: the control plane API, the dashboard, the self-host 
 | `deploy/self-host` | One-command self-hosted control plane with Docker Compose |
 | `documentation` | Docs site (Fumadocs, hand-written pages) |
 
-Docks run on hosts driven by the [docklet](https://github.com/usedock/docklet), a separate repo. The marketing site is [usedock/website](https://github.com/usedock/website).
+Docks run on hosts driven by the [docklet](https://github.com/usedock/docklet), a separate repo. The marketing site and cloud-only code live in private repos.
 
 ## Concepts
 
@@ -51,6 +51,7 @@ cd dock/deploy/self-host
 The `dock` CLI and the SDKs are not built yet. They will talk to any control plane: your own, or Dock Cloud (coming soon). The commands below are a proposal, not a working interface.
 
 ```sh
+# PLANNED: these commands do not exist yet
 dock login --url https://dock.example.com
 dock new api --cpus 4 --memory 8gb
 dock exec api -- bun test
