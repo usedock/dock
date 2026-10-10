@@ -209,7 +209,7 @@ export class EnvironmentsService {
     return views;
   }
 
-  async create(callerId: string, orgId: string, rawName: string, secretsAccess: SecretsAccess = 'members'): Promise<EnvironmentView> {
+  async create(callerId: string, orgId: string, rawName: string, secretsAccess: SecretsAccess = 'admins'): Promise<EnvironmentView> {
     await this.orgs.requireMembership(orgId, callerId, 'admin');
     const name = this.checkedName(rawName);
     if (!(SECRETS_ACCESS as readonly string[]).includes(secretsAccess)) throw validationError('secretsAccess must be members or admins');

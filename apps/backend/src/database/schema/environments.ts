@@ -45,7 +45,7 @@ export const environments = pgTable(
     name: varchar('name', { length: 64 }).notNull(),
     isDefault: boolean('is_default').notNull().default(false),
     currentVersion: integer('current_version').notNull().default(1),
-    secretsAccess: text('secrets_access', { enum: SECRETS_ACCESS }).notNull().default('members'),
+    secretsAccess: text('secrets_access', { enum: SECRETS_ACCESS }).notNull().default('admins'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

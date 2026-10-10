@@ -1,0 +1,1 @@
+ALTER TABLE "environments" ALTER COLUMN "secrets_access" SET DEFAULT 'admins';

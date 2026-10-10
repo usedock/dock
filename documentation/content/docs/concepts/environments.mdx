@@ -20,9 +20,9 @@ Dock, so anyone who can reach a Dock that received them can read them.
 
 The `secretsAccess` setting controls who that is:
 
-- `members` (default): any organization member can create, branch, or resume a
-  Dock from this Environment.
-- `admins`: only organization admins and owners can. When a member tries and
+- `members`: any organization member can create, branch, or resume a
+  Dock from this Environment, and read its secrets inside that Dock.
+- `admins` (default for new Environments): only organization admins and owners can. When a member tries and
   the Environment would pass something readable into the Dock, the request is
   refused with `403 environment_secrets_admin_only` before anything is
   provisioned. Nothing is silently stripped. Environments that would
@@ -36,6 +36,8 @@ resuming, or creating from a template of that Dock, even with `noEnv` or a
 different Environment, because the copied disk carries the source's bundle. A
 member's own Docks are not restricted, since they could only create them if
 allowed. Admins and owners are never restricted.
+
+Environments created before this default changed keep their existing value.
 
 Only organization admins can change `secretsAccess`
 (`PATCH /v1/environments/:ref`). Things to know:

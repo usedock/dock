@@ -464,7 +464,7 @@ function EnvironmentDetail() {
                 <div>
                   <p className="text-sm">Who can launch docks with this environment&apos;s secrets</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Anyone who can launch a dock that receives these secrets, files and credentials can read them inside it.
+                    With members, any member can create a dock on this environment and read its secrets inside the dock.
                   </p>
                 </div>
                 {isAdmin ? (

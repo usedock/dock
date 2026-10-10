@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 /** What docks boot with, one row per environment name. */
@@ -31,6 +32,7 @@ export default function EnvironmentsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState('');
+  const [secretsAccess, setSecretsAccess] = useState<'members' | 'admins'>('admins');
   const [creating, setCreating] = useState(false);
 
   // The scope gate in render covers the unselected case; no sync resets.
@@ -57,9 +59,10 @@ export default function EnvironmentsPage() {
     setCreating(true);
     setActionError(null);
     try {
-      await api.createEnvironment(selectedOrgId, name.trim());
+      await api.createEnvironment(selectedOrgId, name.trim(), secretsAccess);
       setDialogOpen(false);
       setName('');
+      setSecretsAccess('admins');
       refresh();
     } catch (e: unknown) {
       setActionError(`Could not create environment: ${messageOf(e, 'request failed')}`);
@@ -87,6 +90,21 @@ export default function EnvironmentsPage() {
               <div className="flex flex-col gap-2">
                 <Label htmlFor="env-name">Name</Label>
                 <Input id="env-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="web" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="env-secrets-access">Secrets access</Label>
+                <Select value={secretsAccess} onValueChange={(v) => setSecretsAccess(v === 'members' ? 'members' : 'admins')}>
+                  <SelectTrigger id="env-secrets-access" className="w-40">
+                    <SelectValue>{(v: string) => (v === 'admins' ? 'Admins only' : 'Members')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="admins">Admins only</SelectItem>
+                    <SelectItem value="members">Members</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  With members, any member can create a dock on this environment and read its secrets inside the dock.
+                </p>
               </div>
               <DialogFooter>
                 <Button type="button" disabled={creating || !name.trim()} onClick={create}>

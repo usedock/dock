@@ -17,7 +17,7 @@ report a vulnerability, see [SECURITY.md](https://github.com/usedock/dock/blob/m
 | Dock disks and Snapshots | On the host; Snapshots in the object store (MinIO or any S3-compatible bucket) | The organization that owns the Dock |
 | API keys | SHA-256 hashes in Postgres; the raw value is shown once | The user who created the key |
 | Dock-bound keys | Same table, tied to one Dock | The Dock they were issued to |
-| Provider keys, Environment secrets | Encrypted at rest (AES-256-GCM) with `SECRETS_ENCRYPTION_KEY` | Organization admins, and Docks the Environment passes them into. By default any member can create a Dock with an Environment, so members can read its secrets from inside that Dock unless the Environment limits secrets to admins |
+| Provider keys, Environment secrets | Encrypted at rest (AES-256-GCM) with `SECRETS_ENCRYPTION_KEY` | Organization admins, and Docks the Environment passes them into. New Environments limit secrets to admins by default. If an Environment allows members, any member can create a Dock with it, so members can read its secrets from inside that Dock |
 | Connector credentials (GitHub App private key and webhook secret, OAuth secrets) | Control plane environment (`.env`) | The control plane only |
 | Hosts and docklets | Your machines; each docklet holds a per-host credential in its state directory | The operator |
 | Control plane | API, Postgres, Redis, Restate, object store | The operator |

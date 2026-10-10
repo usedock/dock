@@ -199,6 +199,19 @@ describe('EnvironmentsService', () => {
     expect(db.update).not.toHaveBeenCalled();
   });
 
+  it('defaults new environments to admins-only secrets and honors explicit members', async () => {
+    const seen: unknown[] = [];
+    const ins = (rows: unknown[]) => ({ values: (v: unknown) => { seen.push(v); return { returning: () => Promise.resolve(rows) }; } });
+    db.insert.mockReturnValueOnce(ins([envRow({ secretsAccess: 'admins' })])).mockReturnValueOnce(insertQ([versionRow()]));
+    queueTail();
+    await service.create(callerId, orgId, 'web');
+    expect(seen[0]).toMatchObject({ secretsAccess: 'admins' });
+    db.insert.mockReturnValueOnce(ins([envRow({ secretsAccess: 'members' })])).mockReturnValueOnce(insertQ([versionRow()]));
+    queueTail();
+    await service.create(callerId, orgId, 'web2', 'members');
+    expect(seen[1]).toMatchObject({ secretsAccess: 'members' });
+  });
+
   it('frees a deleted name before creating it again', async () => {
     db.insert.mockReturnValueOnce(insertQ([envRow({ name: 'web', isDefault: false })]));
     db.insert.mockReturnValueOnce(insertQ([versionRow()]));

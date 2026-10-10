@@ -14,7 +14,7 @@ export class CreateEnvironmentDto {
 
   @IsOptional()
   @IsIn(SECRETS_ACCESS)
-  @ApiProperty({ required: false, enum: SECRETS_ACCESS, description: "Who can launch docks that receive this environment's secrets, files and credentials. Anyone who can launch such a dock can read them inside it." })
+  @ApiProperty({ required: false, enum: SECRETS_ACCESS, description: "Who can launch docks that receive this environment's secrets, files and credentials. Anyone who can launch such a dock can read them inside it. Defaults to admins." })
   secretsAccess?: SecretsAccess;
 }
 
