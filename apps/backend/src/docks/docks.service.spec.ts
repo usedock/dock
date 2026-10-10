@@ -1505,12 +1505,12 @@ describe('DocksService', () => {
   it('resume checks the secrets guard before billing and any state change', async () => {
     envs.assertSecretsLaunchable.mockRejectedValueOnce(new EnvironmentSecretsAdminOnlyException());
     db.select
-      .mockReturnValueOnce(selectQ([dockRow({ state: 'archived', environment: 'prod', envVersionPin: 'v2' })]))
+      .mockReturnValueOnce(selectQ([dockRow({ state: 'archived', environment: 'prod', envVersionPin: 'v2', createdBy: 'owner-user' })]))
       .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
       .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1' }]));
     const err = await catchErr(service.resume('u1', dockId));
     expect(err).toMatchObject({ status: 403, body: expect.objectContaining({ code: 'environment_secrets_admin_only' }) });
-    expect(envs.assertSecretsLaunchable).toHaveBeenCalledWith('u1', orgId, 'prod', { pin: 'v2', noEnv: false });
+    expect(envs.assertSecretsLaunchable).toHaveBeenCalledWith('u1', orgId, 'prod', { pin: 'v2', noEnv: false, creatorId: 'owner-user' });
     expect(spendGate.requireSpend).not.toHaveBeenCalled();
     expect(db.update).not.toHaveBeenCalled();
   });

@@ -53,5 +53,8 @@ export function runtimeLabel(r: string | null | undefined): string {
 }
 
 export function messageOf(e: unknown, fallback: string): string {
+  if ((e as { code?: unknown } | null)?.code === 'environment_secrets_admin_only') {
+    return "This environment's secrets are limited to admins. Ask an organization admin to set its secrets access to Members, or choose another environment.";
+  }
   return e instanceof Error ? e.message : fallback;
 }

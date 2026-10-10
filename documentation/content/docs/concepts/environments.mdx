@@ -27,8 +27,9 @@ The `secretsAccess` setting controls who that is:
   before anything is provisioned, only when the launch would pass something
   readable into the Dock: at least one secret variable or file (with secrets
   passing on), the Dock API key, or agent credentials (with agent credentials
-  passing on) while the organization has provider keys for the default agent or
-  the Dock's creator has a connected ChatGPT sign-in. Nothing is silently
+  passing on) while the organization has provider keys for the default agent or,
+  for a Dock another user created, that user has a connected ChatGPT sign-in
+  (a member's own sign-in never counts). Nothing is silently
   stripped. An Environment that would pass none of these, such as the empty
   `base` Environment of a new organization, or one marked safe for third
   parties, does not restrict members.

@@ -478,13 +478,32 @@ describe('EnvironmentsService', () => {
       expect(org).toMatchObject({ status: 403, body: expect.objectContaining({ code: 'environment_secrets_admin_only' }) });
       chatgpt.usable.mockResolvedValueOnce(true);
       queue('admins', versionRow(dockKeyOff));
-      const sub = await catchErr(service.assertSecretsLaunchable(callerId, orgId, 'base'));
+      const sub = await catchErr(service.assertSecretsLaunchable(callerId, orgId, 'base', { creatorId: 'creator' }));
       expect(sub.status).toBe(403);
       // Read path: the dock creator's sign-in is what the dock holds, not the reader's.
       chatgpt.usable.mockImplementationOnce(async (id: string) => id === 'creator');
       queue('admins', versionRow(dockKeyOff));
       const read = await catchErr(service.assertSecretsLaunchable(callerId, orgId, 'base', { creatorId: 'creator' }));
       expect(read.status).toBe(403);
+    });
+
+    it('does not refuse a member over their own ChatGPT sign-in', async () => {
+      member();
+      chatgpt.usable.mockResolvedValue(true);
+      queue('admins', versionRow(dockKeyOff));
+      await expect(service.assertSecretsLaunchable(callerId, orgId, 'base')).resolves.toBeUndefined();
+      queue('admins', versionRow(dockKeyOff));
+      await expect(service.assertSecretsLaunchable(callerId, orgId, 'base', { creatorId: callerId })).resolves.toBeUndefined();
+    });
+
+    it('fails closed for members when the ChatGPT lookup is not wired', async () => {
+      member();
+      const unwired = new EnvironmentsService(db as never, orgs as never, ops as never, { getOrThrow: () => 'a'.repeat(64), get: () => undefined } as never, creds as never);
+      queue('admins', versionRow(dockKeyOff));
+      const err = await catchErr(unwired.assertSecretsLaunchable(callerId, orgId, 'base', { creatorId: 'creator' }));
+      expect(err).toMatchObject({ status: 403, body: expect.objectContaining({ code: 'environment_secrets_admin_only' }) });
+      queue('admins', versionRow(dockKeyOff));
+      await expect(unwired.assertSecretsLaunchable(callerId, orgId, 'base')).resolves.toBeUndefined();
     });
 
     it('does not refuse on agent credentials when the posture is off', async () => {

@@ -571,16 +571,20 @@ export class EnvironmentsService {
     const injectsSecrets = pinned.passSecrets && (Object.keys(pinned.envVars).length > 0 || pinned.secretFiles.length > 0);
     if (injectsSecrets || pinned.passDockCredentials) throw new EnvironmentSecretsAdminOnlyException();
     // Mirrors what the apply step injects: org provider keys for the default agents, or the creator's ChatGPT sign-in.
-    if (pinned.passAgentsCredentials && (await this.agentCredentialsPresent(organizationId, opts.creatorId === undefined ? callerId : opts.creatorId))) {
+    if (pinned.passAgentsCredentials && (await this.agentCredentialsPresent(organizationId, callerId, opts.creatorId === undefined ? callerId : opts.creatorId))) {
       throw new EnvironmentSecretsAdminOnlyException();
     }
   }
 
-  private async agentCredentialsPresent(organizationId: string, creatorId: string | null): Promise<boolean> {
+  private async agentCredentialsPresent(organizationId: string, callerId: string, creatorId: string | null): Promise<boolean> {
     const { providers } = await this.creds.varsFor(organizationId, requiredKeysFor(DEFAULT_DOCK_AGENTS));
     if (providers.length) return true;
     const chatgptAgents = DEFAULT_DOCK_AGENTS.filter((a) => (CHATGPT_DOCK_AGENTS as readonly string[]).includes(a));
-    return chatgptAgents.length > 0 && !!creatorId && !!(await this.chatgpt?.usable(creatorId));
+    // The caller's own sign-in is theirs to read; only another user's counts.
+    if (!chatgptAgents.length || !creatorId || creatorId === callerId) return false;
+    // Fail closed for members if the sign-in lookup is not wired.
+    if (!this.chatgpt) return true;
+    return this.chatgpt.usable(creatorId);
   }
 
   private async refuseMembers(organizationId: string, callerId: string): Promise<void> {
