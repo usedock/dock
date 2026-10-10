@@ -15,14 +15,14 @@ permissions:
 jobs:
   cla:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request_target' || github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+    if: github.event_name == 'pull_request_target' || (github.event.issue.pull_request && (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'))
     steps:
       # contributor-assistant/github-action v2.6.1
       - uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          path-to-document: https://github.com/usedock/dock/blob/main/CLA.md
+          path-to-document: https://github.com/usedock/dock/blob/83279d37875c012493ef59b52f91a88c63bbae94/CLA.md
           path-to-signatures: signatures/v1/cla.json
           branch: cla-signatures
-          allowlist: parnexcodes,dependabot[bot],github-actions[bot],*[bot]
+          allowlist: parnexcodes,*[bot]
