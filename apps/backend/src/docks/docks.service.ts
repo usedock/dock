@@ -542,7 +542,7 @@ export class DocksService {
       // Best effort: the reconciler destroys the runtime of an archived row if this fails.
       await this.provider.destroyBacking(dock).catch((err) => new Logger('DocksService').warn(`Forced stop destroy failed for ${id}: ${err instanceof Error ? err.message : err}`));
       await this.transition(id, ['archiving'], { state: 'archived' });
-      await this.metering.closeWindowsForDock(id);
+      await this.moveToStorage(dock, orgId);
       await this.emitDockEvent('dock.archived', id, dock.workspaceId, orgId, 'archived');
       return { id, state: 'archived' };
     }
@@ -580,7 +580,13 @@ export class DocksService {
     await this.recordSnapshot(dock.id, capture.sizeBytes, capture.manifest, latest?.id ?? null, capture.snapshotId, capture.cpuFamily, capture.runtime, capture.kernelRelease, capture.baseFingerprint);
     await this.transition(dock.id, ['archiving'], { state: 'archived' });
     await this.emitDockEvent('dock.archived', dock.id, dock.workspaceId, orgId, 'archived');
-    await this.metering.closeWindowsForDock(dock.id);
+    await this.moveToStorage(dock, orgId);
+  }
+
+  private async moveToStorage(dock: Dock, orgId: string | null): Promise<void> {
+    const organizationId = orgId ?? (await this.orgForWorkspace(dock.workspaceId));
+    if (!organizationId) return await this.metering.closeWindowsForDock(dock.id);
+    await this.metering.moveToStorage({ organizationId, workspaceId: dock.workspaceId, dockId: dock.id, cpus: dock.cpus, memoryMiB: dock.memoryMiB, diskGiB: dock.diskGiB });
   }
 
   /**
@@ -712,7 +718,7 @@ export class DocksService {
         billingPausedAt: null,
       };
       const resumed = await this.transition(id, ['provisioning'], set);
-      await this.metering.openWindow({ organizationId: orgId, workspaceId: dock.workspaceId, dockId: id, ...size });
+      await this.metering.moveToCompute({ organizationId: orgId, workspaceId: dock.workspaceId, dockId: id, ...size });
       // Upgrades and posture changes made while archived land now.
       await this.applier.apply(resumed, orgId);
       await this.emitDockEvent('dock.hydrated', id, dock.workspaceId, orgId, 'ready');

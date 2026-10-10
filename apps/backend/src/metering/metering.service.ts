@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { DB, Db } from '../database/database.module';
-import { DEFAULT_CPUS, DEFAULT_DISK_GIB, DEFAULT_MEMORY_MIB, meteringWindows } from '../database/schema';
+import { DEFAULT_CPUS, DEFAULT_DISK_GIB, DEFAULT_MEMORY_MIB, meteringWindows, type MeteringUnit } from '../database/schema';
 import { isUniqueViolation, type OrgTx } from '../organizations/organizations.service';
 
 /** Transition-based activity windows. Fail-open: metering never blocks runtime work and never depends on the spend gate. */
@@ -21,6 +21,8 @@ export class MeteringService {
     memoryMiB?: number;
     diskGiB?: number;
     executionTarget?: string;
+    unit?: MeteringUnit;
+    openedAt?: Date;
   }, tx?: OrgTx) {
     const activityId = input.runtimeId ?? input.dockId ?? 'unknown';
     try {
@@ -29,7 +31,8 @@ export class MeteringService {
         workspaceId: input.workspaceId,
         dockId: input.dockId ?? null,
         runtimeId: input.runtimeId ?? null,
-        unit: 'compute',
+        unit: input.unit ?? 'compute',
+        ...(input.openedAt ? { openedAt: input.openedAt } : {}),
         executionTarget: input.executionTarget ?? 'dock',
         cpus: input.cpus ?? DEFAULT_CPUS,
         memoryMiB: input.memoryMiB ?? DEFAULT_MEMORY_MIB,
@@ -42,6 +45,55 @@ export class MeteringService {
       if (tx) throw err;
       if (isUniqueViolation(err)) return;
       this.logger.warn(`Metering window dropped for runtime ${activityId}: ${(err as Error).message}`);
+    }
+  }
+
+  /** Swaps the dock's open window for a storage window: a stopped dock accrues disk only. */
+  async moveToStorage(input: {
+    organizationId: string;
+    workspaceId: string;
+    dockId: string;
+    cpus: number;
+    memoryMiB: number;
+    diskGiB: number;
+  }, at: Date = new Date(), tx?: OrgTx) {
+    await this.swapWindow({ ...input, unit: 'storage' }, at, tx);
+  }
+
+  /** Swaps the dock's open window for a compute window: a running dock accrues vCPU, memory and disk. */
+  async moveToCompute(input: {
+    organizationId: string;
+    workspaceId: string;
+    dockId: string;
+    cpus: number;
+    memoryMiB: number;
+    diskGiB: number;
+  }, at: Date = new Date(), tx?: OrgTx) {
+    await this.swapWindow({ ...input, unit: 'compute' }, at, tx);
+  }
+
+  /** Close and open share one transaction and one instant, so a failure between them leaves no gap and no stale unit. */
+  private async swapWindow(input: {
+    organizationId: string;
+    workspaceId: string;
+    dockId: string;
+    cpus: number;
+    memoryMiB: number;
+    diskGiB: number;
+    unit: MeteringUnit;
+  }, at: Date, tx?: OrgTx) {
+    const swap = async (t: OrgTx) => {
+      await this.closeWindowsForDock(input.dockId, at, t);
+      await this.openWindow({ ...input, openedAt: at }, t);
+    };
+    if (tx) return await swap(tx);
+    try {
+      await this.db.transaction(swap);
+    } catch (err) {
+      // Fail-open: fall back to best-effort separate writes rather than leave the old unit accruing.
+      this.logger.warn(`Metering swap to ${input.unit} failed for dock ${input.dockId}: ${(err as Error).message}`);
+      await this.closeWindowsForDock(input.dockId, at);
+      await this.openWindow({ ...input, openedAt: at });
     }
   }
 

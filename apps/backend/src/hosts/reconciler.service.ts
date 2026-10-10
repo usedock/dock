@@ -112,7 +112,12 @@ export class ReconcilerService {
         .where(and(eq(docks.id, row.id), eq(docks.state, row.state), eq(docks.stateChangedAt, row.stateChangedAt)))
         .returning({ id: docks.id });
       if (!updated.length) return false;
-      await this.metering.closeWindowsForDock(row.id, at, tx);
+      const [ws] = await tx.select({ organizationId: workspaces.organizationId }).from(workspaces).where(eq(workspaces.id, row.workspaceId)).limit(1);
+      if (ws && !row.billingPausedAt) {
+        await this.metering.moveToStorage({ organizationId: ws.organizationId, workspaceId: row.workspaceId, dockId: row.id, cpus: row.cpus, memoryMiB: row.memoryMiB, diskGiB: row.diskGiB }, at, tx);
+      } else {
+        await this.metering.closeWindowsForDock(row.id, at, tx);
+      }
       return true;
     });
     if (!changed) return false;
@@ -136,9 +141,10 @@ export class ReconcilerService {
         .where(and(eq(docks.id, row.id), eq(docks.state, row.state), eq(docks.stateChangedAt, row.stateChangedAt)))
         .returning({ id: docks.id });
       if (!updated.length) return false;
+      await this.metering.closeWindowsForDock(row.id, at, tx);
       if (row.billingPausedAt) return true;
       const [ws] = await tx.select({ organizationId: workspaces.organizationId }).from(workspaces).where(eq(workspaces.id, row.workspaceId)).limit(1);
-      if (ws) await this.metering.openWindow({ organizationId: ws.organizationId, workspaceId: row.workspaceId, dockId: row.id, cpus: row.cpus, memoryMiB: row.memoryMiB, diskGiB: row.diskGiB }, tx);
+      if (ws) await this.metering.openWindow({ organizationId: ws.organizationId, workspaceId: row.workspaceId, dockId: row.id, cpus: row.cpus, memoryMiB: row.memoryMiB, diskGiB: row.diskGiB, openedAt: at }, tx);
       return true;
     });
     if (changed) this.logger.warn(`Dock ${row.id} reported again by its host, recovered to ready`);
