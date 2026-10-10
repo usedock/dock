@@ -102,6 +102,8 @@ jobs:
 
   publish:
     needs: build
+    # The implicit success() also sees the skipped validate job and would skip publish on tag pushes.
+    if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # id-token only here: keyless cosign signing.
