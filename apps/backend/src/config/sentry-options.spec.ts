@@ -100,7 +100,7 @@ describe('scrubSentryEvent', () => {
 describe('instrument import order', () => {
   it('imports ./instrument before any other import in main.ts', () => {
     const main = readFileSync(join(import.meta.dirname, '..', 'main.ts'), 'utf8');
-    const imports = main.split('\n').filter((line) => line.startsWith('import '));
+    const imports = main.split(/\r?\n/).filter((line) => line.startsWith('import '));
     expect(imports[0]).toBe("import './instrument';");
   });
 });
