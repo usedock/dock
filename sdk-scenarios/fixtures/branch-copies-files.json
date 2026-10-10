@@ -1,0 +1,213 @@
+{
+  "scenario": "branch-copies-files",
+  "variables": {
+    "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "run": "fixture"
+  },
+  "exchanges": [
+    {
+      "step": "create",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks",
+        "body": {
+          "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "name": "sdk-fixture-src",
+          "cpus": 1,
+          "memoryMiB": 1024,
+          "diskGiB": 10
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "ok": true,
+          "data": {
+            "id": "44444444-4444-4444-8444-444444444444",
+            "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "name": "sdk-fixture-src",
+            "cpus": 1,
+            "memoryMiB": 1024,
+            "diskGiB": 10,
+            "image": "ubuntu-24.04",
+            "runtime": "microvm",
+            "state": "ready",
+            "persistentPaths": [
+              "/"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "step": "write",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/44444444-4444-4444-8444-444444444444/exec",
+        "body": {
+          "command": "mkdir -p -- \"$(dirname -- '/home/user/work/seed.txt')\" && printf '%s' 'c2VlZAo=' | base64 -d > '/home/user/work/seed.txt'"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": {
+            "exitCode": 0,
+            "stdout": "",
+            "stderr": "",
+            "durationMs": 12,
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "step": "branch",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/44444444-4444-4444-8444-444444444444/branch",
+        "body": {
+          "name": "sdk-fixture-branch"
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "ok": true,
+          "data": {
+            "id": "55555555-5555-4555-8555-555555555555",
+            "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "name": "sdk-fixture-branch",
+            "cpus": 1,
+            "memoryMiB": 1024,
+            "diskGiB": 10,
+            "image": "ubuntu-24.04",
+            "runtime": "microvm",
+            "state": "ready",
+            "persistentPaths": [
+              "/"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "step": "read-branch",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/55555555-5555-4555-8555-555555555555/exec",
+        "body": {
+          "command": "base64 -w0 -- '/home/user/work/seed.txt'"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": {
+            "exitCode": 0,
+            "stdout": "c2VlZAo=",
+            "stderr": "",
+            "durationMs": 12,
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "step": "write-branch",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/55555555-5555-4555-8555-555555555555/exec",
+        "body": {
+          "command": "mkdir -p -- \"$(dirname -- '/home/user/work/branch-only.txt')\" && printf '%s' 'YnJhbmNoCg==' | base64 -d > '/home/user/work/branch-only.txt'"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": {
+            "exitCode": 0,
+            "stdout": "",
+            "stderr": "",
+            "durationMs": 12,
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "step": "list-source",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/44444444-4444-4444-8444-444444444444/exec",
+        "body": {
+          "command": "ls -1A -- '/home/user/work'"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": {
+            "exitCode": 0,
+            "stdout": "seed.txt\n",
+            "stderr": "",
+            "durationMs": 12,
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "step": "cleanup.0",
+      "request": {
+        "method": "DELETE",
+        "path": "/v1/docks/55555555-5555-4555-8555-555555555555",
+        "headers": {
+          "x-confirm-delete": "55555555-5555-4555-8555-555555555555"
+        }
+      },
+      "response": {
+        "status": 202,
+        "body": {
+          "ok": true,
+          "data": {
+            "operation": {
+              "id": "op_55555555",
+              "targetType": "dock",
+              "targetId": "55555555-5555-4555-8555-555555555555",
+              "status": "completed"
+            }
+          }
+        }
+      }
+    },
+    {
+      "step": "cleanup.1",
+      "request": {
+        "method": "DELETE",
+        "path": "/v1/docks/44444444-4444-4444-8444-444444444444",
+        "headers": {
+          "x-confirm-delete": "44444444-4444-4444-8444-444444444444"
+        }
+      },
+      "response": {
+        "status": 202,
+        "body": {
+          "ok": true,
+          "data": {
+            "operation": {
+              "id": "op_44444444",
+              "targetType": "dock",
+              "targetId": "44444444-4444-4444-8444-444444444444",
+              "status": "completed"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,171 @@
+{
+  "scenario": "create-exec-delete",
+  "variables": {
+    "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "run": "fixture"
+  },
+  "exchanges": [
+    {
+      "step": "create",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks",
+        "body": {
+          "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "name": "sdk-fixture-ced",
+          "image": "ubuntu-24.04",
+          "cpus": 1,
+          "memoryMiB": 1024,
+          "diskGiB": 10
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "ok": true,
+          "data": {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "name": "sdk-fixture-ced",
+            "cpus": 1,
+            "memoryMiB": 1024,
+            "diskGiB": 10,
+            "image": "ubuntu-24.04",
+            "runtime": "microvm",
+            "state": "ready",
+            "persistentPaths": [
+              "/"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "step": "get",
+      "request": {
+        "method": "GET",
+        "path": "/v1/docks/11111111-1111-4111-8111-111111111111"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "name": "sdk-fixture-ced",
+            "cpus": 1,
+            "memoryMiB": 1024,
+            "diskGiB": 10,
+            "image": "ubuntu-24.04",
+            "runtime": "microvm",
+            "state": "ready",
+            "persistentPaths": [
+              "/"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "step": "rename",
+      "request": {
+        "method": "PATCH",
+        "path": "/v1/docks/11111111-1111-4111-8111-111111111111",
+        "body": {
+          "name": "sdk-fixture-ced-renamed"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "name": "sdk-fixture-ced-renamed",
+            "cpus": 1,
+            "memoryMiB": 1024,
+            "diskGiB": 10,
+            "image": "ubuntu-24.04",
+            "runtime": "microvm",
+            "state": "ready",
+            "persistentPaths": [
+              "/"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "step": "exec-echo",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/11111111-1111-4111-8111-111111111111/exec",
+        "body": {
+          "command": "echo hello"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": {
+            "exitCode": 0,
+            "stdout": "hello\n",
+            "stderr": "",
+            "durationMs": 12,
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "step": "exec-fail",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/11111111-1111-4111-8111-111111111111/exec",
+        "body": {
+          "command": "echo oops >&2; exit 3"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": {
+            "exitCode": 3,
+            "stdout": "",
+            "stderr": "oops\n",
+            "durationMs": 12,
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "step": "delete",
+      "request": {
+        "method": "DELETE",
+        "path": "/v1/docks/11111111-1111-4111-8111-111111111111",
+        "headers": {
+          "x-confirm-delete": "11111111-1111-4111-8111-111111111111"
+        }
+      },
+      "response": {
+        "status": 202,
+        "body": {
+          "ok": true,
+          "data": {
+            "operation": {
+              "id": "op_11111111",
+              "targetType": "dock",
+              "targetId": "11111111-1111-4111-8111-111111111111",
+              "status": "completed"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

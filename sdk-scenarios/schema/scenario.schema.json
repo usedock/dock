@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/usedock/dock/sdk-scenarios/schema/scenario.schema.json",
+  "title": "Dock SDK scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "description", "steps"],
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "description": { "type": "string", "minLength": 1 },
+    "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/step" } },
+    "cleanup": { "type": "array", "items": { "$ref": "#/definitions/cleanupStep" } }
+  },
+  "definitions": {
+    "op": { "type": "string", "pattern": "^[a-z]+(\\.[a-z]+)+$" },
+    "args": { "type": "object" },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "op", "expect"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "op": { "$ref": "#/definitions/op" },
+        "args": { "$ref": "#/definitions/args" },
+        "capture": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9]*$" },
+          "additionalProperties": { "type": "string", "pattern": "^(data|code|message)(\\.[A-Za-z0-9]+)*$" }
+        },
+        "expect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "ok"],
+          "properties": {
+            "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+            "ok": { "type": "boolean" },
+            "code": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+            "data": {}
+          }
+        }
+      }
+    },
+    "cleanupStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op"],
+      "properties": {
+        "op": { "$ref": "#/definitions/op" },
+        "args": { "$ref": "#/definitions/args" }
+      }
+    }
+  }
+}

@@ -1,0 +1,80 @@
+name: branch-copies-files
+description: A branch starts from the source state with its own id, and later changes in either dock do not reach the other.
+steps:
+  - id: create
+    op: docks.create
+    args:
+      workspaceId: "${workspaceId}"
+      name: "sdk-${run}-src"
+      cpus: 1
+      memoryMiB: 1024
+      diskGiB: 10
+    capture:
+      sourceId: data.id
+    expect:
+      status: 201
+      ok: true
+      data:
+        state: ready
+  - id: write
+    op: docks.files.write
+    args:
+      dockId: "${sourceId}"
+      path: /home/user/work/seed.txt
+      content: "seed\n"
+    expect:
+      status: 200
+      ok: true
+  - id: branch
+    op: docks.branch
+    args:
+      dockId: "${sourceId}"
+      name: "sdk-${run}-branch"
+    capture:
+      branchId: data.id
+    expect:
+      status: 201
+      ok: true
+      data:
+        id: $any
+        name: "sdk-${run}-branch"
+        cpus: 1
+        memoryMiB: 1024
+        diskGiB: 10
+        state: ready
+  - id: read-branch
+    op: docks.files.read
+    args:
+      dockId: "${branchId}"
+      path: /home/user/work/seed.txt
+    expect:
+      status: 200
+      ok: true
+      data:
+        content: "seed\n"
+  - id: write-branch
+    op: docks.files.write
+    args:
+      dockId: "${branchId}"
+      path: /home/user/work/branch-only.txt
+      content: "branch\n"
+    expect:
+      status: 200
+      ok: true
+  - id: list-source
+    op: docks.files.list
+    args:
+      dockId: "${sourceId}"
+      path: /home/user/work
+    expect:
+      status: 200
+      ok: true
+      data:
+        entries: [seed.txt]
+cleanup:
+  - op: docks.delete
+    args:
+      dockId: "${branchId}"
+  - op: docks.delete
+    args:
+      dockId: "${sourceId}"

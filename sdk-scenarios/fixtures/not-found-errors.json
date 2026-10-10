@@ -1,0 +1,105 @@
+{
+  "scenario": "not-found-errors",
+  "variables": {
+    "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "run": "fixture"
+  },
+  "exchanges": [
+    {
+      "step": "get",
+      "request": {
+        "method": "GET",
+        "path": "/v1/docks/00000000-0000-4000-8000-000000000000"
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "ok": false,
+          "code": "dock_not_found",
+          "message": "Dock not found"
+        }
+      }
+    },
+    {
+      "step": "exec",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/00000000-0000-4000-8000-000000000000/exec",
+        "body": {
+          "command": "echo hi"
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "ok": false,
+          "code": "dock_not_found",
+          "message": "Dock not found"
+        }
+      }
+    },
+    {
+      "step": "stop",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/00000000-0000-4000-8000-000000000000/stop"
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "ok": false,
+          "code": "dock_not_found",
+          "message": "Dock not found"
+        }
+      }
+    },
+    {
+      "step": "resume",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/00000000-0000-4000-8000-000000000000/resume"
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "ok": false,
+          "code": "dock_not_found",
+          "message": "Dock not found"
+        }
+      }
+    },
+    {
+      "step": "branch",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/00000000-0000-4000-8000-000000000000/branch"
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "ok": false,
+          "code": "dock_not_found",
+          "message": "Dock not found"
+        }
+      }
+    },
+    {
+      "step": "delete",
+      "request": {
+        "method": "DELETE",
+        "path": "/v1/docks/00000000-0000-4000-8000-000000000000",
+        "headers": {
+          "x-confirm-delete": "00000000-0000-4000-8000-000000000000"
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "ok": false,
+          "code": "dock_not_found",
+          "message": "Dock not found"
+        }
+      }
+    }
+  ]
+}

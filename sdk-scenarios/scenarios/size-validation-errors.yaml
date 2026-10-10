@@ -1,0 +1,68 @@
+name: size-validation-errors
+description: Out-of-range sizes are refused with the validation_error code on create, update and branch; nothing is created.
+steps:
+  - id: create-disk-too-large
+    op: docks.create
+    args:
+      workspaceId: "${workspaceId}"
+      name: "sdk-${run}-big-disk"
+      diskGiB: 4096
+    expect:
+      status: 400
+      ok: false
+      code: validation_error
+  - id: create-cpus-too-large
+    op: docks.create
+    args:
+      workspaceId: "${workspaceId}"
+      name: "sdk-${run}-big-cpus"
+      cpus: 65
+    expect:
+      status: 400
+      ok: false
+      code: validation_error
+  - id: create-memory-too-small
+    op: docks.create
+    args:
+      workspaceId: "${workspaceId}"
+      name: "sdk-${run}-small-mem"
+      memoryMiB: 128
+    expect:
+      status: 400
+      ok: false
+      code: validation_error
+  - id: create-ok
+    op: docks.create
+    args:
+      workspaceId: "${workspaceId}"
+      name: "sdk-${run}-size"
+      cpus: 1
+      memoryMiB: 1024
+      diskGiB: 10
+    capture:
+      dockId: data.id
+    expect:
+      status: 201
+      ok: true
+  - id: branch-cpus-too-large
+    op: docks.branch
+    args:
+      dockId: "${dockId}"
+      cpus: 65
+    expect:
+      status: 400
+      ok: false
+      code: validation_error
+  - id: update-disk-too-large
+    op: docks.update
+    args:
+      dockId: "${dockId}"
+      diskGiB: 4096
+    expect:
+      status: 400
+      ok: false
+      code: validation_error
+cleanup:
+  - op: docks.delete
+    args:
+      dockId: "${dockId}"

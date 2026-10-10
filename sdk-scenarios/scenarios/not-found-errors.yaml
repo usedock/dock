@@ -1,0 +1,52 @@
+name: not-found-errors
+description: Item routes on a dock that does not exist answer 404 dock_not_found in the standard error envelope.
+steps:
+  - id: get
+    op: docks.get
+    args:
+      dockId: 00000000-0000-4000-8000-000000000000
+    expect:
+      status: 404
+      ok: false
+      code: dock_not_found
+  - id: exec
+    op: docks.exec
+    args:
+      dockId: 00000000-0000-4000-8000-000000000000
+      command: echo hi
+    expect:
+      status: 404
+      ok: false
+      code: dock_not_found
+  - id: stop
+    op: docks.stop
+    args:
+      dockId: 00000000-0000-4000-8000-000000000000
+    expect:
+      status: 404
+      ok: false
+      code: dock_not_found
+  - id: resume
+    op: docks.resume
+    args:
+      dockId: 00000000-0000-4000-8000-000000000000
+    expect:
+      status: 404
+      ok: false
+      code: dock_not_found
+  - id: branch
+    op: docks.branch
+    args:
+      dockId: 00000000-0000-4000-8000-000000000000
+    expect:
+      status: 404
+      ok: false
+      code: dock_not_found
+  - id: delete
+    op: docks.delete
+    args:
+      dockId: 00000000-0000-4000-8000-000000000000
+    expect:
+      status: 404
+      ok: false
+      code: dock_not_found
