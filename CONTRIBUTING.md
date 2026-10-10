@@ -10,7 +10,7 @@ Thanks for helping build Dock.
 
 ## Contributor License Agreement
 
-Every contributor signs the [Dock CLA](https://github.com/usedock/dock/blob/main/CLA.md). Signatures are stored per repository, so the CLA bot asks on your first pull request in each repository; reply with the sentence it gives you to sign. You keep the copyright in your work.
+Every contributor signs the [Dock CLA](https://github.com/usedock/dock/blob/83279d37875c012493ef59b52f91a88c63bbae94/CLA.md). Signatures are stored per repository, so the CLA bot asks on your first pull request in each repository; reply with the sentence it gives you to sign. You keep the copyright in your work.
 
 ## Development
 
