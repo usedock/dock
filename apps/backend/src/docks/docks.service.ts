@@ -266,6 +266,15 @@ export class DocksService {
     throw new CapacityExhaustedException();
   }
 
+  /** Advisory pre-insert check so a refused size leaves no row; placeAndRun still decides at provision time. */
+  private async assertPlaceable(size: DockSize): Promise<void> {
+    if (this.config.get<string>('RUNTIME_DRIVER') !== 'restate') return;
+    const fit = await this.hosts.sizeFit({ cpus: size.cpus, memoryMiB: size.memoryMiB });
+    if (fit === 'none_online') throw new NoHostCapacityException();
+    if (fit === 'too_large') throw validationError(`Requested size (${size.cpus} cpus, ${size.memoryMiB} MiB) exceeds the total capacity of every online host`);
+    if (!(await this.hosts.anyOnlineWithHeadroom({ cpus: size.cpus, memoryMiB: size.memoryMiB }))) throw new CapacityExhaustedException();
+  }
+
   /**
    * Places then runs the boot. A host whose docklet refuses with capacity_exhausted, or with
    * base_image_unavailable (a generation recorded before bases were tracked), is skipped and
@@ -357,7 +366,9 @@ export class DocksService {
       if (existing) return existing;
     }
     // After the key replay, so a retry of a named create returns its dock instead of 409.
-    const [dock] = await this.withKeyReleased(orgId, idempotencyKey, async () => this.insertDock({
+    const [dock] = await this.withKeyReleased(orgId, idempotencyKey, async () => {
+      await this.assertPlaceable(size);
+      return this.insertDock({
         workspaceId: input.workspaceId,
         name: await this.claimName(input.workspaceId, input.name),
         ...size,
@@ -372,7 +383,8 @@ export class DocksService {
         fromTemplate,
         createdBy: callerId,
         setupStatus: input.egressAllow?.length ? 'done' : 'pending',
-    }));
+      });
+    });
     try {
       const { machine, runtime } = await this.placeAndRun({ cpuFamily: templateCpuFamily, runtime: templateRuntime, baseFingerprint: templateBase }, dock, (host) =>
         this.provider.provision(dock, {
@@ -741,7 +753,9 @@ export class DocksService {
       const existing = await this.claimKey(orgId, idempotencyKey, { source: id, ...size, image, name: opts.name, ttlSeconds, env });
       if (existing) return existing;
     }
-    const [target] = await this.withKeyReleased(orgId, idempotencyKey, async () => this.insertDock({
+    const [target] = await this.withKeyReleased(orgId, idempotencyKey, async () => {
+      await this.assertPlaceable(size);
+      return this.insertDock({
         workspaceId: dock.workspaceId,
         name: await this.claimName(dock.workspaceId, opts.name),
         ...size,
@@ -756,7 +770,8 @@ export class DocksService {
         fromTemplate: dock.fromTemplate,
         createdBy: callerId,
         setupStatus: 'pending',
-    }));
+      });
+    });
     try {
       const latest = await this.latestSnapshot(id);
       const capture = await this.provider.captureSnapshot(dock, latest?.id ?? null);
