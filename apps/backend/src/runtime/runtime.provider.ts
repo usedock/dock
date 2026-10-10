@@ -53,7 +53,7 @@ export class RestateComputeProvider implements ComputeProvider {
   async resume(dock: Dock, opts: { snapshotId: string | null; hostId?: string | null }): Promise<MachineHandle> {
     if (!opts.snapshotId) throw new Error(`Dock ${dock.id} has no stored snapshot generation to resume from`);
     const client = await this.docklets(opts.hostId ?? dock.hostId ?? null);
-    const res = await client.snapshotLoad(dock.id, resourcesOf(dock), dock.image, opts.snapshotId, true);
+    const res = await client.snapshotLoad(dock.id, resourcesOf(dock), opts.snapshotId, true);
     this.checkHost(res.hostId, opts.hostId);
     return { ip: res.ip, hostId: res.hostId };
   }

@@ -155,7 +155,7 @@ describe('RestateComputeProvider', () => {
     await expect(provider.resume(dockRow({ hostId: 'h1' }) as never, { snapshotId: 'gen-9' })).resolves.toEqual({ ip: '10.9.9.10', hostId: 'h1' });
     await provider.destroyBacking(dockRow({ hostId: 'h1' }) as never);
     expect(docklets).toHaveBeenCalledWith('h1');
-    expect(docklet.snapshotLoad).toHaveBeenCalledWith('d1', { cpus: 2, memoryMiB: 4096, diskGiB: 20 }, 'ubuntu-24.04', 'gen-9', true);
+    expect(docklet.snapshotLoad).toHaveBeenCalledWith('d1', { cpus: 2, memoryMiB: 4096, diskGiB: 20 }, 'gen-9', true);
     expect(docklet.destroy).toHaveBeenCalledWith('d1');
   });
 

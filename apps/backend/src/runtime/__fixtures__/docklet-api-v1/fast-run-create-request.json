@@ -1,0 +1,1 @@
+{"runtimeId":"rt_01JC8Z6H9K","resources":{"cpus":1,"memoryMiB":1024,"diskGiB":5},"image":"ubuntu-24.04","idempotencyToken":"tok_fast_create_01","guestToken":"gt_fake_0123456789","capabilities":{"version":1,"target":"microvm","profile":"default","capabilities":{"exec":true,"read":true}},"egressAllow":["pypi.org"]}

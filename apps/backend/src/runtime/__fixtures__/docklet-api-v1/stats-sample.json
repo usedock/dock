@@ -1,0 +1,1 @@
+{"dockId":"dck_01JC8Z3Q5W","at":"2026-10-11T09:30:00Z","source":"cgroup","cpuPercent":12.5,"memBytes":536870912,"memLimit":2147483648,"diskBytes":10737418240,"diskUsedBytes":1073741824,"rxBytes":2048,"txBytes":4096,"containers":[{"name":"redis","cpuPercent":1.5,"memBytes":52428800}]}

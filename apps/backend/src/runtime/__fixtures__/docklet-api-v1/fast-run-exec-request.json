@@ -1,0 +1,1 @@
+{"runtimeId":"rt_01JC8Z6H9K","script":"echo hello && ls /workspace","timeoutSeconds":30,"env":{"CI":"1"},"idempotencyToken":"tok_fast_exec_01"}

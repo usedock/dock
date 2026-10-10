@@ -24,6 +24,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run build
+      # Specs are outside the build; the contract spec's key tables only bite when typechecked.
+      - run: bunx tsc -p tsconfig.contract.json
       - run: bun run test
 
   dashboard:
