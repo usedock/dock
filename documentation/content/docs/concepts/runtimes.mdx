@@ -1,0 +1,40 @@
+---
+title: Runtimes and images
+description: Images, sizes, and the two runtimes a host can provide.
+---
+
+## Image
+
+An image is the filesystem a Dock starts from. `ubuntu-24.04` is the only image
+available today: a minimal Ubuntu with systemd, ssh, Docker, git, and curl.
+Dock does not ship coding agents. Install whichever you use in your environment
+setup script.
+
+## Size
+
+A Dock's size is three numbers you pass on create or branch:
+
+| Field | Default | Limit |
+|---|---|---|
+| `cpus` | 2 | 1 to 64 |
+| `memoryMiB` | 4096 | 512 to 262144 |
+| `diskGiB` | 20 | 1 to 2048 |
+
+The limits are validation bounds. A host must also have room: with no enrolled
+host online, creation fails with 503 `no_host_capacity`; when hosts are online but none has
+room for the requested `cpus` and `memoryMiB`, it fails with 503
+`capacity_exhausted`.
+
+## Runtime
+
+The runtime is chosen by the host the Dock lands on. It is read-only on the
+Dock object, with the paths that survive a stop in `persistentPaths`.
+
+| Runtime | How it runs | What persists |
+|---|---|---|
+| `microvm` | Firecracker on Linux KVM | The whole disk |
+| `gvisor` | `runsc` on Linux with Docker | Only `/home/user/work` |
+
+Use `microvm` when you need the whole machine kept (installed packages,
+system changes). A `gvisor` Dock restarts from the image with only
+`/home/user/work` restored, so put work there.

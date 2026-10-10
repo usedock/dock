@@ -1,0 +1,136 @@
+---
+title: Self-hosting
+description: Run the open-source Dock control plane and hosts on your own machines.
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Dock is open source (AGPL-3.0) and self-hosting is free. The whole
+control plane runs on one machine with Docker Compose from `deploy/self-host/`
+in the Dock source; its `README.md` is the full guide. This page summarizes it.
+
+| Service | Role |
+|---|---|
+| `db` (Postgres 16), `redis` | durable state, rate limits |
+| `restate` | durable Dock workflows (internal only) |
+| `minio` + `minio-init` | Snapshot storage, bucket created on start |
+| `migrate` | applies database migrations, then exits |
+| `backend` | REST API, fleet API, GitHub webhooks, workflow endpoint |
+| `restate-register` | registers the workflow endpoint with Restate on every start |
+| `dashboard` | web UI |
+| `caddy` | one public origin: `/v1/*`, `/api/auth/*`, `/openapi.json` to the API, the rest to the dashboard |
+
+## Requirements
+
+- Docker with Compose v2.
+- For a public instance, a DNS name pointing at the machine (for example
+  `dock.example.com`) and ports 80 and 443 free, so Caddy can obtain a public
+  certificate. Plain HTTP works for trying Dock, but GitHub webhooks and
+  confined GitHub runs need HTTPS on 443.
+- To run Docks on the same machine: Linux with Docker (`gvisor`) or `/dev/kvm` (`microvm`).
+
+## Quick start
+
+From `deploy/self-host/`:
+
+```bash
+./setup.sh --host                           # local: http://localhost:8088, Docks on this machine
+./setup.sh --url https://dock.example.com   # public instance, automatic HTTPS
+```
+
+`setup.sh` writes `.env` with fresh secrets on the first run, starts the stack,
+and waits until the API is healthy. `--host` enrolls the same machine as a
+host (it asks for sudo, and the first run builds the Dock image; it expects a
+`usedock/docklet` checkout next to this repository at `../docklet`: clone
+https://github.com/usedock/docklet there, or set `DOCKLET_DIR`).
+Re-running keeps `.env`. To configure by hand, copy `.env.example` to `.env`,
+fill it, and run `docker compose up -d --build`.
+
+Open `DOCK_PUBLIC_URL` and sign up. On a self-hosted instance:
+
+- There is no billing on a self-hosted instance.
+- Telemetry is off by default.
+- Mail is optional. With `SMTP_HOST` empty, messages such as sign-in codes
+  and reset links are written to the API log
+  (`docker compose logs backend | grep -A2 "mail not delivered"`).
+- Google and GitHub sign-in are optional. A provider appears only when both
+  its client id and secret are set; the callback URL is
+  `<DOCK_PUBLIC_URL>/api/auth/callback/<google|github>`.
+- SSH listens on `DOCK_SSH_PORT` (default 2222); open it in your firewall.
+  The host key is derived from `BETTER_AUTH_SECRET`, so it survives rebuilds;
+  set `SSH_HOST_KEY` in `.env` to pin your own.
+- Hosted ports work on a local install at `*.ports.localhost`. On a public
+  install, run `./setup.sh --ports-domain ports.example.com` with a wildcard
+  DNS record `*.ports.example.com` pointing at the server. Caddy issues each certificate on first use, only for
+  exposed names.
+
+Upgrade with `git pull && docker compose up -d --build`; migrations run before
+the API starts. Back up the `pgdata` and `minio-data` volumes and keep `.env`.
+
+Installs created before the single baseline migration (October 2026) cannot
+upgrade in place: the migration fails and the API never starts. Reset with
+`docker compose down -v` (this deletes all Docks, Snapshots, and accounts), run
+`./setup.sh` again, and re-enroll each host.
+
+<Callout title="Keep SECRETS_ENCRYPTION_KEY">
+  Losing it makes stored provider keys and Environment secrets unreadable.
+</Callout>
+
+## Add hosts
+
+A host is a machine that runs Docks. It dials out to `DOCK_PUBLIC_URL` and needs
+no inbound port. `./setup.sh --host` enrolls the control plane machine itself.
+On any other Linux machine, from a checkout of `usedock/docklet` (`FLEET_TOKEN`
+is in `.env`):
+
+```bash
+sudo bash scripts/bootstrap-host.sh \
+  --fleet-url https://dock.example.com \
+  --fleet-token "$FLEET_TOKEN" \
+  --runtime microvm
+```
+
+The `--runtime` flag picks what the host provides:
+
+- `microvm`: Firecracker on Linux KVM (bare metal or nested virtualization
+  with `/dev/kvm`). The whole disk persists. The installer builds the image
+  (several minutes, about 20 GB).
+- `gvisor`: `runsc` on any Linux machine with Docker. Only `/home/user/work`
+  persists across stop and resume.
+
+The runtime is a property of the host, not of a Dock: a Dock gets the runtime of
+the host it lands on. See [Runtimes and images](/concepts/runtimes). The
+docklet repository covers hosts in depth.
+
+## GitHub issue to pull request
+
+Each instance registers its own GitHub App:
+
+1. Put your email in `INSTANCE_ADMIN_EMAILS` in `.env` and run
+   `docker compose up -d backend`.
+2. In the dashboard open Developers > GitHub App > Register App and continue
+   on GitHub.
+3. Paste the App id, slug, private key, and webhook secret GitHub returns into
+   `.env` (they are shown once and not stored by Dock), then run
+   `docker compose up -d backend`.
+4. Install the App on your repositories and link the installation to a
+   workspace on Developers > GitHub App.
+5. Add a model provider key under Developers > Provider keys.
+
+Mention `@dock` in an issue comment to start a run.
+
+## Network notes
+
+- GitHub webhooks go to `<DOCK_PUBLIC_URL>/v1/github/webhooks`, so the API must
+  be reachable from github.com.
+- Docks used by GitHub runs reach the internet only through each host's egress
+  proxy, which allows HTTPS to an allowlist that always includes the control
+  plane. The control plane must therefore serve HTTPS on 443 with a publicly
+  trusted certificate. If `DOCK_PUBLIC_URL` resolves to a private address, allow
+  that range on each host with `--egress-allow-private 10.0.0.0/24`.
+- Snapshot transfers go through the API's object proxy by default. Set
+  `SNAPSHOT_STORE_PUBLIC_ENDPOINT` only if hosts can reach the object store
+  directly.
+- The stack uses `pgsty/minio` and `pgsty/mc` images; override with
+  `MINIO_IMAGE` / `MINIO_CLIENT_IMAGE`, or point `SNAPSHOT_STORE_ENDPOINT` at any
+  S3-compatible bucket.

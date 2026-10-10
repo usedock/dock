@@ -1,0 +1,24 @@
+# Local development: hot-reload Next.js dev server.
+# From documentation: `docker compose -f docker-compose.dev.yml up`.
+# Deps install on start into a cached volume; source edits reload live.
+# Pinned project name: dev and prod files must never share one.
+name: documentation-dev
+services:
+  docs:
+    image: oven/bun:1-alpine
+    command: ['sh', '-c', 'bun install && bun run dev']
+    working_dir: /app
+    volumes:
+      - .:/app
+      - docs-node-modules-dev:/app/node_modules
+      - docs-next-dev:/app/.next
+    environment:
+      HOSTNAME: '0.0.0.0'
+      PORT: '3001'
+    ports:
+      - '127.0.0.1:3001:3001'
+    stdin_open: true
+    tty: true
+volumes:
+  docs-node-modules-dev:
+  docs-next-dev:

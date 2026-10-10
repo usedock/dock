@@ -1,0 +1,79 @@
+# Local development stack: Postgres + Redis + Mailpit + hot-reload API.
+# From apps/backend: `docker compose -f docker-compose.dev.yml up --build`.
+# Reads .env (copy from .env.example). System Caddy proxies 127.0.0.1:8000.
+# Pinned project name: dev and prod files must never share one, or dev
+# `run`/`up` recreates prod containers under the same names.
+name: backend-dev
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: dock
+      POSTGRES_PASSWORD: dock
+      POSTGRES_DB: dock
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U dock -d dock']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports:
+      - '127.0.0.1:6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - '127.0.0.1:1025:1025'
+      - '127.0.0.1:8025:8025'
+
+  backend:
+    build: .
+    command: ['bun', 'run', 'start:dev']
+    working_dir: /app
+    volumes:
+      - .:/app
+      - /app/node_modules
+    env_file: .env
+    environment:
+      # Service names win over .env localhost hosts so the containerised API
+      # reaches the compose db/redis; secrets still come from .env.
+      NODE_ENV: development
+      DATABASE_URL: postgres://dock:dock@db:5432/dock
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '127.0.0.1:8000:8000'
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+
+  # One-shot schema migration against the dev database. Not started by up.
+  migrate:
+    build:
+      context: .
+      target: build
+    env_file: .env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://dock:dock@db:5432/dock
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ['bun', 'run', 'db:migrate']
+    profiles: ['tools']
+volumes:
+  pgdata-dev:

@@ -14,18 +14,20 @@ Every contributor signs the [Dock CLA](https://github.com/usedock/dock/blob/8327
 
 ## Development
 
-These steps apply once the code lands in this repo. Each app will run on its own; there is no root workspace.
+Each app runs on its own; there is no root workspace.
 
 ```sh
 cd apps/backend
 bun install
-docker compose -f docker-compose.dev.yml up db redis mailpit
+cp .env.example .env   # then set SECRETS_ENCRYPTION_KEY to the output of `openssl rand -hex 32`
+docker compose -f docker-compose.dev.yml up -d db redis mailpit
+bun run db:migrate
 bun run start:dev
 bun run test        # Vitest; every behavior change ships with colocated *.spec.ts tests
 bun run build       # nest build
 ```
 
-The dashboard: `cd apps/dashboard && bun install && bun run lint && bun run build`.
+The dashboard: `cd apps/dashboard && bun install && bun run lint && bun run build`. The docs: `cd documentation && bun install && bunx fumadocs-mdx && bun run typecheck && bun run build`. CI runs all of these.
 
 An API change lands in the same pull request as its doc page under `documentation/`, and links the matching pull requests in [dock-js](https://github.com/usedock/dock-js), [dock-python](https://github.com/usedock/dock-python) and [dock-go](https://github.com/usedock/dock-go).
 

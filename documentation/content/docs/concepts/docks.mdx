@@ -1,0 +1,98 @@
+---
+title: Docks
+description: "The Dock lifecycle: create, stop, resume, branch, delete."
+---
+
+A Dock is an isolated Linux machine with a persistent disk and a stable ID.
+You create it in a workspace from an image (`ubuntu-24.04`) with a size
+(`cpus`, `memoryMiB`, `diskGiB`) and an optional `name`, unique per workspace
+(409 `dock_name_taken` otherwise). The host decides the runtime, `microvm` or
+`gvisor`, which determines what survives a stop; see
+[Runtimes and images](/concepts/runtimes).
+
+## Lifecycle
+
+- Create (`POST /v1/docks`) boots a new Dock and returns it once the host
+  has started it.
+- Stop (`POST /v1/docks/:id/stop`) archives the disk to a Snapshot and
+  releases compute. Archived Docks hold no compute.
+- Resume (`POST /v1/docks/:id/resume`) boots the same Dock, with the same
+  ID, from its latest Snapshot. Running processes start again.
+- Branch (`POST /v1/docks/:id/branch`) starts a new, independent Dock from
+  the source's state. Changes in either never affect the other.
+- Auto-stop is opt-in: set `ttlSeconds` (60 to 2592000) on create, branch, or
+  update and the Dock is stopped that many wall-clock seconds after it last
+  became ready. `null`, the default, never stops it. It is not applied in
+  organizations with zero data retention, where a stop would delete the Dock.
+- Delete (`DELETE /v1/docks/:id`) returns an operation to poll and requires
+  `x-confirm-delete: <dock id>`.
+
+Create and branch accept an `idempotency-key` header, so crashed automation can
+retry without creating duplicates. States you will see include `provisioning`,
+`ready`, `idle`, `running`, `archiving`, `archived`, and `error`.
+
+## Running commands
+
+`POST /v1/docks/:id/exec` runs one command in a `ready`, `idle`, or `running`
+Dock and returns `{ exitCode, stdout, stderr, durationMs, truncated }`. Commands
+run as the Dock user under `bash -lc`, in `/home/user/work` unless you pass an
+absolute `cwd`. `env` adds variables for that call only; it is never stored on
+the Dock. `timeoutSeconds` defaults to 60 and is capped by the deployment; a command still running at its timeout is killed, with
+its child processes, and the call returns 504 `exec_timeout`. Each output stream
+keeps its first 1 MiB. Pass an `idempotency-key` header to make retries return
+the first result instead of running the command again.
+
+Docks driven by a GitHub run return 409 `exec_unavailable`; branch them to run
+your own commands.
+Each Dock takes up to 4 commands at once and 120 a minute.
+
+## SSH
+
+Add a public key with `POST /v1/ssh-keys` (`name`, `publicKey`: one OpenSSH
+line such as `~/.ssh/id_ed25519.pub`) or on the dashboard's SSH keys page, then
+connect with the Dock ID as the user:
+
+```sh
+ssh -p 2222 <dock id>@dock.example.com
+ssh -p 2222 <dock id>@dock.example.com 'uname -a'
+```
+
+A key opens any Dock its owner can see. Interactive sessions get a login shell
+on a pty, with the same limits as the dashboard terminal: 4 per Dock, closed
+after 30 minutes idle or 12 hours. A command after the host runs through the
+exec API above, with its limits and its exit code. The gateway's host and port
+are in `GET /v1/config` under `ssh`; self-hosted instances listen on
+`DOCK_SSH_PORT`. SCP, SFTP, and port, agent, or X11 forwarding are refused.
+
+## Ports
+
+Expose a port with `POST /v1/docks/:id/ports` (`port`: 1 to 65535) or on the
+dashboard's Ports tab. The response carries a public URL such as
+`https://3000-k7x2m9q4w8r3t5yz.<ports domain>`; exposing the same port again
+returns the same URL.
+
+```bash
+curl -X POST https://$DOCK_URL/v1/docks/$DOCK_ID/ports \
+  -H "Authorization: Bearer $DOCK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"port": 3000}'
+```
+
+Requests to the URL reach the port on the Dock's loopback, so a server bound to
+`localhost` works. HTTP, WebSockets, and streaming responses pass through. The
+random name is the only credential: anyone with the URL can reach the port
+until you remove it with `DELETE /v1/docks/:id/ports/:port`. A Dock exposes at
+most 10 ports, and its URLs answer only while it is running. The request keeps
+its original `Host` header, so dev servers that check it (Vite's
+`server.allowedHosts`, for example) must allow the ports domain. Hosted ports
+are on when `GET /v1/config` reports `ports`.
+
+`GET /v1/docks/:id/stats` returns current CPU, memory, disk, and network usage
+plus `1h` and `24h` history. Snapshots of a Dock can be listed, browsed, read
+file by file, and downloaded through the Snapshots API.
+
+## Not available yet
+
+- The `dock` CLI and the client SDKs are not built yet. Use the REST API.
+- SCP, SFTP, and SSH port forwarding. Move files with the exec API or the
+  snapshot file APIs.

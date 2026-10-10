@@ -1,0 +1,16 @@
+# deps and builds
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+
+# env / secrets (deploy/self-host/setup.sh writes .env with fresh secrets)
+.env
+.env.*
+!.env.example
+
+# logs / local
+*.log
+.DS_Store
