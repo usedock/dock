@@ -53,6 +53,19 @@ jobs:
       - run: bun run typecheck
       - run: bun run build
 
+  sdk-scenarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: sdk-scenarios
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx tsc --noEmit
+      - run: bunx vitest run
+
   gitleaks:
     runs-on: ubuntu-latest
     timeout-minutes: 10

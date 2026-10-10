@@ -1,0 +1,80 @@
+name: stop-resume-keeps-files
+description: A file under /home/user/work survives stop and resume on every runtime, and the dock keeps its id.
+steps:
+  - id: create
+    op: docks.create
+    args:
+      workspaceId: "${workspaceId}"
+      name: "sdk-${run}-resume"
+      cpus: 1
+      memoryMiB: 1024
+      diskGiB: 10
+    capture:
+      dockId: data.id
+    expect:
+      status: 201
+      ok: true
+      data:
+        state: ready
+  - id: write
+    op: docks.files.write
+    args:
+      dockId: "${dockId}"
+      path: /home/user/work/persist.txt
+      content: "still here\n"
+    expect:
+      status: 200
+      ok: true
+  - id: stop
+    op: docks.stop
+    args:
+      dockId: "${dockId}"
+    expect:
+      status: 202
+      ok: true
+      data:
+        id: "${dockId}"
+        state: archived
+  - id: get-stopped
+    op: docks.get
+    args:
+      dockId: "${dockId}"
+    expect:
+      status: 200
+      ok: true
+      data:
+        id: "${dockId}"
+        state: archived
+  - id: exec-while-stopped
+    op: docks.exec
+    args:
+      dockId: "${dockId}"
+      command: echo nope
+    expect:
+      status: 409
+      ok: false
+      code: dock_not_running
+  - id: resume
+    op: docks.resume
+    args:
+      dockId: "${dockId}"
+    expect:
+      status: 202
+      ok: true
+      data:
+        id: "${dockId}"
+        state: ready
+  - id: read
+    op: docks.files.read
+    args:
+      dockId: "${dockId}"
+      path: /home/user/work/persist.txt
+    expect:
+      status: 200
+      ok: true
+      data:
+        content: "still here\n"
+cleanup:
+  - op: docks.delete
+    args:
+      dockId: "${dockId}"

@@ -1,0 +1,89 @@
+name: create-exec-delete
+description: Create a sized dock, read it back, rename it, run commands, and delete it.
+steps:
+  - id: create
+    op: docks.create
+    args:
+      workspaceId: "${workspaceId}"
+      name: "sdk-${run}-ced"
+      image: ubuntu-24.04
+      cpus: 1
+      memoryMiB: 1024
+      diskGiB: 10
+    capture:
+      dockId: data.id
+    expect:
+      status: 201
+      ok: true
+      data:
+        id: $any
+        name: "sdk-${run}-ced"
+        image: ubuntu-24.04
+        cpus: 1
+        memoryMiB: 1024
+        diskGiB: 10
+        state: ready
+  - id: get
+    op: docks.get
+    args:
+      dockId: "${dockId}"
+    expect:
+      status: 200
+      ok: true
+      data:
+        id: "${dockId}"
+        cpus: 1
+        memoryMiB: 1024
+        diskGiB: 10
+  - id: rename
+    op: docks.update
+    args:
+      dockId: "${dockId}"
+      name: "sdk-${run}-ced-renamed"
+    expect:
+      status: 200
+      ok: true
+      data:
+        id: "${dockId}"
+        name: "sdk-${run}-ced-renamed"
+  - id: exec-echo
+    op: docks.exec
+    args:
+      dockId: "${dockId}"
+      command: echo hello
+    expect:
+      status: 200
+      ok: true
+      data:
+        exitCode: 0
+        stdout: "hello\n"
+        stderr: ""
+        truncated: false
+  - id: exec-fail
+    op: docks.exec
+    args:
+      dockId: "${dockId}"
+      command: "echo oops >&2; exit 3"
+    expect:
+      status: 200
+      ok: true
+      data:
+        exitCode: 3
+        stdout: ""
+        stderr: "oops\n"
+  - id: delete
+    op: docks.delete
+    args:
+      dockId: "${dockId}"
+    expect:
+      status: 202
+      ok: true
+      data:
+        operation:
+          targetType: dock
+          targetId: "${dockId}"
+          status: completed
+cleanup:
+  - op: docks.delete
+    args:
+      dockId: "${dockId}"

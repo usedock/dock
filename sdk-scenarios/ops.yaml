@@ -1,0 +1,81 @@
+# Stable operation names shared by every SDK. Paths and body fields come from
+# apps/backend/src/docks/ and apps/backend/src/retention/ (checked in CI).
+# `{name}` in a path is an argument; `body` lists the argument names sent as JSON.
+http:
+  docks.create:
+    method: POST
+    path: /v1/docks
+    status: 201
+    body: [workspaceId, name, image, cpus, memoryMiB, diskGiB, ttlSeconds, env]
+  docks.list:
+    method: GET
+    path: /v1/docks
+    status: 200
+    query: [filter, all]
+  docks.get:
+    method: GET
+    path: /v1/docks/{dockId}
+    status: 200
+  docks.update:
+    method: PATCH
+    path: /v1/docks/{dockId}
+    status: 200
+    body: [name, cpus, memoryMiB, diskGiB, ttlSeconds]
+  docks.exec:
+    method: POST
+    path: /v1/docks/{dockId}/exec
+    status: 200
+    body: [command, timeoutSeconds, env, cwd]
+  docks.stop:
+    method: POST
+    path: /v1/docks/{dockId}/stop
+    status: 202
+    body: [force]
+  docks.resume:
+    method: POST
+    path: /v1/docks/{dockId}/resume
+    status: 202
+    body: [cpus, memoryMiB, diskGiB, ttlSeconds, environment, noEnv]
+  docks.branch:
+    method: POST
+    path: /v1/docks/{dockId}/branch
+    status: 201
+    body: [name, image, cpus, memoryMiB, diskGiB, ttlSeconds, env, environment, noEnv]
+  docks.delete:
+    method: DELETE
+    path: /v1/docks/{dockId}
+    status: 202
+    # The value is the dock id being deleted; the API refuses the call without it.
+    headers:
+      x-confirm-delete: "{dockId}"
+  operations.get:
+    method: GET
+    path: /v1/operations/{operationId}
+    status: 200
+
+# The API has no file routes. SDK file helpers run one docks.exec call and
+# reshape its result. `command` is the exact exec body; `{path}` is the path in
+# single quotes (a single quote in a path is not supported), `{contentBase64}`
+# is the base64 of the UTF-8 content. `data` is what a step's `expect.data`
+# is matched against.
+composite:
+  docks.files.write:
+    via: docks.exec
+    args: [dockId, path, content]
+    command: "mkdir -p \"$(dirname '{path}')\" && printf '%s' '{contentBase64}' | base64 -d > '{path}'"
+    data:
+      path: "{path}"
+  docks.files.read:
+    via: docks.exec
+    args: [dockId, path]
+    command: "base64 -w0 '{path}'"
+    # stdout is base64; data.content is its UTF-8 decoding.
+    data:
+      content: "base64decode(stdout)"
+  docks.files.list:
+    via: docks.exec
+    args: [dockId, path]
+    command: "ls -1A '{path}'"
+    # data.entries is stdout split on newlines, empty lines dropped, in ls order.
+    data:
+      entries: "lines(stdout)"

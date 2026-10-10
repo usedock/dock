@@ -1,0 +1,63 @@
+name: files-roundtrip
+description: Write a file (creating its directory), read it back, and list the directory.
+steps:
+  - id: create
+    op: docks.create
+    args:
+      workspaceId: "${workspaceId}"
+      name: "sdk-${run}-files"
+      cpus: 1
+      memoryMiB: 1024
+      diskGiB: 10
+    capture:
+      dockId: data.id
+    expect:
+      status: 201
+      ok: true
+      data:
+        state: ready
+  - id: write
+    op: docks.files.write
+    args:
+      dockId: "${dockId}"
+      path: /home/user/work/notes/hello.txt
+      content: "hello from dock\nsecond line\n"
+    expect:
+      status: 200
+      ok: true
+      data:
+        path: /home/user/work/notes/hello.txt
+  - id: read
+    op: docks.files.read
+    args:
+      dockId: "${dockId}"
+      path: /home/user/work/notes/hello.txt
+    expect:
+      status: 200
+      ok: true
+      data:
+        content: "hello from dock\nsecond line\n"
+  - id: list
+    op: docks.files.list
+    args:
+      dockId: "${dockId}"
+      path: /home/user/work/notes
+    expect:
+      status: 200
+      ok: true
+      data:
+        entries: [hello.txt]
+  - id: read-missing
+    op: docks.exec
+    args:
+      dockId: "${dockId}"
+      command: cat /home/user/work/notes/missing.txt
+    expect:
+      status: 200
+      ok: true
+      data:
+        exitCode: 1
+cleanup:
+  - op: docks.delete
+    args:
+      dockId: "${dockId}"

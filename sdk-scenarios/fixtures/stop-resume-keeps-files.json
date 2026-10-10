@@ -1,0 +1,192 @@
+{
+  "scenario": "stop-resume-keeps-files",
+  "variables": {
+    "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "run": "fixture"
+  },
+  "exchanges": [
+    {
+      "step": "create",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks",
+        "body": {
+          "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "name": "sdk-fixture-resume",
+          "cpus": 1,
+          "memoryMiB": 1024,
+          "diskGiB": 10
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "ok": true,
+          "data": {
+            "id": "33333333-3333-4333-8333-333333333333",
+            "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "name": "sdk-fixture-resume",
+            "cpus": 1,
+            "memoryMiB": 1024,
+            "diskGiB": 10,
+            "image": "ubuntu-24.04",
+            "runtime": "microvm",
+            "state": "ready",
+            "persistentPaths": [
+              "/"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "step": "write",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/33333333-3333-4333-8333-333333333333/exec",
+        "body": {
+          "command": "mkdir -p \"$(dirname '/home/user/work/persist.txt')\" && printf '%s' 'c3RpbGwgaGVyZQo=' | base64 -d > '/home/user/work/persist.txt'"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": {
+            "exitCode": 0,
+            "stdout": "",
+            "stderr": "",
+            "durationMs": 12,
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "step": "stop",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/33333333-3333-4333-8333-333333333333/stop"
+      },
+      "response": {
+        "status": 202,
+        "body": {
+          "ok": true,
+          "data": {
+            "id": "33333333-3333-4333-8333-333333333333",
+            "state": "archived"
+          }
+        }
+      }
+    },
+    {
+      "step": "get-stopped",
+      "request": {
+        "method": "GET",
+        "path": "/v1/docks/33333333-3333-4333-8333-333333333333"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": {
+            "id": "33333333-3333-4333-8333-333333333333",
+            "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "name": "sdk-fixture-resume",
+            "cpus": 1,
+            "memoryMiB": 1024,
+            "diskGiB": 10,
+            "image": "ubuntu-24.04",
+            "runtime": "microvm",
+            "state": "archived",
+            "persistentPaths": [
+              "/"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "step": "exec-while-stopped",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/33333333-3333-4333-8333-333333333333/exec",
+        "body": {
+          "command": "echo nope"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "ok": false,
+          "code": "dock_not_running",
+          "message": "Dock is archived; commands run only on ready docks"
+        }
+      }
+    },
+    {
+      "step": "resume",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/33333333-3333-4333-8333-333333333333/resume"
+      },
+      "response": {
+        "status": 202,
+        "body": {
+          "ok": true,
+          "data": {
+            "id": "33333333-3333-4333-8333-333333333333",
+            "state": "ready"
+          }
+        }
+      }
+    },
+    {
+      "step": "read",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks/33333333-3333-4333-8333-333333333333/exec",
+        "body": {
+          "command": "base64 -w0 '/home/user/work/persist.txt'"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": {
+            "exitCode": 0,
+            "stdout": "c3RpbGwgaGVyZQo=",
+            "stderr": "",
+            "durationMs": 12,
+            "truncated": false
+          }
+        }
+      }
+    },
+    {
+      "step": "cleanup.0",
+      "request": {
+        "method": "DELETE",
+        "path": "/v1/docks/33333333-3333-4333-8333-333333333333",
+        "headers": {
+          "x-confirm-delete": "33333333-3333-4333-8333-333333333333"
+        }
+      },
+      "response": {
+        "status": 202,
+        "body": {
+          "ok": true,
+          "data": {
+            "operation": {
+              "id": "op_33333333",
+              "targetType": "dock",
+              "targetId": "33333333-3333-4333-8333-333333333333",
+              "status": "completed"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
