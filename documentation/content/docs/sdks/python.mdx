@@ -1,0 +1,120 @@
+---
+title: Python
+description: The usedock client for Python 3.9 and newer.
+---
+
+`usedock` is a synchronous client built on `httpx`, its only runtime dependency.
+It needs Python 3.9 or newer. Source:
+[usedock/dock-python](https://github.com/usedock/dock-python).
+
+## Install
+
+The package is not on PyPI yet. Install from GitHub:
+
+```sh
+pip install git+https://github.com/usedock/dock-python
+```
+
+Or from a checkout: `git clone https://github.com/usedock/dock-python`, then
+`pip install -e .` inside it.
+
+## Configure
+
+```python
+from usedock import Dock
+
+client = Dock()  # reads DOCK_API_KEY and DOCK_API_URL
+```
+
+`Dock(api_key=..., base_url=..., timeout=120.0)` overrides the environment.
+Without a key it raises `ValueError`. `Dock` is a context manager that closes
+its HTTP client on exit.
+
+## Quickstart
+
+```python
+from usedock import Dock
+
+with Dock() as client:
+    dock = client.docks.create(
+        workspace_id="<workspace-id>",
+        name="demo",
+        cpus=2,
+        memory_mib=4096,
+        idempotency_key="demo-1",
+    )
+
+    run = client.docks.exec(dock.id, "echo hello", cwd="/home/user/work")
+    print(run.exit_code, run.stdout)
+
+    client.docks.files.write(dock.id, "/home/user/work/notes/hello.txt", "hello\n")
+    print(client.docks.files.read(dock.id, "/home/user/work/notes/hello.txt"))
+    print(client.docks.files.list(dock.id, "/home/user/work/notes"))  # ['hello.txt']
+
+    client.docks.stop(dock.id)
+    client.docks.resume(dock.id)
+
+    copy = client.docks.branch(dock.id, name="demo-copy")
+
+    op = client.docks.delete(dock.id)  # an Operation
+    print(client.operations.get(op.id).status)
+    client.docks.delete(copy.id)
+```
+
+## Methods
+
+On `client.docks`: `create`, `list(filter=, all=)`, `get`, `update`, `exec`,
+`stop(force=)`, `resume`, `branch`, `delete`, and `files.write`, `files.read`,
+`files.list`. `client.operations.get(id)` polls an operation. Sizes are
+`cpus`, `memory_mib`, and `disk_gib`; `create` and `branch` also take `env`,
+`environment`, and `no_env`. Arguments you leave out are not sent.
+
+Results are dataclasses: `DockInfo`, `ExecResult`, and `Operation`. Only `id`,
+`name`, and `state` are relied on. The full response, including fields this SDK
+does not know yet, is in `.raw`.
+
+## Errors
+
+Every API failure raises `DockError` with `code`, `status`, and `message`:
+
+```python
+from usedock import DockError
+
+try:
+    client.docks.get("00000000-0000-4000-8000-000000000000")
+except DockError as err:
+    print(err.code, err.status)  # dock_not_found 404
+```
+
+`code` is the API's code, such as `dock_not_found` or `validation_error`.
+`status` is the HTTP status, and 0 for failures with no response or raised by
+the SDK: `network_error`, `file_command_failed`, `output_truncated`. A response
+that is not a Dock envelope raises `invalid_response`.
+
+## File helpers
+
+See [File helpers](/sdks#file-helpers) for the limits. In this SDK:
+
+- `files.write` takes `str` or `bytes`. Content above about 48 KB, less the
+  path, raises `ValueError` before anything is sent.
+- `files.read` returns decoded UTF-8 text.
+- A non-zero exit raises `DockError` with code `file_command_failed`. A read of
+  a file over about 768 KB raises `output_truncated`.
+
+## Turn off auto-stop
+
+Auto-stop is off unless you set `ttl_seconds`. The SDK drops `None` arguments,
+so this version cannot send `ttlSeconds: null` and cannot clear a TTL you set
+earlier. Until it can, clear it with the REST API:
+
+```sh
+curl -sS -X PATCH "$DOCK_API_URL/v1/docks/<dock-id>" \
+  -H "Authorization: Bearer $DOCK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"ttlSeconds":null}'
+```
+
+## Idempotency keys
+
+`create` and `branch` take `idempotency_key=`. Use a stable key per intended
+Dock, so a retry after a crash returns the original.

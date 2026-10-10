@@ -81,7 +81,39 @@ its compute. `POST /v1/docks/:id/resume` boots the same Dock from that Snapshot.
 `POST /v1/docks/:id/branch` starts a new, independent Dock from it. See
 [Docks](/concepts/docks) for the lifecycle.
 
+## Use the CLI or an SDK
+
+The same flow without curl. Both read the key and origin from the environment
+or, for the CLI, from a context.
+
+```bash
+# CLI: see /cli for install
+dock context add home --url "$DOCK_URL" --workspace <workspace-id>
+dock context use home
+echo "$DOCK_API_KEY" | dock login
+dock new scratch
+dock exec scratch -- uname -a
+dock stop scratch && dock resume scratch
+dock rm scratch
+```
+
+```ts
+// TypeScript SDK: see /sdks/typescript for install
+import { Dock } from '@usedock/sdk'
+
+const dock = new Dock({ baseUrl: process.env.DOCK_URL }) // reads DOCK_API_KEY
+const box = await dock.docks.create({ workspaceId: '<workspace-id>', name: 'scratch' })
+const res = await dock.docks.exec(box.id, 'uname -a')
+console.log(res.stdout)
+await dock.docks.delete(box.id)
+```
+
+The [CLI](/cli) and the [SDKs](/sdks) (TypeScript, Python, Go) are early and not
+published to package registries yet; their pages show how to install them.
+
 ## Next steps
+
+- [CLI](/cli) and [SDKs](/sdks): the full command and method lists.
 
 - [API guide](/api/v1): envelopes, errors, idempotency, and confirmation headers.
 - [Self-hosting](/self-hosting): run the control plane and hosts yourself.

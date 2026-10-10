@@ -14,6 +14,8 @@ in your environment setup script.
 
 ## What you can use today
 
+- The [`dock` CLI](/cli) and client SDKs for [TypeScript, Python, and Go](/sdks).
+  Both are early and not published to package registries yet.
 - REST API at `<your origin>/v1`, with a `{ ok, data }` envelope and `dock_`
   API keys as bearer tokens.
 - Docks: create, list, get, update, stop, resume, branch, and delete, with a
@@ -29,4 +31,6 @@ Start with the [Quickstart](/quickstart) and the [concepts](/concepts/docks).
 
 ## Not built yet
 
-The `dock` CLI and the client SDKs are not built yet. Use the REST API.
+A local engine that runs Docks on your machine without a control plane is
+planned. The CLI and SDKs talk to a control plane today. `dock cp` is missing
+because the API has no file endpoint for live Docks.
