@@ -1,0 +1,21 @@
+{
+  "name": "@dock/bench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "bun run src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.7"
+  },
+  "optionalDependencies": {
+    "@vercel/sandbox": "^3.6.1",
+    "e2b": "^2.55.0",
+    "modal": "^0.11.0"
+  }
+}
