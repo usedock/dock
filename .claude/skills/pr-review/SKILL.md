@@ -39,6 +39,7 @@ Only check the sections for apps the diff touches.
 
 ### API contract, docs
 - Request/response shape changes are reflected in the hand-written docs page in `documentation`.
+- A change to a public `/v1` route (path, method, request or response shape, error code) ships in the same PR with its docs page under `documentation/content`, an update to `sdk-scenarios/` when the scenarios cover that route, and an issue or PR in each SDK repo (`usedock/dock-js`, `usedock/dock-python`, `usedock/dock-go`) linked from the PR body.
 - Envelope stays `{ok:true,data}` / `{ok:false,code,message}`; breaking changes are called out in the PR.
 
 ### Dashboard (`apps/dashboard`)

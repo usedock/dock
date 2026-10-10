@@ -29,7 +29,7 @@ bun run build       # nest build
 
 The dashboard: `cd apps/dashboard && bun install && bun run lint && bun run build`. The docs: `cd documentation && bun install && bunx fumadocs-mdx && bun run typecheck && bun run build`. CI runs all of these.
 
-An API change lands in the same pull request as its doc page under `documentation/`, and links the matching pull requests in [dock-js](https://github.com/usedock/dock-js), [dock-python](https://github.com/usedock/dock-python) and [dock-go](https://github.com/usedock/dock-go).
+A change to a public `/v1` route (path, method, request or response shape, error code) lands in the same pull request as its doc page under `documentation/content` and an update to `sdk-scenarios/` when the scenarios cover that route. Link an issue or pull request in each SDK repo from the PR body: [dock-js](https://github.com/usedock/dock-js), [dock-python](https://github.com/usedock/dock-python) and [dock-go](https://github.com/usedock/dock-go).
 
 ## Pull requests
 
