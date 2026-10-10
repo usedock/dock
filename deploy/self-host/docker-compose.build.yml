@@ -1,0 +1,16 @@
+# Development override: build the images from this checkout instead of pulling GHCR.
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+# (or `./setup.sh --build`).
+services:
+  migrate:
+    build:
+      context: ../../apps/backend
+      target: build
+  backend:
+    build: ../../apps/backend
+  dashboard:
+    build:
+      context: ../../apps/dashboard
+      args:
+        NEXT_PUBLIC_BETTER_AUTH_BACKEND_URL: '${DOCK_PUBLIC_URL}'
+        NEXT_PUBLIC_APP_URL: '${DOCK_PUBLIC_URL}'

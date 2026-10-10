@@ -38,7 +38,7 @@ From this directory:
 ```
 
 `setup.sh` writes `.env` with fresh secrets on the first run (your git email
-becomes the instance admin), builds and starts the stack, and waits until the
+becomes the instance admin), pulls the images and starts the stack, and waits until the
 API is healthy. `--host` then enrolls this machine as a `gvisor` host
 through `bootstrap-host.sh` (asks for sudo; the first run builds the dock image).
 It expects a `usedock/docklet` checkout next to this repository (`../docklet`): clone https://github.com/usedock/docklet there, or set `DOCKLET_DIR` to another location.
@@ -46,9 +46,16 @@ Re-running it keeps `.env` and restarts the stack.
 
 To configure by hand instead: `cp .env.example .env`, fill `DOCK_SITE_ADDRESS`,
 `DOCK_PUBLIC_URL`, and each secret (`openssl rand -hex 32`), then
-`docker compose up -d --build`. `DOCK_HTTP_PORT` / `DOCK_HTTPS_PORT` move Caddy
+`docker compose up -d`. `DOCK_HTTP_PORT` / `DOCK_HTTPS_PORT` move Caddy
 off 80/443 when the site address carries that port (for example
 `http://localhost:8088` with `DOCK_HTTP_PORT=8088`).
+
+The stack runs prebuilt images, `ghcr.io/usedock/dock-api`, `dock-api-migrate`
+and `dock-dashboard` (linux/amd64 and linux/arm64), at the release in
+`DOCK_VERSION` (pinned in `.env.example`, copied to `.env`). The dashboard image
+is built for same-origin use, so it needs no public URL at build time. To
+build from this checkout instead (development), run `./setup.sh --build` or
+`docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 
 Open `DOCK_PUBLIC_URL` and sign up. Then:
 
@@ -76,7 +83,7 @@ Open `DOCK_PUBLIC_URL` and sign up. Then:
   only when both its client id and secret are set. The OAuth callback URL is
   `<DOCK_PUBLIC_URL>/api/auth/callback/<google|github>`.
 
-Upgrade with `git pull && docker compose up -d --build`; migrations run
+Upgrade by setting `DOCK_VERSION` in `.env` to the new release, then `docker compose pull && docker compose up -d`; migrations run
 automatically before the API starts. Back up the `pgdata` and `minio-data`
 volumes and keep `.env` (losing `SECRETS_ENCRYPTION_KEY` makes stored provider
 keys and environment secrets unreadable).
