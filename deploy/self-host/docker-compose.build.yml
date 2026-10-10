@@ -1,14 +1,17 @@
 # Development override: build the images from this checkout instead of pulling GHCR.
 #   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
-# (or `./setup.sh --build`).
+# (or `./setup.sh --build`). Images get local names, never the release ones.
 services:
   migrate:
+    image: dock-api-migrate:local
     build:
       context: ../../apps/backend
       target: build
   backend:
+    image: dock-api:local
     build: ../../apps/backend
   dashboard:
+    image: dock-dashboard:local
     build:
       context: ../../apps/dashboard
       args:

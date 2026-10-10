@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { API_BASE_URL, getDefaultApi, type Dock, type GithubRun, type Snapshot } from '@/lib/dock-api';
+import { apiSnippetBase, getDefaultApi, type Dock, type GithubRun, type Snapshot } from '@/lib/dock-api';
 import { formatBytes, formatDate, messageOf, runtimeLabel, sizeLabel } from '@/lib/format';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { CodeBlock } from '@/components/dashboard/code-block';
@@ -245,7 +245,7 @@ function DockDetail() {
             <h2 className="text-sm font-medium">Run a command</h2>
             <CodeBlock
               lines={[
-                `curl -X POST ${API_BASE_URL}/v1/docks/${dock.id}/exec \\`,
+                `curl -X POST ${apiSnippetBase()}/v1/docks/${dock.id}/exec \\`,
                 '  -H "Authorization: Bearer $DOCK_API_KEY" \\',
                 '  -H "Content-Type: application/json" \\',
                 `  -d '{"command": "uname -a", "timeoutSeconds": 60}'`,
@@ -257,11 +257,11 @@ function DockDetail() {
             <CodeBlock
               lines={[
                 '# resume',
-                `curl -X POST ${API_BASE_URL}/v1/docks/${dock.id}/resume \\`,
+                `curl -X POST ${apiSnippetBase()}/v1/docks/${dock.id}/resume \\`,
                 '  -H "Authorization: Bearer $DOCK_API_KEY"',
                 '',
                 '# stop',
-                `curl -X POST ${API_BASE_URL}/v1/docks/${dock.id}/stop \\`,
+                `curl -X POST ${apiSnippetBase()}/v1/docks/${dock.id}/stop \\`,
                 '  -H "Authorization: Bearer $DOCK_API_KEY"',
               ]}
             />

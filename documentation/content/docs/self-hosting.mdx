@@ -70,8 +70,26 @@ Open `DOCK_PUBLIC_URL` and sign up. On a self-hosted instance:
   DNS record `*.ports.example.com` pointing at the server. Caddy issues each certificate on first use, only for
   exposed names.
 
-Upgrade by setting `DOCK_VERSION` in `.env` to the new release and running `docker compose pull && docker compose up -d`; migrations run before
-the API starts. Back up the `pgdata` and `minio-data` volumes and keep `.env`.
+Upgrade from `deploy/self-host/`: run `git pull` (compose and Caddyfile changes
+ship with the release), then `./setup.sh --upgrade <version>`, for example
+`./setup.sh --upgrade 0.2.0` (bare version, no `v`). It sets `DOCK_VERSION` in
+`.env`, pulls the images, and restarts the stack; migrations run before the API
+starts. By hand, edit `DOCK_VERSION` in `.env`, then run
+`docker compose pull && docker compose up -d`. Back up the `pgdata` and
+`minio-data` volumes and keep `.env`.
+
+## Verify images
+
+Each release image (`dock-api`, `dock-api-migrate`, `dock-dashboard`) is signed
+keyless with [cosign](https://docs.sigstore.dev/cosign/). Verify before you run it:
+
+```bash
+cosign verify ghcr.io/usedock/dock-api:<version>   --certificate-identity https://github.com/usedock/dock/.github/workflows/release.yml@refs/tags/v<version>   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Use the same command for `dock-api-migrate` and `dock-dashboard`, with the
+release number in place of `<version>`. Releases published by hand from the
+Actions tab are signed with a branch identity instead of the tag one.
 
 Installs created before the single baseline migration (October 2026) cannot
 upgrade in place: the migration fails and the API never starts. Reset with

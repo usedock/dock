@@ -8,6 +8,7 @@
 #   ./setup.sh --ports-domain ports.example.com  serve dock ports at *.ports.example.com
 #
 #   ./setup.sh --build                           build images from this checkout instead of pulling
+#   ./setup.sh --upgrade 0.2.0                   run release 0.2.0 (raises DOCK_VERSION in .env)
 #
 # Re-runs keep the existing .env and just pull (or rebuild) and restart the stack.
 set -euo pipefail
@@ -23,6 +24,7 @@ RUNTIME=""
 ALLOW_VULNERABLE=""
 PORTS_DOMAIN=""
 BUILD=0
+UPGRADE=""
 
 log() { printf 'setup: %s\n' "$*"; }
 die() {
@@ -32,13 +34,15 @@ die() {
 
 usage() {
   cat <<'USAGE'
-Usage: setup.sh [--url <public url>] [--host] [--build] [--runtime microvm|gvisor]
+Usage: setup.sh [--url <public url>] [--host] [--build] [--upgrade <version>] [--runtime microvm|gvisor]
                 [--ports-domain DOMAIN] [--allow-vulnerable NAMES]
 
   --url      origin users and hosts reach, default http://localhost:8088.
              A https:// DNS name gets a certificate automatically (ports 80/443).
   --build    build the images from this checkout (development) instead of
              pulling ghcr.io/usedock/* at DOCK_VERSION from .env.
+  --upgrade  set DOCK_VERSION in .env to <version> (bare semver such as 0.2.0, no v)
+             and pull and restart. Run `git pull` first for compose or Caddyfile changes.
   --host     also enroll this machine as a host (Linux, needs sudo).
   --runtime  host runtime for --host: gvisor (default) or microvm (Firecracker, needs /dev/kvm).
   --ports-domain
@@ -64,6 +68,11 @@ while [ "$#" -gt 0 ]; do
     --build)
       BUILD=1
       shift
+      ;;
+    --upgrade)
+      [ "$#" -ge 2 ] || die "--upgrade needs a version"
+      UPGRADE="$2"
+      shift 2
       ;;
     --host)
       WITH_HOST=1
@@ -94,6 +103,12 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ -n "$UPGRADE" ]; then
+  printf '%s' "$UPGRADE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || die "--upgrade needs a bare semver such as 0.2.0 (no leading v)"
+  [ "$BUILD" = "0" ] || die "--upgrade and --build cannot be combined"
+  [ -f "$ENV_FILE" ] || die "--upgrade needs an existing .env; run ./setup.sh first"
+fi
 
 # Check --host prerequisites before building the stack, not after.
 if [ "$WITH_HOST" = "1" ]; then
@@ -204,6 +219,10 @@ else
 fi
 
 PUBLIC_URL="$(env_get DOCK_PUBLIC_URL)"
+if [ -n "$UPGRADE" ]; then
+  log "DOCK_VERSION $(env_get DOCK_VERSION) -> ${UPGRADE}"
+  put_env DOCK_VERSION "$UPGRADE"
+fi
 # An .env from before published images has no DOCK_VERSION; take the pinned one.
 if [ -z "$(env_get DOCK_VERSION)" ]; then
   put_env DOCK_VERSION "$(sed -n 's/^DOCK_VERSION=//p' "${SELF_DIR}/.env.example" | head -n 1)"

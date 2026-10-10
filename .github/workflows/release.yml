@@ -18,38 +18,117 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  images:
+  validate:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "version must be bare semver such as 0.1.0 (no leading v), got: $VERSION" >&2
+            exit 1
+          fi
+
+  build:
+    needs: validate
+    # validate is skipped on tag pushes; still run then, but not after a failure.
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
+        image: [dock-api, dock-api-migrate, dock-dashboard]
+        arch: [amd64, arm64]
         include:
           - image: dock-api
             context: apps/backend
             target: runtime
-          # Runs drizzle-kit, which the runtime image does not carry.
+            cache: backend
+          # Runs drizzle-kit, which the runtime image does not carry. Shares the
+          # backend cache scope so the common build stage is not rebuilt.
           - image: dock-api-migrate
             context: apps/backend
             target: build
+            cache: backend
           - image: dock-dashboard
             context: apps/dashboard
             target: runtime
+            cache: dashboard
             # Empty means same origin; self-host serves dashboard and API behind one Caddy.
             build-args: |
               NEXT_PUBLIC_BETTER_AUTH_BACKEND_URL=
               NEXT_PUBLIC_APP_URL=
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ghcr.io/usedock/${{ matrix.image }}
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          target: ${{ matrix.target }}
+          build-args: ${{ matrix.build-args }}
+          platforms: linux/${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=ghcr.io/usedock/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.cache }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache }}-${{ matrix.arch }}
+      - env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: digests-${{ matrix.image }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    # The implicit success() also sees the skipped validate job and would skip publish on tag pushes.
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # id-token only here: keyless cosign signing.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [dock-api, dock-api-migrate, dock-dashboard]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ghcr.io/usedock/${{ matrix.image }}
           flavor: latest=false
@@ -57,14 +136,26 @@ jobs:
             type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}
             type=raw,value=${{ inputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
             type=sha,format=short,prefix=
-      - uses: docker/build-push-action@v6
-        with:
-          context: ${{ matrix.context }}
-          target: ${{ matrix.target }}
-          build-args: ${{ matrix.build-args }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - name: Create manifest list
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ghcr.io/usedock/${{ matrix.image }}
+        run: |
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " *)
+      - id: digest
+        env:
+          IMAGE: ghcr.io/usedock/${{ matrix.image }}
+          TAG: ${{ steps.meta.outputs.version }}
+        run: |
+          digest="$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{json .Manifest}}' | jq -r .digest)"
+          test -n "$digest"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - name: Sign image digest
+        env:
+          IMAGE: ghcr.io/usedock/${{ matrix.image }}
+          DIGEST: ${{ steps.digest.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
