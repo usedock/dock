@@ -29,6 +29,7 @@ import { SnapshotsModule } from './snapshots/snapshots.module';
 import { FleetModule } from './fleet/fleet.module';
 import { HostsModule } from './hosts/hosts.module';
 import { StatsModule } from './stats/stats.module';
+import { TelemetryModule } from './telemetry/telemetry.module';
 import { UsersModule } from './users/users.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 
@@ -68,6 +69,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     MeteringModule,
     WebhooksModule,
     WebhookDispatchModule,
+    TelemetryModule,
   ],
 })
 export class AppModule {}

@@ -1,0 +1,51 @@
+---
+title: Telemetry
+description: Optional anonymous usage counts, off by default.
+---
+
+A self-hosted Dock sends nothing about itself unless you turn telemetry on.
+It is **off by default**. When it is on, the control plane sends one small
+report about a minute after boot and then once every 24 hours.
+
+## Turn it on
+
+Set this in the backend environment and restart:
+
+```bash
+DOCK_TELEMETRY=on
+```
+
+Set `DOCK_TELEMETRY=off`, or remove the line, to stop. `DOCK_TELEMETRY_URL`
+overrides the endpoint (default `https://api.usedock.io/v1/telemetry`).
+
+## What is sent
+
+The report is a JSON `POST` with exactly these fields and no others:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `version` | string | Control plane version |
+| `os` | string | Operating system of the control plane (`linux`, `darwin`, `win32`) |
+| `arch` | string | CPU architecture of the control plane (`x64`, `arm64`) |
+| `hosts` | number | Number of registered hosts |
+| `docks` | number | Number of docks |
+| `runningDocks` | number | Number of docks in the `running` state |
+
+Example:
+
+```json
+{
+  "version": "0.1.0",
+  "os": "linux",
+  "arch": "x64",
+  "hosts": 2,
+  "docks": 14,
+  "runningDocks": 3
+}
+```
+
+## What is not sent
+
+There is no instance id, and no organization, user, dock, host or workspace
+names. No IP addresses and no URLs are included in the report. Requests have a
+short timeout; a failure is ignored and never affects the control plane.
