@@ -16,6 +16,7 @@ Layout (no root workspace; each app runs on its own):
 - `apps/dashboard` — Next.js dashboard (docks, snapshots, environments, runs, hosts, keys)
 - `deploy/self-host` — one-command self-hosted control plane (`setup.sh`, `docker-compose.yml`, `Caddyfile`, `.env.example`, `README.md`)
 - `documentation` — Fumadocs site, hand-written pages
+- `bench` — open benchmark harness (Bun + TypeScript): Dock and optional hosted-sandbox adapters
 - `.claude`, `.agents`, `skills-lock.json` — agent definitions and skills
 
 ## Product truth
@@ -79,5 +80,5 @@ Self-host: `cd deploy/self-host && ./setup.sh [--host] [--url https://dock.examp
 ## Testing & QA
 
 - Backend: Vitest, colocated `src/**/*.spec.ts`.
-- CI (`.github/workflows/ci.yml`) runs the backend build and tests, the dashboard lint and build, the docs typecheck and build, and a gitleaks scan.
+- CI (`.github/workflows/ci.yml`) runs the backend build and tests, the bench typecheck and tests, the dashboard lint and build, the docs typecheck and build, and a gitleaks scan.
 - Known baseline: backend `env-apply-script.spec.ts` fails on Windows only (argv length limit); it passes on Linux CI.
