@@ -11,7 +11,7 @@ describe('ReconcilerService', () => {
   let docklets: Mock;
   let client: { destroy: MockFn };
   let notifications: { dockStoppedResponding: MockFn };
-  let metering: { closeWindowsForDock: MockFn; openWindow: MockFn };
+  let metering: { closeWindowsForDock: MockFn; openWindow: MockFn; moveToStorage: MockFn };
   let service: ReconcilerService;
 
   const dockRow = (overrides: Record<string, unknown> = {}) => ({
@@ -48,9 +48,11 @@ describe('ReconcilerService', () => {
     docklets = vi.fn().mockResolvedValue(client);
     vi.clearAllMocks();
     db.transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(db));
+    // Default organization lookup for the metering move; docks lists are queued with mockReturnValueOnce.
+    db.select.mockReturnValue({ from: () => ({ where: () => ({ limit: () => Promise.resolve([{ organizationId: 'org-1' }]) }) }) });
     client.destroy.mockResolvedValue(undefined);
     notifications = { dockStoppedResponding: vi.fn().mockResolvedValue(null) };
-    metering = { closeWindowsForDock: vi.fn().mockResolvedValue(undefined), openWindow: vi.fn().mockResolvedValue(undefined) };
+    metering = { closeWindowsForDock: vi.fn().mockResolvedValue(undefined), openWindow: vi.fn().mockResolvedValue(undefined), moveToStorage: vi.fn().mockResolvedValue(undefined) };
     hosts.getById.mockResolvedValue(hostRow([]));
     service = new ReconcilerService(db as never, hosts as never, docklets as never, config as never, notifications as never, metering as never);
   });
@@ -109,17 +111,21 @@ describe('ReconcilerService', () => {
     });
   });
 
-  it('closes billing windows when marking a dock missing', async () => {
-    db.select.mockReturnValueOnce(selectQ([dockRow({ id: 'd1' })]));
+  it('moves a missing dock to a storage window', async () => {
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow({ id: 'd1', cpus: 4, memoryMiB: 8192, diskGiB: 40 })]))
+      .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([{ organizationId: 'org-1' }]) }) }) });
     db.update.mockReturnValueOnce({ set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 'd1' }]) }) }) });
     await service.runOnce('h1');
-    expect(metering.closeWindowsForDock).toHaveBeenCalledWith('d1', expect.any(Date), db);
+    expect(metering.moveToStorage).toHaveBeenCalledWith({ organizationId: 'org-1', workspaceId: '22222222-2222-4222-8222-222222222222', dockId: 'd1', cpus: 4, memoryMiB: 8192, diskGiB: 40 }, expect.any(Date), db);
   });
 
-  it('rolls the state change back when closing windows fails', async () => {
-    db.select.mockReturnValueOnce(selectQ([dockRow({ id: 'd1' })]));
+  it('rolls the state change back when moving to storage fails', async () => {
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow({ id: 'd1' })]))
+      .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([{ organizationId: 'org-1' }]) }) }) });
     db.update.mockReturnValueOnce({ set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 'd1' }]) }) }) });
-    metering.closeWindowsForDock.mockRejectedValueOnce(new Error('db down'));
+    metering.moveToStorage.mockRejectedValueOnce(new Error('db down'));
     await expect(service.runOnce('h1')).rejects.toThrow('db down');
     expect(notifications.dockStoppedResponding).not.toHaveBeenCalled();
   });
@@ -143,13 +149,15 @@ describe('ReconcilerService', () => {
 
   it('marks live docks on offline hosts unreachable and stops their billing', async () => {
     hosts.listOffline.mockResolvedValueOnce([{ id: 'h1' }]);
-    db.select.mockReturnValueOnce(selectQ([dockRow({ id: 'd1' })]));
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow({ id: 'd1' })]))
+      .mockReturnValueOnce({ from: () => ({ where: () => ({ limit: () => Promise.resolve([{ organizationId: 'org-1' }]) }) }) });
     let seenSet: Record<string, unknown> | undefined;
     db.update.mockReturnValueOnce({ set: (v: Record<string, unknown>) => ((seenSet = v), { where: () => ({ returning: () => Promise.resolve([{ id: 'd1' }]) }) }) });
     await expect(service.sweepOfflineHosts(Date.now() + BOOT_GRACE_MS)).resolves.toEqual(['d1']);
     expect(seenSet).toMatchObject({ state: 'unreachable' });
     expect(hosts.sweepOffline).toHaveBeenCalledTimes(1);
-    expect(metering.closeWindowsForDock).toHaveBeenCalledWith('d1', expect.any(Date), db);
+    expect(metering.moveToStorage).toHaveBeenCalledWith(expect.objectContaining({ dockId: 'd1' }), expect.any(Date), db);
     expect(notifications.dockStoppedResponding).toHaveBeenCalledTimes(1);
   });
 
@@ -168,6 +176,7 @@ describe('ReconcilerService', () => {
     const result = await service.runOnce('h1');
     expect(seenSet).toMatchObject({ state: 'ready' });
     expect(result).toEqual({ fenced: [], errored: [], recovered: ['d1'] });
+    expect(metering.closeWindowsForDock).toHaveBeenCalledWith('d1', expect.any(Date), db);
     expect(metering.openWindow).toHaveBeenCalledWith({ organizationId: 'org-1', workspaceId: '22222222-2222-4222-8222-222222222222', dockId: 'd1', cpus: 2, memoryMiB: 4096, diskGiB: 20 }, db);
   });
 

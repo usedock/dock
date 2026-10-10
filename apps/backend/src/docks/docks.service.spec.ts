@@ -86,6 +86,7 @@ describe('DocksService', () => {
     metering = {
       openWindow: vi.fn().mockResolvedValue(undefined),
       closeWindowsForDock: vi.fn().mockResolvedValue(undefined),
+      moveToStorage: vi.fn().mockResolvedValue(undefined),
     };
     wsSvc = { getById: vi.fn().mockResolvedValue({ id: wsId, organizationId: orgId }) };
     retention = { policyOn: vi.fn().mockResolvedValue(false) };
@@ -262,7 +263,7 @@ describe('DocksService', () => {
     });
   });
 
-  it('closes metering windows when a dock archives', async () => {
+  it('opens a storage window when a dock archives', async () => {
     db.select
       .mockReturnValueOnce(selectQ([dockRow()]))
       .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
@@ -271,10 +272,10 @@ describe('DocksService', () => {
     db.insert.mockReturnValueOnce(insertQ([{ id: 'snap-2', status: 'completed' }]));
     const out = await service.stop('u1', dockId);
     expect(out).toEqual({ id: dockId, state: 'archived' });
-    expect(metering.closeWindowsForDock).toHaveBeenCalledWith(dockId);
+    expect(metering.moveToStorage).toHaveBeenCalledWith({ organizationId: orgId, workspaceId: wsId, dockId, cpus: 2, memoryMiB: 4096, diskGiB: 20 });
   });
 
-  it('destroys the runtime on a forced stop, even if destroy fails, and still closes billing', async () => {
+  it('destroys the runtime on a forced stop, even if destroy fails, and still moves billing to storage', async () => {
     const destroy = vi.spyOn(provider, 'destroyBacking').mockRejectedValueOnce(new Error('host_unreachable'));
     db.select
       .mockReturnValueOnce(selectQ([dockRow()]))
@@ -283,7 +284,7 @@ describe('DocksService', () => {
     const out = await service.stop('u1', dockId, { force: true });
     expect(destroy).toHaveBeenCalledTimes(1);
     expect(out).toEqual({ id: dockId, state: 'archived' });
-    expect(metering.closeWindowsForDock).toHaveBeenCalledWith(dockId);
+    expect(metering.moveToStorage).toHaveBeenCalledWith(expect.objectContaining({ dockId }));
   });
 
   it('closes billing when destroy fails during remove', async () => {
@@ -531,6 +532,18 @@ describe('DocksService', () => {
     await service.resume('u1', dockId, { cpus: 4, memoryMiB: 8192 });
     expect(sets[1]).toMatchObject({ cpus: 4, memoryMiB: 8192, diskGiB: 20 });
     expect(metering.openWindow).toHaveBeenCalledWith(expect.objectContaining({ cpus: 4, memoryMiB: 8192, diskGiB: 20 }));
+  });
+
+  it('closes the storage window before opening compute on resume', async () => {
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow({ state: 'archived' })]))
+      .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
+      .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1' }]));
+    db.update.mockImplementation(() => updateQ([dockRow({ state: 'ready' })]));
+    await service.resume('u1', dockId);
+    expect(metering.closeWindowsForDock).toHaveBeenCalledWith(dockId);
+    expect(metering.closeWindowsForDock.mock.invocationCallOrder[0]).toBeLessThan(metering.openWindow.mock.invocationCallOrder[0]);
+    expect(metering.openWindow).toHaveBeenCalledWith(expect.not.objectContaining({ unit: 'storage' }));
   });
 
   it('branches inherit the source size and image and may override them', async () => {
@@ -1076,7 +1089,7 @@ describe('DocksService', () => {
     db.insert.mockReturnValueOnce(insertQ([{ id: 'snap-1' }]));
     expect(await service.sweepExpiredTtl()).toEqual([dockId]);
     expect(sets.some((v) => v.state === 'archived')).toBe(true);
-    expect(metering.closeWindowsForDock).toHaveBeenCalledWith(dockId);
+    expect(metering.moveToStorage).toHaveBeenCalledWith(expect.objectContaining({ dockId }));
     db.select.mockReturnValueOnce(selectQ([]));
     expect(await service.sweepExpiredTtl()).toEqual([]);
   });
@@ -1403,6 +1416,8 @@ describe('DocksService', () => {
     db.delete.mockReturnValue(deleteQ());
     const done = await service.remove('u1', dockId, dockId);
     expect(del.mock.calls).toEqual([['g1'], ['g2']]);
+    expect(metering.closeWindowsForDock).toHaveBeenCalledWith(dockId);
+    expect(metering.moveToStorage).not.toHaveBeenCalled();
     expect(done).toEqual({ operation: { id: 'op_1', status: 'completed' } });
     expect(ops.create).toHaveBeenCalledWith(orgId, 'dock', dockId);
     db.select.mockReturnValueOnce(selectQ([]));

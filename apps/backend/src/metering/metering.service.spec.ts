@@ -25,6 +25,16 @@ describe('MeteringService', () => {
     expect(stored).toMatchObject({ cpus: 2, memoryMiB: 4096, diskGiB: 20 });
   });
 
+  it('moves a stopped dock to a storage window after closing the open one', async () => {
+    const order: string[] = [];
+    db.update.mockReturnValue({ set: () => ({ where: () => { order.push('close'); return Promise.resolve([]); } }) });
+    db.insert.mockReturnValue({ values: (v: Record<string, unknown>) => { order.push('open'); stored = v; return Promise.resolve([v]); } });
+    const at = new Date('2026-01-01T00:00:00Z');
+    await service.moveToStorage({ organizationId: orgId, workspaceId: 'ws-1', dockId: 'dock-1', cpus: 4, memoryMiB: 8192, diskGiB: 40 }, at);
+    expect(order).toEqual(['close', 'open']);
+    expect(stored).toMatchObject({ unit: 'storage', dockId: 'dock-1', openedAt: at, cpus: 4, memoryMiB: 8192, diskGiB: 40 });
+  });
+
   it('records Fast Run target, runtime, and size', async () => {
     await service.openFastRunWindow({ organizationId: orgId, workspaceId: 'ws-1', runtimeId: 'fast-1', cpus: 1, memoryMiB: 2048, diskGiB: 10 });
     expect(stored).toMatchObject({ dockId: null, runtimeId: 'fast-1', executionTarget: 'fast', cpus: 1, memoryMiB: 2048, diskGiB: 10 });

@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { DB, Db } from '../database/database.module';
-import { DEFAULT_CPUS, DEFAULT_DISK_GIB, DEFAULT_MEMORY_MIB, meteringWindows } from '../database/schema';
+import { DEFAULT_CPUS, DEFAULT_DISK_GIB, DEFAULT_MEMORY_MIB, meteringWindows, type MeteringUnit } from '../database/schema';
 import { isUniqueViolation, type OrgTx } from '../organizations/organizations.service';
 
 /** Transition-based activity windows. Fail-open: metering never blocks runtime work and never depends on the spend gate. */
@@ -21,6 +21,8 @@ export class MeteringService {
     memoryMiB?: number;
     diskGiB?: number;
     executionTarget?: string;
+    unit?: MeteringUnit;
+    openedAt?: Date;
   }, tx?: OrgTx) {
     const activityId = input.runtimeId ?? input.dockId ?? 'unknown';
     try {
@@ -29,7 +31,8 @@ export class MeteringService {
         workspaceId: input.workspaceId,
         dockId: input.dockId ?? null,
         runtimeId: input.runtimeId ?? null,
-        unit: 'compute',
+        unit: input.unit ?? 'compute',
+        ...(input.openedAt ? { openedAt: input.openedAt } : {}),
         executionTarget: input.executionTarget ?? 'dock',
         cpus: input.cpus ?? DEFAULT_CPUS,
         memoryMiB: input.memoryMiB ?? DEFAULT_MEMORY_MIB,
@@ -43,6 +46,19 @@ export class MeteringService {
       if (isUniqueViolation(err)) return;
       this.logger.warn(`Metering window dropped for runtime ${activityId}: ${(err as Error).message}`);
     }
+  }
+
+  /** Swaps the dock's open window for a storage window: a stopped dock accrues disk only. */
+  async moveToStorage(input: {
+    organizationId: string;
+    workspaceId: string;
+    dockId: string;
+    cpus: number;
+    memoryMiB: number;
+    diskGiB: number;
+  }, at: Date = new Date(), tx?: OrgTx) {
+    await this.closeWindowsForDock(input.dockId, at, tx);
+    await this.openWindow({ ...input, unit: 'storage', openedAt: at }, tx);
   }
 
   async openFastRunWindow(input: {
