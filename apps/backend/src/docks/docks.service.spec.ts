@@ -877,6 +877,33 @@ describe('DocksService', () => {
     expect(deleted).toHaveBeenCalledTimes(1);
   });
 
+  it('frees the claimed key when the size is refused so a resized retry with the same key is not rejected as reused', async () => {
+    config.get.mockReturnValue('restate');
+    hosts.sizeFit.mockResolvedValueOnce('too_large');
+    db.insert.mockReturnValueOnce({ values: () => Promise.resolve([]) });
+    const deleted = vi.fn().mockResolvedValue([]);
+    db.delete.mockReturnValueOnce({ where: deleted });
+    const err = await catchErr(service.create('u1', { workspaceId: wsId, name: 'big', cpus: 64 }, 'k1'));
+    expect(err.status).toBe(400);
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(deleted).toHaveBeenCalledTimes(1);
+  });
+
+  it('frees the claimed key when a branch size is refused', async () => {
+    config.get.mockReturnValue('restate');
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow()]))
+      .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]));
+    hosts.anyOnlineWithHeadroom.mockResolvedValueOnce(false);
+    db.insert.mockReturnValueOnce({ values: () => Promise.resolve([]) });
+    const deleted = vi.fn().mockResolvedValue([]);
+    db.delete.mockReturnValueOnce({ where: deleted });
+    const err = await catchErr(service.branch('u1', dockId, { cpus: 8 }, 'k1'));
+    expect(err.body).toMatchObject({ code: 'capacity_exhausted' });
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(deleted).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses a size change on a live dock and records it on a stopped one', async () => {
     db.select
       .mockReturnValueOnce(selectQ([dockRow({ state: 'ready' })]))
