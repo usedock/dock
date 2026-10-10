@@ -17,7 +17,7 @@ report a vulnerability, see [SECURITY.md](https://github.com/usedock/dock/blob/m
 | Dock disks and Snapshots | On the host; Snapshots in the object store (MinIO or any S3-compatible bucket) | The organization that owns the Dock |
 | API keys | SHA-256 hashes in Postgres; the raw value is shown once | The user who created the key |
 | Dock-bound keys | Same table, tied to one Dock | The Dock they were issued to |
-| Provider keys, Environment secrets | Encrypted at rest (AES-256-GCM) with `SECRETS_ENCRYPTION_KEY` | Organization admins, and Docks the Environment passes them into |
+| Provider keys, Environment secrets | Encrypted at rest (AES-256-GCM) with `SECRETS_ENCRYPTION_KEY` | Organization admins, and Docks the Environment passes them into. By default any member can create a Dock with an Environment, so members can read its secrets from inside that Dock unless the Environment limits secrets to admins |
 | Connector credentials (GitHub App private key and webhook secret, OAuth secrets) | Control plane environment (`.env`) | The control plane only |
 | Hosts and docklets | Your machines; each docklet holds a per-host credential in its state directory | The operator |
 | Control plane | API, Postgres, Redis, Restate, object store | The operator |
@@ -34,15 +34,15 @@ Actors:
 **Its own disk.**
 
 - `microvm`: the whole root filesystem is the Dock's own virtual disk and persists across stop and resume.
-- `gvisor`: only `/home/user/work` persists. It is a volume on the host.
-- The gVisor work volume is not size-limited in the docklet on `main` today. It is a plain Docker volume, so a gVisor Dock can fill the host disk. The fix is open as [docklet#19](https://github.com/usedock/docklet/pull/19): it gives each gVisor Dock a sparse ext4 image of `diskGiB`, loop-mounted on the host. Until that is merged and you have upgraded, treat the gVisor volume as unbounded.
+- `gvisor`: only `/home/user/work` persists. It is a sparse ext4 image of `diskGiB`, loop-mounted on the host, so one Dock cannot write more than its size.
+- Both disks are sparse files capped at `diskGiB` per Dock. Host disk is not reserved for them, so the sum of all Docks' sizes can exceed the host's free space. See the known gaps.
 
 **Its own CPU and memory.** The docklet sets `cpu.max` and `memory.max` per microVM (cgroup v2) and `--cpus` and `--memory` per gVisor container, from the Dock's size.
 
 **The network.** Docks get a private address on a host-local subnet and are NATed out through the host. The host firewall applies these rules to every Dock:
 
 - Traffic to the Dock subnet is dropped, so one Dock cannot reach another on the same host.
-- Traffic to `169.254.0.0/16` (cloud metadata and link-local), `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10` and `127.0.0.0/8` is dropped. An operator can opt specific ranges back in with `--egress-allow-private`.
+- Traffic to `169.254.0.0/16` (cloud metadata and link-local), `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10` and `127.0.0.0/8` is dropped. An operator can opt specific ranges back in with `--egress-allow-private` (`DOCKLET_EGRESS_ALLOW_PRIVATE`); that opens them for every Dock on the host.
 - Traffic from a Dock to the host itself is dropped, except replies to host-initiated connections, ICMP echo, and the egress proxy port on the gateway address.
 - IPv6 is disabled on the host side of each Dock interface (best effort).
 
@@ -58,16 +58,20 @@ address, so DNS rebinding cannot reach a private target. Setting
 `RUN_EGRESS_ALLOW=*` turns this confinement off.
 
 **Anything you pass in.** Whatever an Environment passes into a Dock is readable
-by anyone inside that Dock. By default an Environment passes agent provider keys
-into the Dock; the Dock API key is off by default. See
-[Environments](/concepts/environments).
+by anyone inside that Dock. By default an Environment passes agent credentials:
+the organization's provider keys and, if the Dock's creator signed in with
+ChatGPT, a Dock-scoped token that spends that sign-in through the control plane.
+Linked GitHub repositories get a read-only clone token. The Dock API key is off
+by default. See [Environments](/concepts/environments).
 
-**Hosted ports.** An exposed port is reachable by anyone who has its random URL
-until you remove it.
+**Hosted ports.** An exposed port is reachable by anyone who has its URL until
+you remove it. The hostname has a random label, but it gets its own public TLS
+certificate, so it shows up in Certificate Transparency logs. Treat the URL as
+public, not as a secret.
 
 ## What a Dock cannot reach
 
-- **The host.** A microVM runs under the Firecracker jailer, dropped to an unprivileged user, in a chroot and cgroup. A gVisor container runs as a non-root user with all capabilities dropped and `no-new-privileges`, inside `runsc`. Escape is the main risk; see the isolation section.
+- **The host.** A microVM runs under the Firecracker jailer, dropped to an unprivileged user, in a chroot and cgroup. Every microVM on a host runs as the same user (`DOCKLET_UID`/`DOCKLET_GID`, default `1000`); on many distributions that is the first login account, so set a dedicated user. A gVisor container runs as a non-root user with all capabilities dropped and `no-new-privileges`, inside `runsc`. Escape is the main risk; see the isolation section.
 - **Other Docks.** Separate disks, one TAP or veth per Dock with no shared bridge, and the subnet-drop rule above. MicroVMs do not share a kernel; each gVisor Dock is its own `runsc` sandbox.
 - **Control plane credentials.** The GitHub App private key, webhook secret, OAuth secrets and `SECRETS_ENCRYPTION_KEY` are not sent to hosts or Docks. The only connector-derived token a Dock receives is a short-lived, read-only GitHub installation token for the repositories an Environment links, minted at apply time.
 - **The control plane database.** Postgres, Redis and Restate are not published by the self-host stack, and private ranges are dropped from Docks. A Dock reaches the control plane only through its public origin.
@@ -80,7 +84,7 @@ until you remove it.
 - `Authorization: Bearer dock_...` API keys. Only a SHA-256 hash is stored. Keys can be revoked and can expire.
 - A Better Auth cookie session, used only when no Bearer header is sent.
 
-Closed or erased accounts are refused. There are no JWT access tokens.
+A closed account can only reopen or erase itself; an erased account is refused everywhere. There are no JWT access tokens.
 
 **Dock-bound keys.** When an Environment passes Dock credentials, the control
 plane issues one key for that Dock, acting as the Dock's creator. Each apply
@@ -111,12 +115,15 @@ generations of Docks placed on it or named in a command sent to it, and cannot
 overwrite recorded Snapshots. `FLEET_LEGACY_SHARED_TOKEN=true` re-enables the
 shared token for every call; leave it off.
 
-**Rate limits.** API key creation, Dock exec (per Dock and per caller), ChatGPT
-sign-in and the public contact form are limited with Redis counters. These fail
-closed: if Redis is down they return 503. Request body sizes are bounded. Other
-routes have no per-route limit.
+**Rate limits.** Redis counters limit API key and SSH key creation, Dock exec
+(per Dock, per caller and concurrent commands per Dock), terminal tickets, SSH
+gateway authentication (per client address), ChatGPT sign-in, GitHub run
+triggers (per repository), the run LLM gateway, webhook deliveries (per
+endpoint) and the public contact form. They fail closed: if Redis is down the
+request is refused (503 on HTTP routes). Request body sizes are bounded. Other
+routes have no limit of Dock's own.
 
-**Secrets at rest.** Provider keys, Environment secrets and webhook secrets are
+**Secrets at rest.** Provider keys, Environment secrets, ChatGPT sign-in tokens and webhook secrets are
 sealed with AES-256-GCM under `SECRETS_ENCRYPTION_KEY`. Whoever holds that key
 and the database holds the secrets.
 
@@ -138,13 +145,14 @@ unavailable and you accept the larger attack surface.
 
 ## Supply chain
 
-- Docklet release binaries are signed with cosign (keyless, from the docklet release workflow). The host installer downloads `checksums.txt` and its signature bundle and stops unless the signature matches the release workflow identity and the binary matches its checksum. If cosign is missing, the installer fetches a pinned, checksum-verified build.
+- Docklet release binaries are signed with cosign (keyless, from the docklet release workflow). The host installer downloads the binary, `checksums.txt` and their signature bundles, and stops unless both signatures come from the docklet release workflow on a version tag and the binary matches its checksum. If cosign is missing, the installer fetches a pinned, checksum-verified build.
 - The control plane images (`ghcr.io/usedock/dock-api`, `dock-api-migrate`, `dock-dashboard`) are built and published to GHCR for each release and pinned by `DOCK_VERSION`. They are not signed with cosign today. Pin the version and check the digest yourself if that matters to you.
 
 ## Out of scope and known gaps
 
 - **Noisy neighbours.** CPU and memory are capped per Dock. The docklet sets no disk I/O limit, process-count limit or network bandwidth limit on either runtime, so one Dock can degrade disk and network for others on the same host.
-- **Unbounded gVisor work volume** until docklet#19 ships, as described above.
+- **Host disk overcommit.** Each Dock's disk is capped at `diskGiB`, but the files are sparse and nothing reserves host space for them. The docklet compares a new gVisor Dock's size with free disk when it is created; microVM Docks get no disk check. Docks that together grow past the host's free disk fill that filesystem, and every Dock stored on it sees write errors. Watch host disk usage.
+- **One jailer user for all microVMs.** Every Firecracker process on a host runs as the same user, so a VMM escape lands as the user that runs every other microVM on that host.
 - **Open outbound internet for ordinary Docks.** A Dock can send anything it can read to any public host, and can attack the internet from your IP. Confinement exists only for GitHub runs.
 - **Secrets inside a Dock are readable by the Dock.** Use scoped, revocable keys.
 - **Snapshots.** Dock does not encrypt Snapshot data in the object store itself. Use encryption at rest on your bucket or volume. A Snapshot of a Dock that held secrets contains them on disk.
