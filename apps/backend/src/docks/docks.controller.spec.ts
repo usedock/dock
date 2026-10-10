@@ -39,6 +39,23 @@ describe('DocksController', () => {
     expect(docks.create).toHaveBeenCalledWith('u1', { workspaceId: 'ws' }, 'key-1');
   });
 
+  it('never returns env values or the llm token hash from any dock response', async () => {
+    const secretRow = { id: 'd1', runtime: 'microvm', env: { K: 'secret-value' }, llmTokenHash: 'hash-value' };
+    docks.create.mockResolvedValue(secretRow);
+    docks.list.mockResolvedValue([secretRow]);
+    docks.getById.mockResolvedValue(secretRow);
+    docks.update.mockResolvedValue(secretRow);
+    docks.branch.mockResolvedValue(secretRow);
+    const out = [
+      await controller.create(user, { workspaceId: 'ws' } as never),
+      await controller.list(user, {}),
+      await controller.getById(user, 'd1'),
+      await controller.update(user, 'd1', {}),
+      await controller.branch(user, 'd1', {}),
+    ];
+    expect(JSON.stringify(out)).not.toMatch(/secret-value|hash-value|llmTokenHash/);
+  });
+
   it('lists with filter and all flag', async () => {
     docks.list.mockResolvedValue([]);
     await expect(controller.list(user, { filter: 'sr', all: true })).resolves.toEqual([]);

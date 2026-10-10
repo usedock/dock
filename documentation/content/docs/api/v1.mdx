@@ -62,3 +62,10 @@ workspace), `image` (only `ubuntu-24.04`), `cpus` (1 to 64, default 2),
 Branch accepts the same size fields. A Dock object carries `cpus`,
 `memoryMiB`, `diskGiB`, `image`, `runtime` (`microvm` or `gvisor`, set by
 the host), and `persistentPaths`. See [Runtimes and images](/concepts/runtimes).
+
+The Dock object is an explicit allowlist: `id`, `workspaceId`, `name`, `image`,
+`cpus`, `memoryMiB`, `diskGiB`, `runtime`, `persistentPaths`, `state`,
+`ttlSeconds`, `environment`, `fromTemplate`, `ip`, `hostId`, `billingPausedAt`,
+`setupStatus`, `setupError`, `lastSnapshotAt`, `stateChangedAt`, `createdAt`,
+and `updatedAt`. Environment variable values and credential hashes are never
+returned.
