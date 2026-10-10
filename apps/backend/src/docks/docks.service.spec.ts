@@ -102,7 +102,7 @@ describe('DocksService', () => {
       assertDockSecretsReadable: vi.fn().mockResolvedValue(undefined),
     };
     provider = new FakeComputeProvider();
-    hosts = { placeForDock: vi.fn(), anyOnlineWithHeadroom: vi.fn().mockResolvedValue(true), sizeFit: vi.fn().mockResolvedValue('ok') };
+    hosts = { placeForDock: vi.fn(), canPlace: vi.fn().mockResolvedValue(true), getById: vi.fn().mockResolvedValue(null), anyOnlineWithHeadroom: vi.fn().mockResolvedValue(true), sizeFit: vi.fn().mockResolvedValue('ok') };
     config = { get: vi.fn().mockReturnValue('fake') };
     webhooks = { record: vi.fn().mockResolvedValue({ id: 'evt-1' }) };
     notifications = { dockStopRefused: vi.fn().mockResolvedValue(null) };
@@ -479,6 +479,49 @@ describe('DocksService', () => {
     db.update.mockReturnValue({ set: () => ({ where: () => Promise.resolve([]) }) });
     const err = await catchErr(service.create('u1', { workspaceId: wsId }));
     expect(err.body).toMatchObject({ code: 'no_host_capacity' });
+  });
+
+  it('leaves no row when no online host runs the template runtime, and frees the key', async () => {
+    config.get.mockReturnValue('restate');
+    db.select.mockReturnValueOnce(selectQ([{ name: 'gv-stack', status: 'ready', storeSnapshotId: 'gen-own', cpuFamily: 'GenuineIntel:142:1', runtime: 'gvisor' }]));
+    hosts.canPlace.mockResolvedValueOnce(false);
+    db.insert.mockReturnValueOnce({ values: () => Promise.resolve([]) });
+    const deleted = vi.fn().mockResolvedValue([]);
+    db.delete.mockReturnValueOnce({ where: deleted });
+    const err = await catchErr(service.create('u1', { workspaceId: wsId, from: 'gv-stack' }, 'k1'));
+    expect(err.status).toBe(503);
+    expect(err.body).toMatchObject({ code: 'no_host_capacity' });
+    expect(hosts.canPlace).toHaveBeenCalledWith(expect.objectContaining({ cpuFamily: 'GenuineIntel:142:1', runtime: 'gvisor' }));
+    expect(db.insert).toHaveBeenCalledTimes(1); // the idempotency key only
+    expect(deleted).toHaveBeenCalledTimes(1);
+    expect(hosts.placeForDock).not.toHaveBeenCalled();
+  });
+
+  it('skips the family check for a create with no template', async () => {
+    config.get.mockReturnValue('restate');
+    hosts.placeForDock.mockResolvedValueOnce({ id: 'host-1' });
+    db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null })]));
+    db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
+    await service.create('u1', { workspaceId: wsId });
+    expect(hosts.canPlace).not.toHaveBeenCalled();
+  });
+
+  it('leaves no row when no host of the source family has room for a branch, and frees the key', async () => {
+    config.get.mockReturnValue('restate');
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow({ hostId: 'host-src', runtime: 'microvm' })]))
+      .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]));
+    hosts.getById.mockResolvedValueOnce({ id: 'host-src', cpuFamily: 'GenuineIntel:142:1' });
+    hosts.canPlace.mockResolvedValueOnce(false);
+    db.insert.mockReturnValueOnce({ values: () => Promise.resolve([]) });
+    const deleted = vi.fn().mockResolvedValue([]);
+    db.delete.mockReturnValueOnce({ where: deleted });
+    const err = await catchErr(service.branch('u1', dockId, { name: 'fork-f' }, 'k1'));
+    expect(err.status).toBe(503);
+    expect(err.body).toMatchObject({ code: 'no_host_capacity' });
+    expect(hosts.canPlace).toHaveBeenCalledWith(expect.objectContaining({ cpuFamily: 'GenuineIntel:142:1', runtime: 'microvm' }));
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(deleted).toHaveBeenCalledTimes(1);
   });
 
   it('pins a template boot to the runtime that captured it', async () => {

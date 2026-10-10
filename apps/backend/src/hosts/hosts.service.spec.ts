@@ -469,6 +469,19 @@ describe('HostsService', () => {
     await expect(service.anyOnlineWithHeadroom({ excludeHostIds: ['h1'] })).resolves.toBe(false);
   });
 
+  it('canPlace is advisory and filters on family, runtime and base like placement', async () => {
+    const h = hostRow({ id: 'h1', cpuFamily: 'x86_64-v4', runtime: 'microvm', baseFingerprints: ['b'.repeat(64)] });
+    db.select.mockReturnValueOnce(selectQ([h])).mockReturnValueOnce(selectQ([]));
+    await expect(service.canPlace({ cpuFamily: 'x86_64-v4', runtime: 'microvm' })).resolves.toBe(true);
+    db.select.mockReturnValueOnce(selectQ([h]));
+    await expect(service.canPlace({ cpuFamily: 'aarch64' })).resolves.toBe(false);
+    db.select.mockReturnValueOnce(selectQ([h]));
+    await expect(service.canPlace({ runtime: 'gvisor' })).resolves.toBe(false);
+    db.select.mockReturnValueOnce(selectQ([h]));
+    const err = await catchErr(service.canPlace({ cpuFamily: 'x86_64-v4', baseFingerprint: 'c'.repeat(64) }));
+    expect(err.body).toMatchObject({ code: 'base_image_unavailable' });
+  });
+
   it('treats a registered zero memory budget as no capacity, unlike an unknown one', async () => {
     useTx([hostRow({ id: 'h1', vcpuTotal: 64, memTotalBytes: 8 * 1024 ** 3, memBudgetBytes: 0, maxDocks: 32 })]);
     await expect(service.placeForDock({ cpus: 1, memoryMiB: 2048 })).resolves.toBeNull();
