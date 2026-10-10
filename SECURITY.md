@@ -17,3 +17,5 @@ All repositories in the [usedock](https://github.com/usedock) organization, the 
 ## Supported versions
 
 Only the latest release receives security fixes.
+
+For what Dock protects and where the known gaps are, read the [threat model](documentation/content/docs/threat-model.mdx).
