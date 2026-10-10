@@ -1,0 +1,46 @@
+# Certificates for hosted port names are issued on first use, and only for
+# names the API reports as exposed.
+{
+	on_demand_tls {
+		ask http://backend:8000/v1/ports/tls-check
+	}
+}
+
+# One site for the whole control plane. API paths go to the backend, the rest
+# to the dashboard. DOCK_SITE_ADDRESS is a hostname (automatic HTTPS) or an
+# address such as http://10.0.0.5 for plain HTTP on a private network.
+{$DOCK_SITE_ADDRESS} {
+	encode zstd gzip
+
+	# No HSTS: the site may run on plain http. Set it at your own edge for https.
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+		-X-Powered-By
+	}
+
+	@api path /v1/* /api/auth/* /openapi.json
+	handle @api {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy dashboard:3002
+	}
+}
+
+# Hosted ports: one request per upstream connection, since the backend routes
+# each connection by its Host header. Unset DOCK_PORTS_DOMAIN never matches.
+{$DOCK_PORTS_SITE_ADDRESS} {
+	tls {
+		on_demand
+	}
+	reverse_proxy backend:8001 {
+		transport http {
+			keepalive off
+		}
+	}
+}

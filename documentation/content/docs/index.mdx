@@ -1,0 +1,32 @@
+---
+title: Dock Docs
+description: Isolated Linux machines for agents. On your laptop, your servers, or our cloud.
+---
+
+Dock gives agents isolated Linux machines. Each one is a Dock: a persistent
+machine with a stable ID that you can stop, resume, snapshot, and branch into
+independent copies. Dock is open source (AGPL-3.0). Self-hosting is free and
+runs on your laptop or your servers ([Self-hosting](/self-hosting)). Dock Cloud
+is coming soon.
+
+Dock does not install or version coding agents. Bring any agent and install it
+in your environment setup script.
+
+## What you can use today
+
+- REST API at `<your origin>/v1`, with a `{ ok, data }` envelope and `dock_`
+  API keys as bearer tokens.
+- Docks: create, list, get, update, stop, resume, branch, and delete, with a
+  size you choose (`cpus`, `memoryMiB`, `diskGiB`).
+- Running commands inside a Dock with `POST /v1/docks/:id/exec`.
+- SSH through the control plane's gateway, and hosted ports at a public URL on
+  instances with a ports domain configured.
+- Snapshots, environments (variables, secret files, repository links), and
+  webhooks.
+- The GitHub connector: credentials stay outside the dock.
+
+Start with the [Quickstart](/quickstart) and the [concepts](/concepts/docks).
+
+## Not built yet
+
+The `dock` CLI and the client SDKs are not built yet. Use the REST API.

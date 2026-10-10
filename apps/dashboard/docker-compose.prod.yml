@@ -1,0 +1,16 @@
+# Production: built standalone image behind system Caddy.
+# From apps/dashboard: `docker compose -f docker-compose.prod.yml up -d --build`.
+# Reads .env.production (gitignored). Holds no DB access: auth and data go
+# through the backend API (BETTER_AUTH_BACKEND_URL).
+# System Caddy proxies 127.0.0.1:3002 to https://dashboard.usedock.io.
+# Pinned project name: dev and prod files must never share one.
+name: dashboard
+services:
+  dashboard:
+    build: .
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+    ports:
+      - '127.0.0.1:3002:3002'
+    restart: unless-stopped

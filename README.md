@@ -6,11 +6,9 @@ A dock is a Linux machine with a persistent disk, a stable ID and an optional na
 
 This repo is the open core: the control plane API, the dashboard, the self-host deploy and the documentation. Dock Cloud is coming soon; self-hosting is free.
 
-> **Status:** this repo is being set up. The code arrives as a fresh first commit when the private monorepo is split. Interfaces may change until the first public release; from then on `/v1` only grows.
+> **Status:** pre-release. Interfaces may change until the first public release; from then on `/v1` only grows. The `dock` CLI and the SDKs are not built yet.
 
-## Planned layout
-
-The code is not in the repo yet. It will arrive with this layout:
+## Layout
 
 | Path | What it is |
 | --- | --- |
@@ -19,7 +17,7 @@ The code is not in the repo yet. It will arrive with this layout:
 | `deploy/self-host` | One-command self-hosted control plane with Docker Compose |
 | `documentation` | Docs site (Fumadocs, hand-written pages) |
 
-Docks run on hosts driven by the [docklet](https://github.com/usedock/docklet), a separate repo.
+Docks run on hosts driven by the [docklet](https://github.com/usedock/docklet), a separate repo. The marketing site is [usedock/website](https://github.com/usedock/website).
 
 ## Concepts
 
@@ -34,23 +32,23 @@ Docks run on hosts driven by the [docklet](https://github.com/usedock/docklet), 
 | Host | A machine that runs docks and dials out to the control plane |
 | Context | Where commands go: local, cloud, or a self-hosted URL |
 
-## Self-host (arrives with the code)
+## Self-host
 
-The steps below describe the planned self-host flow. `deploy/self-host` is not in the repo yet.
-
-Requirements: Docker with Compose v2. To run docks on the same machine, Linux with Docker (gVisor) or `/dev/kvm` (Firecracker).
+Requirements: Docker with Compose v2. To run docks on the same machine, Linux with Docker (gVisor) or `/dev/kvm` (Firecracker), and a checkout of [usedock/docklet](https://github.com/usedock/docklet) next to this repo (`../docklet`, or set `DOCKLET_DIR`).
 
 ```sh
-cd deploy/self-host
+git clone https://github.com/usedock/dock
+git clone https://github.com/usedock/docklet   # only needed for --host
+cd dock/deploy/self-host
 ./setup.sh --host                           # local: http://localhost:8088, docks on this machine
 ./setup.sh --url https://dock.example.com   # public instance, automatic HTTPS
 ```
 
-`setup.sh` writes `.env` with fresh secrets, starts Postgres, Redis, Restate, MinIO, the API, the dashboard and Caddy on one origin, and waits until the API is healthy. `--host` also enrolls the machine as a host. More hosts join with one command each; see the [docklet](https://github.com/usedock/docklet) repo.
+`setup.sh` writes `.env` with fresh secrets, starts Postgres, Redis, Restate, MinIO, the API, the dashboard and Caddy on one origin, and waits until the API is healthy. `--host` also enrolls the machine as a host. More hosts join with one command each; see the [docklet](https://github.com/usedock/docklet) repo and `deploy/self-host/README.md`.
 
 ## Planned CLI
 
-The `dock` CLI and the SDKs do not exist yet. They will talk to any control plane: your own, or Dock Cloud (coming soon). The commands below are a proposal, not a working interface.
+The `dock` CLI and the SDKs are not built yet. They will talk to any control plane: your own, or Dock Cloud (coming soon). The commands below are a proposal, not a working interface.
 
 ```sh
 dock login --url https://dock.example.com
@@ -67,17 +65,26 @@ dock branch api --count 3
 | Python SDK | [usedock/dock-python](https://github.com/usedock/dock-python) |
 | Go SDK | [usedock/dock-go](https://github.com/usedock/dock-go) |
 
-## Development (arrives with the code)
+## Development
 
-Once the code lands, each app runs on its own; there is no root workspace.
+Each app runs on its own; there is no root workspace. Bun is the package manager.
 
 ```sh
+# API
 cd apps/backend
 bun install
 docker compose -f docker-compose.dev.yml up db redis mailpit
 bun run start:dev
 bun run test
+
+# dashboard
+cd apps/dashboard && bun install && bun run dev
+
+# docs
+cd documentation && bun install && bun run dev
 ```
+
+CI (`.github/workflows/ci.yml`) builds and tests the backend, lints and builds the dashboard, typechecks and builds the docs, and scans for secrets.
 
 Every behavior change ships with colocated `*.spec.ts` tests. An API change lands in the same pull request as its doc page and links the matching SDK pull requests.
 

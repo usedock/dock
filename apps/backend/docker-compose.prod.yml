@@ -1,0 +1,155 @@
+# Production stack: Postgres + Redis + built API image, plus the central
+# Restate engine and snapshot object store the whole fleet shares.
+# From apps/backend:
+#   docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+# Reads .env.production (copy from .env.production.example, gitignored).
+# Compose interpolation (POSTGRES_PASSWORD, SNAPSHOT_STORE_*) needs the same
+# file, hence `--env-file`. DATABASE_URL must use that password.
+# POSTGRES_* only apply when the pgdata volume is first created. On an existing
+# volume, change the role password before switching DATABASE_URL:
+#   docker compose --env-file .env.production -f docker-compose.prod.yml exec db \
+#     psql -U dock -d dock -c "ALTER ROLE dock WITH PASSWORD '<new>'"
+# Migrate first:
+#   docker compose --env-file .env.production -f docker-compose.prod.yml run --rm migrate
+# System Caddy proxies 127.0.0.1:8000 to https://api.usedock.io.
+# Restate and MinIO stay on the internal compose network: hosts reach
+# generations through the API, never by exposing a datastore to the internet.
+# Pinned project name: dev and prod files must never share one, or dev
+# `run`/`up` recreates prod containers under the same names.
+name: backend
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: '${POSTGRES_USER:-dock}'
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}'
+      POSTGRES_DB: '${POSTGRES_DB:-dock}'
+    volumes:
+      - pgdata-prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Central durable workflow engine. One instance for every host;
+  # hosts never run their own Restate.
+  restate:
+    image: docker.restate.dev/restatedev/restate:1.7.13
+    command: ['--node-name', 'restate-1']
+    volumes:
+      - restate-data-prod:/restate-data
+    ports:
+      # Admin API bound to loopback for operator use; ingress stays internal.
+      - '127.0.0.1:9070:9070'
+    healthcheck:
+      # The restate image ships curl but not wget.
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:9070/health']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # Central snapshot store: one bucket for every host's generations, so a
+  # dock can be resumed or branched on a different machine.
+  minio:
+    image: '${MINIO_IMAGE:-pgsty/minio:RELEASE.2026-08-04T00-00-00Z}'
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: '${SNAPSHOT_STORE_ACCESS_KEY:?set SNAPSHOT_STORE_ACCESS_KEY}'
+      MINIO_ROOT_PASSWORD: '${SNAPSHOT_STORE_SECRET_KEY:?set SNAPSHOT_STORE_SECRET_KEY}'
+    volumes:
+      - minio-data-prod:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # Creates the snapshot bucket once MinIO is healthy; idempotent on re-run.
+  minio-init:
+    image: '${MINIO_CLIENT_IMAGE:-pgsty/mc:RELEASE.2026-09-16T00-00-00Z}'
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      SNAPSHOT_STORE_ACCESS_KEY: '${SNAPSHOT_STORE_ACCESS_KEY:?set SNAPSHOT_STORE_ACCESS_KEY}'
+      SNAPSHOT_STORE_SECRET_KEY: '${SNAPSHOT_STORE_SECRET_KEY:?set SNAPSHOT_STORE_SECRET_KEY}'
+      SNAPSHOT_STORE_BUCKET: '${SNAPSHOT_STORE_BUCKET:-dock-snapshots}'
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        mc alias set dock http://minio:9000 "$$SNAPSHOT_STORE_ACCESS_KEY" "$$SNAPSHOT_STORE_SECRET_KEY" &&
+        mc mb --ignore-existing "dock/$$SNAPSHOT_STORE_BUCKET" &&
+        echo "bucket ready: $$SNAPSHOT_STORE_BUCKET"
+    restart: 'no'
+
+  backend:
+    build: .
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      # The central engine's addresses on the compose network. Hosts
+      # never contact these; they go through the API.
+      RESTATE_INGRESS_URL: http://restate:8080
+      RESTATE_ADMIN_URL: http://restate:9070
+      # The store is deployment config: the bundled MinIO by default, or any
+      # S3-compatible bucket when the deployment overrides these.
+      SNAPSHOT_STORE_ENDPOINT: '${SNAPSHOT_STORE_ENDPOINT:-http://minio:9000}'
+      SNAPSHOT_STORE_BUCKET: '${SNAPSHOT_STORE_BUCKET:-dock-snapshots}'
+      SNAPSHOT_STORE_ACCESS_KEY: '${SNAPSHOT_STORE_ACCESS_KEY:?set SNAPSHOT_STORE_ACCESS_KEY}'
+      SNAPSHOT_STORE_SECRET_KEY: '${SNAPSHOT_STORE_SECRET_KEY:?set SNAPSHOT_STORE_SECRET_KEY}'
+      SNAPSHOT_STORE_SSL: '${SNAPSHOT_STORE_SSL:-false}'
+      # The address a host uses for direct transfers. Falls back to the
+      # internal endpoint, which only works when hosts can reach it.
+      SNAPSHOT_STORE_PUBLIC_ENDPOINT: '${SNAPSHOT_STORE_PUBLIC_ENDPOINT:-}'
+      SNAPSHOT_STORE_REGION: '${SNAPSHOT_STORE_REGION:-us-east-1}'
+      SNAPSHOT_STORE_PATH_STYLE: '${SNAPSHOT_STORE_PATH_STYLE:-true}'
+      SNAPSHOT_STORE_PRESIGN_TTL_SECONDS: '${SNAPSHOT_STORE_PRESIGN_TTL_SECONDS:-900}'
+      # SSH gateway; published directly since Caddy only proxies HTTP.
+      SSH_GATEWAY_PORT: '${SSH_GATEWAY_PORT:-2222}'
+      # Hosted ports; system Caddy terminates TLS for *.PORTS_DOMAIN and forwards here.
+      PORTS_DOMAIN: '${PORTS_DOMAIN:-}'
+      PORTS_PROXY_PORT: 8001
+    ports:
+      - '127.0.0.1:8000:8000'
+      - '127.0.0.1:8001:8001'
+      - '${SSH_GATEWAY_PORT:-2222}:${SSH_GATEWAY_PORT:-2222}'
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      restate:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # One-shot schema migration (builder image with dev deps). Not started by up.
+  migrate:
+    build:
+      context: .
+      target: build
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ['bun', 'run', 'db:migrate']
+    profiles: ['tools']
+volumes:
+  pgdata-prod:
+  restate-data-prod:
+  minio-data-prod:

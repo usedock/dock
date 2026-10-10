@@ -1,0 +1,20 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/* Field Ledger voice: Manrope testifies in prose, IBM Plex Mono in evidence. */
+body {
+  font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
+}
+
+::selection {
+  background: #b7f34a;
+  color: #11120f;
+}

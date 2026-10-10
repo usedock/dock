@@ -1,0 +1,87 @@
+---
+title: Quickstart
+description: Get an API key, find a workspace, and create your first Dock.
+---
+
+The examples use `https://dock.example.com` for your control plane. Replace it
+with your own origin (`DOCK_PUBLIC_URL`; see [Self-hosting](/self-hosting)).
+You need at least one host enrolled and online, or creating a Dock fails with 503
+`no_host_capacity` (`capacity_exhausted` when no host has room for the size).
+
+## 1. Create an API key
+
+Sign in to the dashboard at your origin, open Developers > API keys, and create
+a key. The raw key starts with `dock_` and is shown once.
+
+```bash
+export DOCK_URL=https://dock.example.com
+export DOCK_API_KEY=dock_...
+```
+
+Every protected call takes it as `Authorization: Bearer $DOCK_API_KEY`.
+
+## 2. Find a workspace
+
+Docks belong to a workspace. List your organizations, then the workspaces in
+one of them.
+
+```bash
+curl -sS "$DOCK_URL/v1/organizations" \
+  -H "Authorization: Bearer $DOCK_API_KEY"
+
+curl -sS "$DOCK_URL/v1/organizations/<org-id>/workspaces" \
+  -H "Authorization: Bearer $DOCK_API_KEY"
+```
+
+## 3. Create a Dock
+
+Only `workspaceId` is required. Size defaults to 2 CPUs, 4096 MiB of memory and
+a 20 GiB disk. `name` is optional and unique per workspace. `image` defaults to
+`ubuntu-24.04`, the only image available today.
+
+Creation takes an `idempotency-key` header, so a retried request returns the
+original Dock instead of creating a second one. The call returns once the host
+has started the Dock.
+
+```bash
+curl -sS -X POST "$DOCK_URL/v1/docks" \
+  -H "Authorization: Bearer $DOCK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "idempotency-key: quickstart-1" \
+  -d '{"workspaceId":"<workspace-id>","name":"scratch","cpus":2,"memoryMiB":4096,"diskGiB":20}'
+
+curl -sS "$DOCK_URL/v1/docks" -H "Authorization: Bearer $DOCK_API_KEY"
+```
+
+The Dock object carries `cpus`, `memoryMiB`, `diskGiB`, `image`, `runtime`, and
+`persistentPaths`.
+
+## 4. Run a command
+
+`POST /v1/docks/:id/exec` runs one command in a ready Dock, as the Dock user
+under `bash -lc` in `/home/user/work`, and returns its output.
+
+```bash
+curl -sS -X POST "$DOCK_URL/v1/docks/<dock-id>/exec" \
+  -H "Authorization: Bearer $DOCK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"uname -a && git --version","timeoutSeconds":60}'
+```
+
+The result is `{ exitCode, stdout, stderr, durationMs, truncated }`. Each
+stream keeps its first 1 MiB (`truncated: true` when clipped). Optional fields:
+`env` (variables for this call only, never stored), `cwd` (absolute path), and
+`timeoutSeconds` (default 60). A command past its timeout is killed and returns
+504 `exec_timeout`; a Dock that is not ready returns 409 `dock_not_running`.
+
+## 5. Stop, resume, branch
+
+`POST /v1/docks/:id/stop` archives the Dock's disk to a Snapshot and releases
+its compute. `POST /v1/docks/:id/resume` boots the same Dock from that Snapshot.
+`POST /v1/docks/:id/branch` starts a new, independent Dock from it. See
+[Docks](/concepts/docks) for the lifecycle.
+
+## Next steps
+
+- [API guide](/api/v1): envelopes, errors, idempotency, and confirmation headers.
+- [Self-hosting](/self-hosting): run the control plane and hosts yourself.

@@ -1,0 +1,13 @@
+# Production: built standalone image behind system Caddy.
+# From documentation: `docker compose -f docker-compose.prod.yml up -d --build`.
+# System Caddy proxies 127.0.0.1:3001 to https://docs.usedock.io.
+# Pinned project name: dev and prod files must never share one.
+name: documentation
+services:
+  docs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '127.0.0.1:3001:3001'
+    restart: unless-stopped
