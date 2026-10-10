@@ -77,8 +77,10 @@ composite:
   docks.files.list:
     via: docks.exec
     args: [dockId, path]
-    command: "test -d {path} && find -- {path} -mindepth 1 -maxdepth 1 -exec sh -c 'for f; do printf \"%s\" \"${f##*/}\" | base64 -w0; echo; done' sh {} +"
-    # stdout is one base64-encoded entry name per line, in no fixed order.
+    command: "p={path} && case $p in /*) ;; *) p=./$p ;; esac && test -d \"$p\" && find -H \"$p\" -mindepth 1 -maxdepth 1 -exec sh -c 'for f; do printf \"%s\" \"${f##*/}\" | base64 -w0; echo; done' sh {} +"
+    # A relative path gets ./ so find never reads it as an expression; -H follows
+    # a symlinked directory. stdout is one base64-encoded entry name per line, in
+    # no fixed order.
     # data.entries is each non-empty line base64-decoded to UTF-8, so names
     # holding newlines or other odd bytes survive.
     data:

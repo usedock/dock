@@ -91,7 +91,7 @@
         "method": "POST",
         "path": "/v1/docks/22222222-2222-4222-8222-222222222222/exec",
         "body": {
-          "command": "test -d '/home/user/work/notes' && find -- '/home/user/work/notes' -mindepth 1 -maxdepth 1 -exec sh -c 'for f; do printf \"%s\" \"${f##*/}\" | base64 -w0; echo; done' sh {} +"
+          "command": "p='/home/user/work/notes' && case $p in /*) ;; *) p=./$p ;; esac && test -d \"$p\" && find -H \"$p\" -mindepth 1 -maxdepth 1 -exec sh -c 'for f; do printf \"%s\" \"${f##*/}\" | base64 -w0; echo; done' sh {} +"
         }
       },
       "response": {

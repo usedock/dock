@@ -76,8 +76,8 @@ Messages are never asserted.
 - `docks.files.list` prints one base64-encoded entry name per line (the names
   are raw bytes, so a name may hold newlines); `data.entries` is each non-empty
   line decoded as base64, then as UTF-8. Order is not fixed. Hidden entries are
-  included, `.` and `..` are not, and a path that is not a directory exits
-  non-zero.
+  included, `.` and `..` are not, a symlink to a directory lists the target's
+  entries, and a path that is not a directory exits non-zero.
 - File helpers are shell commands, so the SDK must quote the path: `{path}`
   becomes one single-quoted word with each `'` written as `'\''`
   (`it's.txt` -> `'it'\''s.txt'`), and `--` stops option parsing. Content is

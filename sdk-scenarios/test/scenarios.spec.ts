@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -267,6 +267,20 @@ describe.skipIf(bash.status !== 0)('composite file commands', () => {
         expect(list.stdout.split('\n').filter(Boolean).map(b64decode).sort()).toEqual([entry, 'plain.txt'].sort());
       }
       expect(existsSync(join(cwd, 'pwned'))).toBe(false);
+    });
+  });
+
+  // find skips a symlinked start point and reads a leading -, ! or ( as an expression.
+  it.each(['link', '-n.txt', '!', '(', 'link/'])('lists the entries of directory %j', (path) => {
+    inTempDir((cwd) => {
+      for (const dir of ['real', '-n.txt', '!', '(']) {
+        mkdirSync(join(cwd, dir));
+        writeFileSync(join(cwd, dir, 'a.txt'), 'x');
+      }
+      symlinkSync(join(cwd, 'real'), join(cwd, 'link'), 'junction');
+      const list = run(cwd, renderCommand(ops.composite['docks.files.list'], { path }));
+      expect(list.status, list.stderr).toBe(0);
+      expect(list.stdout.split('\n').filter(Boolean).map(b64decode)).toEqual(['a.txt']);
     });
   });
 
