@@ -26,6 +26,7 @@ import { SpendGate } from '../metering/spend-gate';
 import { FAST_RUN_PROVIDER, type FastRunProvider, type RuntimeRef } from '../runtime/fast-run.provider';
 import { HostsService } from '../hosts/hosts.service';
 import { RunArtifactsService } from './run-artifacts.service';
+import { runView, type RunView } from './run-view';
 import { OrganizationsService, isUniqueViolation } from '../organizations/organizations.service';
 import type { RequestUser } from '../auth/jwt-auth.guard';
 import { DB, Db } from '../database/database.module';
@@ -644,14 +645,19 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
       if (!GITHUB_RUN_STATES.includes(state)) throw validationError('Unknown run state');
       conditions.push(eq(githubRuns.state, state));
     }
-    return this.db
+    const rows = await this.db
       .select()
       .from(githubRuns)
       .where(and(...conditions))
       .orderBy(desc(githubRuns.createdAt));
+    return rows.map(runView);
   }
 
-  async getRun(callerId: string, id: string): Promise<GithubRun> {
+  async getRun(callerId: string, id: string): Promise<RunView> {
+    return runView(await this.loadRun(callerId, id));
+  }
+
+  private async loadRun(callerId: string, id: string): Promise<GithubRun> {
     const [run] = await this.db.select().from(githubRuns).where(eq(githubRuns.id, id)).limit(1);
     if (!run) throw new RunNotFoundException();
     try {
@@ -665,10 +671,10 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Moves a live Fast Run onto a persistent dock that resumes the run branch. */
-  async promoteRun(caller: RequestUser, id: string): Promise<GithubRun> {
+  async promoteRun(caller: RequestUser, id: string): Promise<RunView> {
     this.requireSession(caller);
-    const run = await this.getRun(caller.id, id);
-    if (run.executionTarget !== 'fast') return run;
+    const run = await this.loadRun(caller.id, id);
+    if (run.executionTarget !== 'fast') return runView(run);
     if (run.state === 'done' || run.state === 'failed' || run.state === 'stopped') {
       throw new ConflictException({ code: 'run_not_promotable', message: 'Terminal Runs cannot be promoted' });
     }
@@ -719,7 +725,7 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
     );
     const payload: IssueCommentPayload = { issue: { number: run.issueNumber } };
     this.background(this.launch(promoted, mapping, payload, { model: credentials.model, completionPlain, gatewayPlain, resumeBranch: true }));
-    return promoted;
+    return runView(promoted);
   }
 
   // Webhook intake

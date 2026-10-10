@@ -510,6 +510,29 @@ describe('HostsService', () => {
     expect(list[0]).not.toHaveProperty('running');
   });
 
+  it('returns exactly the allowlisted host fields and drops secrets and extra columns', async () => {
+    const rows = [
+      hostRow({
+        diskTotalBytes: 1,
+        memBudgetBytes: 2,
+        baseFingerprints: ['fp-secret'],
+        credentialHash: 'deadbeef',
+        running: [],
+        extraFutureColumn: 'x',
+      }),
+    ];
+    db.select.mockReturnValueOnce({ from: () => ({ orderBy: () => Promise.resolve(rows) }) });
+    const [summary] = await service.listForAdmin({ email: 'ops@example.com', emailVerified: true });
+    expect(Object.keys(summary).sort()).toEqual(
+      [
+        'id', 'address', 'cpuFamily', 'kernel', 'runtime', 'kernelRelease', 'vcpuTotal', 'memTotalBytes',
+        'diskTotalBytes', 'maxDocks', 'usedDocks', 'runningDocks', 'state', 'lastHeartbeatAt', 'createdAt',
+      ].sort(),
+    );
+    const json = JSON.stringify(summary);
+    for (const leaked of ['deadbeef', 'credentialHash', 'fp-secret', 'extraFutureColumn']) expect(json).not.toContain(leaked);
+  });
+
   it('refuses the host list to non-admins without querying', async () => {
     const err = await catchErr(service.listForAdmin({ email: 'member@example.com', emailVerified: true }));
     expect(err.status).toBe(403);
