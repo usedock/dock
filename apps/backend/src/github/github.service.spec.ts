@@ -645,4 +645,14 @@ describe('GithubService limits and reads', () => {
     expect(rows).toHaveLength(1);
     expect(ctx.orgs.requireMembership).toHaveBeenCalledWith('org-1', 'user-1');
   });
+
+  it('returns the run view, not the row, from list and get', async () => {
+    const ctx = setup();
+    const secret = { sealedToken: { ct: 'sealed-x' }, completionTokenHash: 'hash-x', envelopeHash: 'env-x' };
+    ctx.selectQueue.push([workspace], [runRow(secret)], [runRow(secret)], [workspace]);
+    const out = [await ctx.service.listRuns('user-1', 'ws-1'), await ctx.service.getRun('user-1', 'run-1')];
+    const json = JSON.stringify(out);
+    for (const leaked of ['sealed-x', 'hash-x', 'env-x', 'envelope', 'attemptNumber']) expect(json).not.toContain(leaked);
+    expect(out[1]).toMatchObject({ id: 'run-1', repo: 'acme/web' });
+  });
 });
