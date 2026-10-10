@@ -100,7 +100,7 @@ describe('DocksService', () => {
       assertDockSecretsReadable: vi.fn().mockResolvedValue(undefined),
     };
     provider = new FakeComputeProvider();
-    hosts = { placeForDock: vi.fn(), anyOnlineWithHeadroom: vi.fn().mockResolvedValue(false), sizeFit: vi.fn().mockResolvedValue('ok') };
+    hosts = { placeForDock: vi.fn(), anyOnlineWithHeadroom: vi.fn().mockResolvedValue(true), sizeFit: vi.fn().mockResolvedValue('ok') };
     config = { get: vi.fn().mockReturnValue('fake') };
     webhooks = { record: vi.fn().mockResolvedValue({ id: 'evt-1' }) };
     notifications = { dockStopRefused: vi.fn().mockResolvedValue(null) };
@@ -192,6 +192,7 @@ describe('DocksService', () => {
   it('fails with capacity_exhausted once every host refused', async () => {
     config.get.mockReturnValue('restate');
     hosts.placeForDock.mockResolvedValueOnce({ id: 'host-full' }).mockResolvedValueOnce(null);
+    hosts.anyOnlineWithHeadroom.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     const spy = vi.spyOn(provider, 'provision').mockRejectedValueOnce(Object.assign(new Error('over budget'), { code: 'capacity_exhausted' }));
     db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null, hostId: null })]));
     db.update.mockReturnValue({ set: () => ({ where: () => Promise.resolve([]) }) });
@@ -203,6 +204,7 @@ describe('DocksService', () => {
   it('refuses restate resume with 503 when no host qualifies', async () => {
     config.get.mockReturnValue('restate');
     hosts.placeForDock.mockResolvedValueOnce(null);
+    hosts.anyOnlineWithHeadroom.mockResolvedValueOnce(false);
     db.select
       .mockReturnValueOnce(selectQ([dockRow({ state: 'archived' })]))
       .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
@@ -391,38 +393,80 @@ describe('DocksService', () => {
     spy.mockRestore();
   });
 
-  it('refuses with capacity_exhausted when no host has room for the size', async () => {
+  it('refuses with capacity_exhausted before inserting when no host has room for the size', async () => {
     config.get.mockReturnValue('restate');
-    hosts.placeForDock.mockResolvedValueOnce(null);
     hosts.anyOnlineWithHeadroom.mockResolvedValueOnce(false);
-    db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null })]));
-    db.update.mockReturnValue({ set: () => ({ where: () => Promise.resolve([]) }) });
     const err = await catchErr(service.create('u1', { workspaceId: wsId, cpus: 64 }));
     expect(err.status).toBe(503);
     expect(err.body).toMatchObject({ code: 'capacity_exhausted' });
+    expect(db.insert).not.toHaveBeenCalled();
   });
 
-  it('reports no_host_capacity when no host is online', async () => {
+  it('reports no_host_capacity before inserting when no host is online', async () => {
     config.get.mockReturnValue('restate');
-    hosts.placeForDock.mockResolvedValueOnce(null);
     hosts.sizeFit.mockResolvedValueOnce('none_online');
-    db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null })]));
-    db.update.mockReturnValue({ set: () => ({ where: () => Promise.resolve([]) }) });
     const err = await catchErr(service.create('u1', { workspaceId: wsId }));
     expect(err.status).toBe(503);
     expect(err.body).toMatchObject({ code: 'no_host_capacity' });
+    expect(db.insert).not.toHaveBeenCalled();
   });
 
-  it('rejects with 400 validation_error when the size exceeds every online host', async () => {
+  it('rejects with 400 validation_error before inserting when the size exceeds every online host', async () => {
     config.get.mockReturnValue('restate');
-    hosts.placeForDock.mockResolvedValueOnce(null);
     hosts.sizeFit.mockResolvedValueOnce('too_large');
-    db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null })]));
-    db.update.mockReturnValue({ set: () => ({ where: () => Promise.resolve([]) }) });
     const err = await catchErr(service.create('u1', { workspaceId: wsId, cpus: 64 }));
     expect(err.status).toBe(400);
     expect(err.body).toMatchObject({ code: 'validation_error' });
     expect(String(err.body.message)).toContain('exceeds the total capacity');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('frees the name after a too-large create so a retry with a valid size succeeds', async () => {
+    config.get.mockReturnValue('restate');
+    hosts.sizeFit.mockResolvedValueOnce('too_large');
+    const refused = await catchErr(service.create('u1', { workspaceId: wsId, name: 'retry-me', cpus: 64 }));
+    expect(refused.status).toBe(400);
+    expect(db.insert).not.toHaveBeenCalled();
+    db.select.mockReturnValueOnce(selectQ([]));
+    hosts.placeForDock.mockResolvedValueOnce({ id: 'host-1' });
+    const spy = vi.spyOn(provider, 'provision').mockResolvedValueOnce({ ip: '10.9.9.8', hostId: 'host-1' });
+    db.insert.mockReturnValueOnce(insertQ([dockRow({ name: 'retry-me', state: 'provisioning', ip: null, hostId: null })]));
+    db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
+    await expect(service.create('u1', { workspaceId: wsId, name: 'retry-me', cpus: 2 })).resolves.toMatchObject({ state: 'ready' });
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it('leaves no row when a branch size exceeds every online host, and the name stays free', async () => {
+    config.get.mockReturnValue('restate');
+    const source = () => db.select
+      .mockReturnValueOnce(selectQ([dockRow()]))
+      .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]));
+    source();
+    hosts.sizeFit.mockResolvedValueOnce('too_large');
+    const err = await catchErr(service.branch('u1', dockId, { name: 'fork-a', cpus: 64 }));
+    expect(err.status).toBe(400);
+    expect(db.insert).not.toHaveBeenCalled();
+    source();
+    db.select.mockReturnValueOnce(selectQ([])).mockReturnValueOnce(selectQ([{ id: 'snap-9', status: 'completed' }]));
+    hosts.placeForDock.mockResolvedValueOnce({ id: 'host-1' });
+    db.insert
+      .mockReturnValueOnce(insertQ([dockRow({ id: 'dock-new', name: 'fork-a', state: 'provisioning' })]))
+      .mockReturnValueOnce(insertQ([{ id: 'snap-10' }]));
+    db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow({ id: 'dock-new', state: 'ready' })]) }) }) });
+    await expect(service.branch('u1', dockId, { name: 'fork-a', cpus: 2 })).resolves.toMatchObject({ state: 'ready' });
+  });
+
+  it('leaves no row when a branch finds no host with room', async () => {
+    config.get.mockReturnValue('restate');
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow()]))
+      .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]));
+    hosts.anyOnlineWithHeadroom.mockResolvedValueOnce(false);
+    const err = await catchErr(service.branch('u1', dockId, { cpus: 8 }));
+    expect(err.status).toBe(503);
+    expect(err.body).toMatchObject({ code: 'capacity_exhausted' });
+    expect(db.insert).not.toHaveBeenCalled();
   });
 
   it('reports no_host_capacity when room exists but family or runtime rules it out', async () => {
@@ -830,6 +874,33 @@ describe('DocksService', () => {
     db.delete.mockReturnValueOnce({ where: deleted });
     const err = await catchErr(service.create('u1', { workspaceId: wsId, name: 'taken' }, 'k1'));
     expect(err.body).toMatchObject({ code: 'dock_name_taken' });
+    expect(deleted).toHaveBeenCalledTimes(1);
+  });
+
+  it('frees the claimed key when the size is refused so a resized retry with the same key is not rejected as reused', async () => {
+    config.get.mockReturnValue('restate');
+    hosts.sizeFit.mockResolvedValueOnce('too_large');
+    db.insert.mockReturnValueOnce({ values: () => Promise.resolve([]) });
+    const deleted = vi.fn().mockResolvedValue([]);
+    db.delete.mockReturnValueOnce({ where: deleted });
+    const err = await catchErr(service.create('u1', { workspaceId: wsId, name: 'big', cpus: 64 }, 'k1'));
+    expect(err.status).toBe(400);
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(deleted).toHaveBeenCalledTimes(1);
+  });
+
+  it('frees the claimed key when a branch size is refused', async () => {
+    config.get.mockReturnValue('restate');
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow()]))
+      .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]));
+    hosts.anyOnlineWithHeadroom.mockResolvedValueOnce(false);
+    db.insert.mockReturnValueOnce({ values: () => Promise.resolve([]) });
+    const deleted = vi.fn().mockResolvedValue([]);
+    db.delete.mockReturnValueOnce({ where: deleted });
+    const err = await catchErr(service.branch('u1', dockId, { cpus: 8 }, 'k1'));
+    expect(err.body).toMatchObject({ code: 'capacity_exhausted' });
+    expect(db.insert).toHaveBeenCalledTimes(1);
     expect(deleted).toHaveBeenCalledTimes(1);
   });
 
