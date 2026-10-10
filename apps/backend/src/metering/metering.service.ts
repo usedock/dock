@@ -57,8 +57,44 @@ export class MeteringService {
     memoryMiB: number;
     diskGiB: number;
   }, at: Date = new Date(), tx?: OrgTx) {
-    await this.closeWindowsForDock(input.dockId, at, tx);
-    await this.openWindow({ ...input, unit: 'storage', openedAt: at }, tx);
+    await this.swapWindow({ ...input, unit: 'storage' }, at, tx);
+  }
+
+  /** Swaps the dock's open window for a compute window: a running dock accrues vCPU, memory and disk. */
+  async moveToCompute(input: {
+    organizationId: string;
+    workspaceId: string;
+    dockId: string;
+    cpus: number;
+    memoryMiB: number;
+    diskGiB: number;
+  }, at: Date = new Date(), tx?: OrgTx) {
+    await this.swapWindow({ ...input, unit: 'compute' }, at, tx);
+  }
+
+  /** Close and open share one transaction and one instant, so a failure between them leaves no gap and no stale unit. */
+  private async swapWindow(input: {
+    organizationId: string;
+    workspaceId: string;
+    dockId: string;
+    cpus: number;
+    memoryMiB: number;
+    diskGiB: number;
+    unit: MeteringUnit;
+  }, at: Date, tx?: OrgTx) {
+    const swap = async (t: OrgTx) => {
+      await this.closeWindowsForDock(input.dockId, at, t);
+      await this.openWindow({ ...input, openedAt: at }, t);
+    };
+    if (tx) return await swap(tx);
+    try {
+      await this.db.transaction(swap);
+    } catch (err) {
+      // Fail-open: fall back to best-effort separate writes rather than leave the old unit accruing.
+      this.logger.warn(`Metering swap to ${input.unit} failed for dock ${input.dockId}: ${(err as Error).message}`);
+      await this.closeWindowsForDock(input.dockId, at);
+      await this.openWindow({ ...input, openedAt: at });
+    }
   }
 
   async openFastRunWindow(input: {

@@ -718,8 +718,7 @@ export class DocksService {
         billingPausedAt: null,
       };
       const resumed = await this.transition(id, ['provisioning'], set);
-      await this.metering.closeWindowsForDock(id);
-      await this.metering.openWindow({ organizationId: orgId, workspaceId: dock.workspaceId, dockId: id, ...size });
+      await this.metering.moveToCompute({ organizationId: orgId, workspaceId: dock.workspaceId, dockId: id, ...size });
       // Upgrades and posture changes made while archived land now.
       await this.applier.apply(resumed, orgId);
       await this.emitDockEvent('dock.hydrated', id, dock.workspaceId, orgId, 'ready');

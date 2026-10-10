@@ -87,6 +87,7 @@ describe('DocksService', () => {
       openWindow: vi.fn().mockResolvedValue(undefined),
       closeWindowsForDock: vi.fn().mockResolvedValue(undefined),
       moveToStorage: vi.fn().mockResolvedValue(undefined),
+      moveToCompute: vi.fn().mockResolvedValue(undefined),
     };
     wsSvc = { getById: vi.fn().mockResolvedValue({ id: wsId, organizationId: orgId }) };
     retention = { policyOn: vi.fn().mockResolvedValue(false) };
@@ -531,19 +532,19 @@ describe('DocksService', () => {
     db.update.mockImplementation(() => ({ set: (v: Record<string, unknown>) => { sets.push(v); return { where: () => ({ returning: () => Promise.resolve([dockRow({ state: 'ready' })]) }) }; } }));
     await service.resume('u1', dockId, { cpus: 4, memoryMiB: 8192 });
     expect(sets[1]).toMatchObject({ cpus: 4, memoryMiB: 8192, diskGiB: 20 });
-    expect(metering.openWindow).toHaveBeenCalledWith(expect.objectContaining({ cpus: 4, memoryMiB: 8192, diskGiB: 20 }));
+    expect(metering.moveToCompute).toHaveBeenCalledWith(expect.objectContaining({ cpus: 4, memoryMiB: 8192, diskGiB: 20 }));
   });
 
-  it('closes the storage window before opening compute on resume', async () => {
+  it('swaps the storage window for compute in one step on resume', async () => {
     db.select
       .mockReturnValueOnce(selectQ([dockRow({ state: 'archived' })]))
       .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
       .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1' }]));
     db.update.mockImplementation(() => updateQ([dockRow({ state: 'ready' })]));
     await service.resume('u1', dockId);
-    expect(metering.closeWindowsForDock).toHaveBeenCalledWith(dockId);
-    expect(metering.closeWindowsForDock.mock.invocationCallOrder[0]).toBeLessThan(metering.openWindow.mock.invocationCallOrder[0]);
-    expect(metering.openWindow).toHaveBeenCalledWith(expect.not.objectContaining({ unit: 'storage' }));
+    expect(metering.moveToCompute).toHaveBeenCalledWith({ organizationId: orgId, workspaceId: wsId, dockId, cpus: 2, memoryMiB: 4096, diskGiB: 20 });
+    expect(metering.openWindow).not.toHaveBeenCalled();
+    expect(metering.closeWindowsForDock).not.toHaveBeenCalled();
   });
 
   it('branches inherit the source size and image and may override them', async () => {
@@ -1020,7 +1021,7 @@ describe('DocksService', () => {
     const err = await catchErr(service.resume('u1', dockId));
     expect(err.status).toBe(409);
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(metering.openWindow).toHaveBeenCalledTimes(1);
+    expect(metering.moveToCompute).toHaveBeenCalledTimes(1);
   });
 
   it('skips ZDR orgs, and keeps sweeping past a failing dock', async () => {

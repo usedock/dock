@@ -177,7 +177,7 @@ describe('ReconcilerService', () => {
     expect(seenSet).toMatchObject({ state: 'ready' });
     expect(result).toEqual({ fenced: [], errored: [], recovered: ['d1'] });
     expect(metering.closeWindowsForDock).toHaveBeenCalledWith('d1', expect.any(Date), db);
-    expect(metering.openWindow).toHaveBeenCalledWith({ organizationId: 'org-1', workspaceId: '22222222-2222-4222-8222-222222222222', dockId: 'd1', cpus: 2, memoryMiB: 4096, diskGiB: 20 }, db);
+    expect(metering.openWindow).toHaveBeenCalledWith({ organizationId: 'org-1', workspaceId: '22222222-2222-4222-8222-222222222222', dockId: 'd1', cpus: 2, memoryMiB: 4096, diskGiB: 20, openedAt: metering.closeWindowsForDock.mock.calls[0][1] }, db);
   });
 
   it('errors an unreachable dock still absent from the returned host after the grace', async () => {
