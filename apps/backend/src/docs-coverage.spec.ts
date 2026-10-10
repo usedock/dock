@@ -42,16 +42,29 @@ function joinPath(prefix: string, path: string): string {
   return `/v1/${[prefix, path].filter(Boolean).join('/')}`.replace(/\/+$/, '');
 }
 
+/** Routes in one controller file, plus any decorator in a form the regexes do not read. */
+function parseController(source: string): { routes: string[]; unparsed: string[] } {
+  const controllers = [...source.matchAll(/@Controller\(\s*(?:'([^']*)')?\s*\)/g)];
+  const unparsed = [...source.matchAll(new RegExp(`@(?:Controller|Version|${METHODS.join('|')})\\([^)]*\\)?`, 'g'))]
+    .map((m) => m[0])
+    .filter((text) => !/^@(?:Controller|Get|Post|Put|Patch|Delete)\(\s*(?:'[^']*')?\s*\)$/.test(text));
+  if (controllers.length > 1) unparsed.push('more than one @Controller in the file');
+  const prefix = controllers[0]?.[1] ?? '';
+  const decorator = new RegExp(`@(${METHODS.join('|')})\\(\\s*(?:'([^']*)')?\\s*\\)`, 'g');
+  const routes = [...source.matchAll(decorator)].map((match) => normalize(match[1], joinPath(prefix, match[2] ?? '')));
+  return { routes, unparsed };
+}
+
 function controllerRoutes(): string[] {
   const routes: string[] = [];
+  const unparsed: string[] = [];
   for (const file of walk(SRC, (f) => f.endsWith('.controller.ts'))) {
-    const source = readFileSync(file, 'utf8');
-    const prefix = /@Controller\(\s*(?:'([^']*)')?\s*\)/.exec(source)?.[1] ?? '';
-    const decorator = new RegExp(`@(${METHODS.join('|')})\\(\\s*(?:'([^']*)')?\\s*\\)`, 'g');
-    for (const match of source.matchAll(decorator)) {
-      routes.push(normalize(match[1], joinPath(prefix, match[2] ?? '')));
-    }
+    const parsed = parseController(readFileSync(file, 'utf8'));
+    routes.push(...parsed.routes);
+    unparsed.push(...parsed.unparsed.map((text) => `${file}: ${text}`));
   }
+  // A decorator form the parser cannot read would drop its routes and pass silently.
+  expect(unparsed, 'Route decorators the docs coverage parser cannot read').toEqual([]);
   return [...new Set(routes)].sort();
 }
 
@@ -70,6 +83,41 @@ function isInternal(route: string): boolean {
   const path = route.slice(route.indexOf(' ') + 1);
   return Object.keys(INTERNAL).some((entry) => (entry.endsWith('/') ? path.startsWith(entry) : entry === route));
 }
+
+describe('docs coverage parser', () => {
+  it('reads string prefixes and paths, including multi-line ones', () => {
+    const source = `@Controller('things')
+class A {
+  @Get()
+  a() {}
+  @Post(
+    ':id/run'
+  )
+  b() {}
+}`;
+    expect(parseController(source)).toEqual({ routes: ['GET /v1/things', 'POST /v1/things/:p/run'], unparsed: [] });
+  });
+
+  it.each([
+    "@Controller({ path: 'things' })",
+    "@Controller(['a', 'b'])",
+    '@Controller("things")',
+    `@Controller('things')
+@Get(['a', 'b'])`,
+    `@Controller('things')
+@Get(
+  ':id',
+)`,
+    `@Controller('things')
+@Version('2')
+@Get()`,
+    `@Controller('a')
+class A {}
+@Controller('b')`,
+  ])('reports %j instead of skipping it', (source) => {
+    expect(parseController(source).unparsed).not.toEqual([]);
+  });
+});
 
 describe('docs route coverage', () => {
   const routes = controllerRoutes();

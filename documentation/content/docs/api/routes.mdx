@@ -70,7 +70,7 @@ Public keys the SSH gateway accepts for you.
 | `PATCH /v1/organizations/:id` | admin | Update `name`, `slug`, or `seats`. `slug_taken` (409) on a clash; `seats` cannot go below members plus pending invitations. |
 | `DELETE /v1/organizations/:id` | owner | Delete the organization. |
 | `GET /v1/organizations/:id/members` | member | List members and roles. |
-| `POST /v1/organizations/:id/members` | admin | Invite a person (201). Body: `email` or `userId`, and `role` (`owner`, `admin`, `member`). Inviting an owner needs an owner. `seats_exceeded` (409) when no seat is free. |
+| `POST /v1/organizations/:id/members` | admin | Invite a person (201). Body: `email` or `userId`, and optional `role` (`owner`, `admin`, `member`; default `member`). Inviting an owner needs an owner. `seats_exceeded` (409) when no seat is free. |
 | `PATCH /v1/organizations/:id/members/:userId` | admin | Change a member's role with `role`. Changes involving owners need an owner. |
 | `DELETE /v1/organizations/:id/members/:userId` | admin | Remove a member. Removing an owner needs an owner; `cannot_remove_owner` (400) if they are the last one. |
 
@@ -107,7 +107,7 @@ Creating, branching, and deleting are covered in the [API guide](/api/v1) and
 
 | Route | Purpose |
 |---|---|
-| `GET /v1/docks` | List Docks across your organizations. Query: `filter` (which states to include) and `all=true` to include every state. |
+| `GET /v1/docks` | List Docks across your organizations. Query: `filter`, any of the state group letters `r` (ready, cloning, idle, running), `s` (archived), `p` (provisioning), `t` (archiving), `e` (error, unreachable), default `r`; `all=true` includes every state. |
 | `GET /v1/docks/:id` | One Dock (the explicit allowlist in the API guide). |
 | `PATCH /v1/docks/:id` | Update `name`, `ttlSeconds` (60 to 2592000, or `null` for no auto-stop), and size (`cpus`, `memoryMiB`, `diskGiB`). |
 | `POST /v1/docks/:id/stop` | Stop and snapshot a Dock (202). Optional body: `force`. |
@@ -151,7 +151,7 @@ An Environment is a versioned bundle of variables, secret files, and repos; see
 | `PATCH /v1/environments/:ref` | Update `name`, `isDefault`, `secretsAccess`, `safeForThirdParties`, `passGithub`, `passSecrets`, `passDockCredentials`, `passAgentsCredentials`. |
 | `DELETE /v1/environments/:ref` | Delete an Environment. |
 | `GET /v1/environments/:ref/versions` | List its versions. |
-| `POST /v1/environments/:ref/upgrade` | Re-apply the current version to the Docks in `dockIds` (202). |
+| `POST /v1/environments/:ref/upgrade` | Move Docks on older versions to the current version (202). Optional body: `dockIds` to limit the move; omitted moves every older Dock. |
 | `GET /v1/environments/:ref/repos` | List repos. |
 | `POST /v1/environments/:ref/repos` | Add a repo (201). Body: `provider` (`github` or `gitlab`), `repositoryId`, `fullName` (`owner/name`), optional `baseBranch`, `setupScript` (max 65536). |
 | `DELETE /v1/environments/:ref/repos/:repoId` | Remove a repo. |
@@ -165,8 +165,8 @@ An Environment is a versioned bundle of variables, secret files, and repos; see
 ## Provider keys and ChatGPT sign-in
 
 Provider keys are organization-wide model-provider keys (`anthropic`,
-`openai`, `openrouter`, `opencode`), sealed at rest. Values appear only in set
-and reveal responses.
+`openai`, `openrouter`, `opencode`), sealed at rest. Only the reveal route returns a
+stored value.
 
 | Route | Org role | Purpose |
 |---|---|---|
@@ -195,7 +195,7 @@ the [API guide](/api/v1).
 | `POST /v1/github/app-setup/start` | Begin registering the GitHub App from a manifest. Body: optional `organization` (GitHub login). Instance admins with a verified email, session only. |
 | `POST /v1/github/app-setup/conversion` | Finish registration. Body: `code` and `state` as returned by GitHub. Instance admins, session only. |
 | `POST /v1/github/installations/start` | Get a link to install or authorize the app. Body: `workspaceId`, optional `mode` (`install` or `authorize`). Org role `admin`, session only. |
-| `POST /v1/github/installations/complete` | Link an installation after GitHub redirects back (201). Body: `installationId`, `code`, `state`. Session only. |
+| `POST /v1/github/installations/complete` | Link an installation after GitHub redirects back (201). Body: the optional `installationId`, `code`, and `state` GitHub appended to the redirect. Session only. |
 | `GET /v1/github/installations` | List a workspace's installations. Query: `workspaceId`. |
 | `PATCH /v1/github/installations/:id` | Update `repos` (list of `owner/name`), `agent`, `testCommand` (max 500). Org role `admin`, session only. |
 | `DELETE /v1/github/installations/:id` | Unlink an installation. Org role `admin`, session only. |
