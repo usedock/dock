@@ -222,4 +222,21 @@ describe('validateEnv', () => {
     }
     expect(() => validateEnv({ ...env, SECRETS_ENCRYPTION_KEY: 'a'.repeat(64) })).not.toThrow();
   });
+  it('defaults telemetry off and reads blank telemetry values as unset', () => {
+    expect(validateEnv(validEnv())).toMatchObject({
+      DOCK_TELEMETRY: 'off',
+      DOCK_TELEMETRY_URL: 'https://api.usedock.io/v1/telemetry',
+    });
+    expect(validateEnv({ ...validEnv(), DOCK_TELEMETRY: '', DOCK_TELEMETRY_URL: '' })).toMatchObject({
+      DOCK_TELEMETRY: 'off',
+      DOCK_TELEMETRY_URL: 'https://api.usedock.io/v1/telemetry',
+    });
+  });
+
+  it('rejects telemetry values other than on and off', () => {
+    for (const value of ['ON', 'true', '1']) {
+      expect(() => validateEnv({ ...validEnv(), DOCK_TELEMETRY: value })).toThrow(/DOCK_TELEMETRY/);
+    }
+    expect(validateEnv({ ...validEnv(), DOCK_TELEMETRY: 'on' }).DOCK_TELEMETRY).toBe('on');
+  });
 });

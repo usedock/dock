@@ -5,6 +5,11 @@ function optionalUrl(name: string) {
   return z.union([z.string().url(`${name} must be a URL`), z.literal('')]).optional();
 }
 
+/** Blank reads as unset so `.env` templates can leave a value empty. */
+function blankAsUnset(v: unknown): unknown {
+  return v === '' ? undefined : v;
+}
+
 /** Blank reads as unset so `.env` templates can leave ports empty. */
 function optionalPort() {
   return z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(1).max(65535).optional());
@@ -109,6 +114,12 @@ const envSchema = z
     SENTRY_ENVIRONMENT: z.string().min(1, 'SENTRY_ENVIRONMENT must not be empty').max(64).optional(),
     SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
     SENTRY_ENABLED: z.enum(['true', 'false']).optional().default('true'),
+    /** Anonymous usage counts (see the telemetry docs page); nothing is sent unless `on`. */
+    DOCK_TELEMETRY: z.preprocess(blankAsUnset, z.enum(['on', 'off']).default('off')),
+    DOCK_TELEMETRY_URL: z.preprocess(
+      blankAsUnset,
+      z.string().url('DOCK_TELEMETRY_URL must be a URL').default('https://api.usedock.io/v1/telemetry'),
+    ),
   })
   .superRefine((env, ctx) => {
     // One public URL without the other would mix a self-hosted host with the hosted cloud.
