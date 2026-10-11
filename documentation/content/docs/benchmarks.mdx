@@ -1,0 +1,66 @@
+---
+title: Benchmarks
+description: Measured latencies of Dock's local engine on a GitHub-hosted KVM runner, with the method and the limits.
+---
+
+These are Dock's own numbers for the local engine of the `dock` CLI (QEMU on KVM), measured by the
+open harness in [`bench/`](https://github.com/usedock/dock/tree/main/bench) on a GitHub-hosted runner.
+Nothing here is estimated: every figure comes from the run linked below, and the raw samples are
+committed next to the harness in `bench/results/`.
+
+## Results
+
+`dock` v0.3.2, image `ubuntu-24.04` (cached before the clock starts), each dock 2 vCPU, 1 GiB memory, 10 GiB disk.
+Times are in milliseconds. Success rate was 100% in every scenario and no sandbox was left behind.
+
+| Scenario | Iterations | Success | P50 | P95 | P99 |
+|---|---|---|---|---|---|
+| Create, one at a time (create to first `exec`) | 50 | 100% | 4,901 | 5,023 | 6,428 |
+| Create, 4 at once (per create) | 50 | 100% | 8,146 | 8,927 | 9,658 |
+| `exec('true')` on a ready dock | 50 | 100% | 20 | 22 | 38 |
+| Stop, then resume to first `exec` | 50 | 100% | 4,846 | 4,855 | 4,866 |
+| Branch to 3 copies, until all answer `exec` | 10 | 100% | 19,737 | 20,139 | 20,139 |
+| Branch to 10 copies, until all answer `exec` | 10 | 100% | 51,158 | 53,536 | 53,536 |
+
+With 10 iterations the P95 and P99 are the slowest sample, so read them as a maximum, not a tail estimate.
+
+Run: [Bench workflow run 38139031011](https://github.com/usedock/dock/actions/runs/38139031011).
+
+## Runner
+
+| | |
+|---|---|
+| Runner | GitHub-hosted `ubuntu-latest` (image `ubuntu24 20261004.327.1`), Linux 6.17.0-1022-azure |
+| CPU | AMD EPYC 9V74, 4 vCPU, under a Microsoft hypervisor (nested virtualisation) |
+| Memory | 15.6 GiB |
+| Hypervisor | QEMU 8.2.2 with KVM (`/dev/kvm`) |
+| Client | bun 1.4.3, same machine as the engine |
+
+The CPU model is not fixed: an earlier run landed on an AMD EPYC 7763 and a runner pool change can move it again.
+Expect the same shape but not the same digits when you rerun it.
+
+## Method
+
+The method follows ComputeSDK's sandbox benchmarks. The clock for a create stops at the first
+successful `exec('true')`; a resume starts after the stop has finished; a branch starts at the
+`dock branch` call and stops when every copy answers `exec('true')`.
+
+- Percentiles use nearest rank over the successful samples. A failed iteration counts against the
+  success rate and is listed with its error; it is never dropped.
+- Every sandbox is destroyed after its iteration, and the run fails if one cannot be.
+- The image is pulled before the first scenario, so no scenario includes a download.
+- Scenarios run in sequence on one runner, in the order of the table, and each gets its own results file.
+
+## Limits
+
+- One runner, one run. It shows the order of magnitude on a shared 4 vCPU machine, not a distribution across machines.
+- The runner is nested-virtualised, so cold starts are slower than on bare metal.
+- Create at 4 concurrent docks is slower per dock than one at a time because the four VMs share 4 vCPUs.
+- Resume was measured at concurrency 1. An attempt at concurrency 100 on this runner did not finish in over an hour, and it is not a supported configuration of a 4 vCPU, 16 GiB host.
+- Branch scenarios use 10 iterations, not 50, because branching to 10 copies takes about a minute per iteration. A first attempt with 20 iterations of both branch scenarios in one step exceeded the 20 minute step timeout; it was the time budget, not a hang.
+- Docks are 1 GiB here so that ten copies fit next to the source in the runner's memory. The CLI default is 2 GiB.
+
+## Reproduce
+
+Run the [Bench workflow](https://github.com/usedock/dock/actions/workflows/bench.yml) (it also runs monthly and on changes to `bench/`),
+or run it yourself against your own Dock. See the [harness README](https://github.com/usedock/dock/tree/main/bench).

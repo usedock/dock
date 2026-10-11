@@ -41,6 +41,10 @@ Each run writes `results/<UTC date and time>-<provider>.json` (for example `2026
 
 Flags: `--provider`, `--scenario`, `--iterations` (default 100), `--concurrency` (default 100, used by `burst` and `resume`), `--out` (default `results`).
 
+## Run against the local engine
+
+`--provider dock-local` drives the `dock` CLI of the machine it runs on (QEMU on KVM) and needs `dock` on the PATH with the `ubuntu-24.04` image pulled. Docks are 2 vCPU and 10 GiB; set `DOCK_BENCH_MEMORY_MIB` to change the memory (default 2048). The CI baseline in `.github/workflows/bench.yml` uses 1024, resume at concurrency 1, and 10 iterations for the branch scenarios so it fits a 4 vCPU, 16 GiB runner. Its committed results are in `results/`; the numbers are in `documentation/content/docs/benchmarks.mdx`.
+
 ## Other providers
 
 An adapter runs only when its credentials are set; otherwise the CLI prints which variables are missing and exits 0. The vendors' official JavaScript SDKs are optional dependencies, loaded on first use.

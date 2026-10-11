@@ -1,0 +1,11 @@
+provider,scenario,iteration,ok,ms,error
+dock-local,branch-10,1,true,51156.8,
+dock-local,branch-10,2,true,50010.6,
+dock-local,branch-10,3,true,52322.4,
+dock-local,branch-10,4,true,52336.6,
+dock-local,branch-10,5,true,48788.4,
+dock-local,branch-10,6,true,50535.2,
+dock-local,branch-10,7,true,51362.7,
+dock-local,branch-10,8,true,53536.3,
+dock-local,branch-10,9,true,51158.2,
+dock-local,branch-10,10,true,52327.5,

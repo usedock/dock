@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "date": "2026-10-11T12:51:25.549Z",
+  "client": {
+    "os": "Linux 6.17.0-1022-azure",
+    "arch": "x64",
+    "cpuModel": "AMD EPYC 9V74 80-Core Processor",
+    "cpuCount": 4,
+    "memoryGiB": 15.6,
+    "runtime": "bun 1.4.3"
+  },
+  "provider": "dock-local",
+  "providerInfo": {
+    "version": "v0.3.2",
+    "runtime": "qemu"
+  },
+  "config": {
+    "iterations": 10,
+    "concurrency": 100
+  },
+  "scenarios": [
+    {
+      "scenario": "branch-10",
+      "iterations": 10,
+      "concurrency": 1,
+      "stats": {
+        "total": 10,
+        "successes": 10,
+        "failures": 0,
+        "successRate": 1,
+        "p50": 51158.157516999985,
+        "p95": 53536.28030599997,
+        "p99": 53536.28030599997,
+        "min": 48788.422502,
+        "max": 53536.28030599997,
+        "errors": {}
+      },
+      "samples": [
+        {
+          "ok": true,
+          "ms": 51156.790254
+        },
+        {
+          "ok": true,
+          "ms": 50010.571146999995
+        },
+        {
+          "ok": true,
+          "ms": 52322.42845000001
+        },
+        {
+          "ok": true,
+          "ms": 52336.59159699999
+        },
+        {
+          "ok": true,
+          "ms": 48788.422502
+        },
+        {
+          "ok": true,
+          "ms": 50535.16118299996
+        },
+        {
+          "ok": true,
+          "ms": 51362.71078199998
+        },
+        {
+          "ok": true,
+          "ms": 53536.28030599997
+        },
+        {
+          "ok": true,
+          "ms": 51158.157516999985
+        },
+        {
+          "ok": true,
+          "ms": 52327.51469099999
+        }
+      ]
+    }
+  ],
+  "cleanupFailures": []
+}
