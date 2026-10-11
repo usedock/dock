@@ -134,7 +134,7 @@ _, err := client.Docks.Update(ctx, d.ID, dock.UpdateParams{ClearTTL: true})
 ```
 
 Set `TTLSeconds` or `ClearTTL`, not both; both fails with `invalid_argument`.
-`CreateParams` and `BranchParams` have no clear option because the default
+`ResumeParams.TTLSeconds` sets a new timer on resume, but `ResumeParams` has no clear option; call `Update` with `ClearTTL` after the resume. `CreateParams` and `BranchParams` have no clear option because the default
 already never stops the Dock.
 
 ## Idempotency keys

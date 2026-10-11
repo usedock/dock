@@ -118,7 +118,7 @@ client.docks.update(dock.id, ttl_seconds=None)
 ```
 
 Leaving `ttl_seconds` out of `update` keeps the current value. On `create`,
-`branch`, and `resume`, `None` means the argument is not sent.
+`branch`, and `resume`, `None` means the argument is not sent, so the Python SDK cannot clear auto-stop on resume; call `update` with `None` after the resume.
 
 ## Idempotency keys
 
