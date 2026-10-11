@@ -100,7 +100,7 @@ specific to an operation.
 | `dock_delete_forbidden` | 403 | Only the Dock's creator or an organization admin can delete it. |
 | `capacity_exhausted` | 503 | No host has room for the requested `cpus` and `memoryMiB`. |
 | `no_host_capacity` | 503 | No online host can place the Dock. |
-| `host_egress_unsupported` | 503 | The Environment has an outbound allowlist and no suitable host runs a docklet that enforces it on resume. |
+| `host_egress_unsupported` | 503 | The Environment has an outbound allowlist and no suitable host runs a docklet that enforces it on resume. Retryable when it comes from an import's complete call. |
 | `base_image_unavailable` | 503 | The host lacks the base image the snapshot needs. |
 | `exec_unavailable` | 409 | The Dock has no exec agent, or a Run drives it. |
 | `exec_timeout` | 504 | The command exceeded `timeoutSeconds` and was killed. |
@@ -122,6 +122,19 @@ specific to an operation.
 | `environment_not_found` | 404 | No such Environment. |
 | `environment_name_taken` | 409 | The Environment name is in use. |
 | `environment_secrets_admin_only` | 403 | The Environment passes secrets into Docks and only admins may launch such Docks. |
+| `import_too_large` | 413 | An import is bigger than the Dock's disk, declared at start or found at complete; in `proxy` mode also a disk whose part size would pass 128 MiB. |
+| `part_too_large` | 400 | A proxied import part is bigger than `partSize`. |
+| `part_upload_busy` | 429 | Too many proxied import parts are uploading; retryable, send the same part again. |
+| `import_checksum_mismatch` | 400 | The uploaded import is not the declared size. |
+| `import_egress_unsupported` | 409 | No host that verifies imports enforces the default Environment's egress allowlist. |
+| `import_limit_reached` | 429 | The organization has too many open imports. |
+| `import_not_found` | 404 | No such import, or it is not yours. |
+| `export_limit_reached` | 429 | The organization has too many live exports. |
+| `export_not_found` | 404 | No such export, or it is not yours. |
+| `export_base_unsupported` | n/a | An export's `error` value: the Dock's base is not a Dockyard image. |
+| `range_not_satisfiable` | 416 | An export download `Range` starts past the end of the file. |
+| `runtime_unsupported` | 409 | Import and export need a microVM host. |
+| `zdr_blocks_exports` | 403 | Exports are disabled while retention is enabled. |
 | `organization_not_found` | 404 | No such organization, or you are not a member. |
 | `workspace_not_found` | 404 | No such workspace. |
 | `workspace_not_empty` | 409 | Delete the Docks in the workspace first. |
