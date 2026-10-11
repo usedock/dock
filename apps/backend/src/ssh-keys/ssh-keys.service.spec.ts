@@ -1,3 +1,4 @@
+import { ed25519KeyPair } from './__fixtures__/ed25519-key-pair';
 import { HttpStatus } from '@nestjs/common';
 import { utils } from 'ssh2';
 import { vi, type Mock } from 'vitest';
@@ -5,7 +6,7 @@ import { parsePublicKey, sshFingerprint, SshKeysService } from './ssh-keys.servi
 
 type Row = Record<string, unknown>;
 
-const ed25519 = utils.generateKeyPairSync('ed25519');
+const ed25519 = ed25519KeyPair(3);
 const rsa = utils.generateKeyPairSync('rsa', { bits: 2048 });
 
 function mockSelectRows(db: { select: Mock }, rows: Row[]) {
