@@ -24,3 +24,7 @@ Only Web API method names are accepted as the path (letters, digits and dots).
 curl -H "Authorization: Bearer $DOCK_CONNECTOR_TOKEN" -H "content-type: application/json" \
   -d '{"channel":"C123","text":"build finished"}' $DOCK_SLACK_API_URL/chat.postMessage
 ```
+
+## Pull requests
+
+An admin can link a Slack channel id (or `*`) to a GitHub repository so runs started from Slack open draft pull requests there, with the link posted in the reply. Links are managed with `PUT /v1/workspaces/:workspaceId/connectors/slack/repo-links`; see [Open pull requests in a linked repository](/docs/connectors/triggers#open-pull-requests-in-a-linked-repository). Scope key: channel id.

@@ -1675,7 +1675,7 @@ function runtimeRef(run: GithubRun): RuntimeRef | null {
 }
 
 /** Repo-relative paths only: no absolute, parent, empty, or .git segments. */
-function safeRepoPath(path: string): boolean {
+export function safeRepoPath(path: string): boolean {
   if (!path || path.startsWith('/') || path.length > 4096) return false;
   return path.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..' && seg !== '.git');
 }

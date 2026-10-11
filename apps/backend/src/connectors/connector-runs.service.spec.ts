@@ -1,5 +1,6 @@
 import { vi, type Mock } from 'vitest';
 import { hashToken } from '../crypto/tokens';
+import { RepoPublishError } from './connector-repo-runs.service';
 import { ConnectorRunsService } from './connector-runs.service';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
@@ -53,13 +54,15 @@ describe('ConnectorRunsService', () => {
   let provider: { exec: Mock };
   let connectors: { accessFor: Mock; pruneDeliveries: Mock };
   let envs: { resolveBundle: Mock };
+  let repoLinks: { resolve: Mock };
+  let repoRuns: { prepare: Mock; forRun: Mock; publish: Mock; revoke: Mock };
   let fetchFn: Mock;
   let config: Record<string, string>;
   const tokens = ['tok-1', 'tok-2'];
 
   const build = (db: ReturnType<typeof fakeDb>) => {
     let n = 0;
-    return new ConnectorRunsService(db as never, docks as never, provider as never, connectors as never, envs as never, { get: (k: string) => config[k] } as never, {
+    return new ConnectorRunsService(db as never, docks as never, provider as never, connectors as never, envs as never, { get: (k: string) => config[k] } as never, repoLinks as never, repoRuns as never, {
       fetchFn: fetchFn as never,
       tokenFn: () => tokens[n++ % 2],
     });
@@ -71,6 +74,8 @@ describe('ConnectorRunsService', () => {
     provider = { exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '', truncated: false }) };
     connectors = { accessFor: vi.fn().mockResolvedValue({ type: 'oauth', access: 'xoxb' }), pruneDeliveries: vi.fn().mockResolvedValue(undefined) };
     envs = { resolveBundle: vi.fn().mockResolvedValue({ vars: { ANTHROPIC_API_KEY: 'sk-real' } }) };
+    repoLinks = { resolve: vi.fn().mockResolvedValue(null) };
+    repoRuns = { prepare: vi.fn(), forRun: vi.fn().mockResolvedValue(null), publish: vi.fn(), revoke: vi.fn().mockResolvedValue(undefined) };
     fetchFn = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
     config = { PUBLIC_API_URL: 'https://api.example.test' };
   });
@@ -211,6 +216,109 @@ describe('ConnectorRunsService', () => {
       await service.settled();
       expect(texts()).toContain('Dock could not finish this (launch_failed).');
       expect(docks.stop).toHaveBeenCalledWith('admin-1', 'dock-1', {});
+    });
+  });
+
+  describe('linked repository', () => {
+    const link = { scope: 'T1', repo: 'acme/app', installationId: 7 };
+    const readToken = 'ghs_readtoken0000000000000000000000000000';
+    const repoRow = { runId: RUN_ID, repo: 'acme/app', installationId: 7, baseBranch: 'main', baseSha: 'a'.repeat(40), branch: 'dock/slack-11111111', title: 'Slack mention', subjectUrl: null };
+    const dbFor = () => fakeDb([[{ organizationId: 'o1' }], []], [[runRow({ model: 'm' })], [runRow({ state: 'working', dockId: 'dock-1' })]]);
+    const changes = [{ path: 'src/a.ts', mode: '100644' as const, content: 'eA==' }];
+    const staged = (script: string, file: string) => {
+      const line = script.split('\n').find((l) => l.endsWith(`base64 -d > "$ART/${file}"`))!;
+      return Buffer.from(/'([A-Za-z0-9+/=]+)'/.exec(line)![1], 'base64').toString();
+    };
+
+    it('looks the link up by the trigger scope', async () => {
+      const service = build(dbFor());
+      await service.start(connector as never, { ...trigger, scope: 'C1' });
+      await service.settled();
+      expect(repoLinks.resolve).toHaveBeenCalledWith('w1', 'slack', 'C1');
+    });
+
+    it('without a link, behaves as before: no clone, no repository access, one launch exec', async () => {
+      const service = build(dbFor());
+      await service.start(connector as never, trigger);
+      await service.settled();
+      expect(repoRuns.prepare).not.toHaveBeenCalled();
+      expect(provider.exec).toHaveBeenCalledTimes(1);
+      expect(staged(provider.exec.mock.calls[0][1].script, 'runner.sh')).not.toContain('"$CODE" "$DIR"');
+    });
+
+    it('with a link, clones with a read token in its own exec, revokes it, and never gives it to the agent run', async () => {
+      repoLinks.resolve.mockResolvedValue(link);
+      repoRuns.prepare.mockResolvedValue({ readToken, repo: repoRow });
+      const service = build(dbFor());
+      await service.start(connector as never, trigger);
+      await service.settled();
+      expect(provider.exec).toHaveBeenCalledTimes(2);
+      const [, clone] = provider.exec.mock.calls[0];
+      expect(clone.env).toEqual({ GITHUB_CLONE_TOKEN: readToken });
+      expect(clone.script).toContain("clone --quiet --no-tags --branch 'main' 'https://github.com/acme/app.git'");
+      expect(clone.script).not.toContain('ghs_');
+      expect(repoRuns.revoke).toHaveBeenCalledWith(readToken);
+      const [, launch] = provider.exec.mock.calls[1];
+      expect(launch.env).toEqual({ CONNECTOR_RUN_TOKEN: 'tok-1', DOCK_LLM_TOKEN: 'tok-2' });
+      expect(staged(launch.script, 'runner.sh')).toContain('"$CODE" "$DIR"');
+      expect(staged(launch.script, 'SYSTEM.md')).toContain('cannot push');
+      expect(launch.script).not.toContain('ghs_');
+    });
+
+    it('fails the run and revokes the token when the clone fails', async () => {
+      repoLinks.resolve.mockResolvedValue(link);
+      repoRuns.prepare.mockResolvedValue({ readToken: 'ghs_x', repo: repoRow });
+      provider.exec.mockResolvedValueOnce({ exitCode: 128, stdout: '', stderr: 'denied', truncated: false });
+      const db = fakeDb([[{ organizationId: 'o1' }], [{ createdBy: 'admin-1' }]], [[runRow({ model: 'm' })], [runRow({ state: 'working', dockId: 'dock-1' })], [runRow({ state: 'failed', reason: 'repo_unavailable', dockId: 'dock-1' })]]);
+      const service = build(db);
+      await service.start(connector as never, trigger);
+      await service.settled();
+      expect(repoRuns.revoke).toHaveBeenCalledWith('ghs_x');
+      expect(provider.exec).toHaveBeenCalledTimes(1);
+      expect(texts()).toContain('Dock could not finish this (repo_unavailable).');
+    });
+
+    it('opens the pull request from the reported changes and replies with its link', async () => {
+      repoRuns.forRun.mockResolvedValue(repoRow);
+      repoRuns.publish.mockResolvedValue('https://github.com/acme/app/pull/9');
+      const done = runRow({ state: 'succeeded', summary: 'Fixed the build', dockId: 'dock-1' });
+      const service = build(fakeDb([[runRow({ state: 'working' })], [{ createdBy: 'admin-1' }]], [[done]]));
+      await service.complete(RUN_ID, 'Bearer tok-1', { status: 'done', summary: 'Fixed the build', parentSha: repoRow.baseSha, changes });
+      await service.settled();
+      expect(repoRuns.publish).toHaveBeenCalledWith(expect.objectContaining({ id: RUN_ID }), repoRow, { parentSha: repoRow.baseSha, changes, summary: 'Fixed the build' });
+      expect(texts()).toEqual(['Fixed the build\n\nPull request: https://github.com/acme/app/pull/9']);
+    });
+
+    it('leaves a Linear issue open for review when a pull request was opened', async () => {
+      repoRuns.forRun.mockResolvedValue(repoRow);
+      repoRuns.publish.mockResolvedValue('https://github.com/acme/app/pull/9');
+      const done = runRow({ kind: 'linear', state: 'succeeded', summary: 'Fixed', reply: { issueId: 'i1' }, dockId: 'dock-1' });
+      const service = build(fakeDb([[runRow({ kind: 'linear', state: 'working' })], [{ createdBy: 'admin-1' }]], [[done]]));
+      await service.complete(RUN_ID, 'Bearer tok-1', { status: 'done', summary: 'Fixed', changes });
+      await service.settled();
+      const bodies = fetchFn.mock.calls.map((c) => c[1].body as string).join('\n');
+      expect(bodies).toContain('Pull request: https://github.com/acme/app/pull/9');
+      expect(bodies).not.toMatch(/states \{ nodes|issueUpdate/);
+    });
+
+    it('says so when the pull request cannot be opened, and still completes a Linear issue', async () => {
+      repoRuns.forRun.mockResolvedValue(repoRow);
+      repoRuns.publish.mockRejectedValue(new RepoPublishError('pr_create_failed'));
+      const done = runRow({ kind: 'linear', state: 'succeeded', summary: 'Fixed', reply: { issueId: 'i1' }, dockId: 'dock-1' });
+      const service = build(fakeDb([[runRow({ kind: 'linear', state: 'working' })], [{ createdBy: 'admin-1' }]], [[done]]));
+      await service.complete(RUN_ID, 'Bearer tok-1', { status: 'done', summary: 'Fixed', changes });
+      await service.settled();
+      const bodies = fetchFn.mock.calls.map((c) => c[1].body as string).join('\n');
+      expect(bodies).toContain('could not open a pull request (pr_create_failed)');
+    });
+
+    it('replies as before for a run with no repository even if changes are sent', async () => {
+      const done = runRow({ state: 'succeeded', summary: 'Done it', dockId: 'dock-1' });
+      const service = build(fakeDb([[runRow({ state: 'working' })], [{ createdBy: 'admin-1' }]], [[done]]));
+      await service.complete(RUN_ID, 'Bearer tok-1', { status: 'done', summary: 'Done it', changes });
+      await service.settled();
+      expect(repoRuns.publish).not.toHaveBeenCalled();
+      expect(texts()).toEqual(['Done it']);
     });
   });
 

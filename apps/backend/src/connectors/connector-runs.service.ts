@@ -6,7 +6,7 @@ import { isUniqueViolation } from '../organizations/organizations.service';
 import { publicApiUrl } from '../config/instance';
 import { hashToken, newToken } from '../crypto/tokens';
 import { DB, Db } from '../database/database.module';
-import { connectorRuns, connectors, workspaces, type Connector, type ConnectorKind, type ConnectorReplyTarget, type ConnectorRun } from '../database/schema';
+import { connectorRuns, connectors, workspaces, type Connector, type ConnectorRepoLink, type ConnectorKind, type ConnectorReplyTarget, type ConnectorRun } from '../database/schema';
 import { COMPUTE_PROVIDER, type ComputeProvider } from '../docks/compute.provider';
 import { DocksService } from '../docks/docks.service';
 import { EnvironmentsService } from '../environments/environments.service';
@@ -14,7 +14,9 @@ import { providerOf, selectRunModel } from '../github/runner';
 import { createConnectorFetch } from './connector-fetch';
 import { redactSecrets } from './connector-redact';
 import { linearSetState, postReply } from './connector-replies';
-import { buildConnectorRunScript, CONNECTOR_RUN_AGENTS, renderConnectorRequest, renderConnectorSystem } from './connector-run-script';
+import { buildConnectorRunScript, buildRepoCloneScript, CONNECTOR_RUN_AGENTS, renderConnectorRequest, renderConnectorSystem } from './connector-run-script';
+import { ConnectorRepoLinksService } from './connector-repo-links.service';
+import { ConnectorRepoRunsService, RepoPublishError, type RunChange } from './connector-repo-runs.service';
 import type { ConnectorTrigger } from './connector-triggers';
 import { ConnectorsService } from './connectors.service';
 
@@ -34,6 +36,9 @@ export interface CompleteConnectorRunInput {
   status: string;
   summary?: string;
   reason?: string;
+  /** Only read for runs linked to a repository. */
+  parentSha?: string;
+  changes?: RunChange[];
 }
 
 function tokensEqual(provided: string, storedHash: string): boolean {
@@ -61,6 +66,8 @@ export class ConnectorRunsService implements OnModuleInit, OnModuleDestroy {
     private readonly connectors: ConnectorsService,
     private readonly envs: EnvironmentsService,
     private readonly config: ConfigService,
+    private readonly repoLinks: ConnectorRepoLinksService,
+    private readonly repoRuns: ConnectorRepoRunsService,
     @Optional() options: { fetchFn?: typeof fetch; tokenFn?: () => string } = {},
   ) {
     this.fetchFn = options?.fetchFn ?? createConnectorFetch();
@@ -176,6 +183,12 @@ export class ConnectorRunsService implements OnModuleInit, OnModuleDestroy {
     const model = await this.pickModel(run.organizationId, agent);
     if (!model) return this.fail(run, 'provider_not_configured');
     run = (await this.update(run, { model })) ?? run;
+    let link;
+    try {
+      link = await this.repoLinks.resolve(run.workspaceId, run.kind, trigger.scope);
+    } catch {
+      return this.fail(run, 'repo_unavailable');
+    }
     const minutes = this.timeoutMinutes();
     let dock;
     try {
@@ -196,8 +209,18 @@ export class ConnectorRunsService implements OnModuleInit, OnModuleDestroy {
       return this.fail(run, 'dock_provision_failed');
     }
     run = (await this.update(run, { dockId: dock.id, state: 'working' })) ?? run;
+    let repoName: { name: string; baseBranch: string } | undefined;
+    if (link) {
+      try {
+        repoName = await this.cloneRepo(run, link, trigger, dock);
+      } catch (err) {
+        this.logger.warn(`Repository for connector run ${run.id} failed: ${(err as Error).message}`);
+        return this.fail(run, 'repo_unavailable');
+      }
+    }
     const script = buildConnectorRunScript({
-      system: renderConnectorSystem({ kind: trigger.kind, timeoutMinutes: minutes }),
+      repoLinked: !!repoName,
+      system: renderConnectorSystem({ kind: trigger.kind, timeoutMinutes: minutes, repo: repoName }),
       request: renderConnectorRequest(trigger),
       callbackUrl: `${this.callbackBase()}/v1/connectors/runs/${run.id}/complete`,
       agent,
@@ -217,6 +240,23 @@ export class ConnectorRunsService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`Launch of connector run ${run.id} failed: ${(err as Error).message}`);
       await this.fail(run, 'launch_failed');
     }
+  }
+
+  /** Clones the linked repository with a read-only, single-repository token that exists only for this exec and is revoked right after. */
+  private async cloneRepo(run: ConnectorRun, link: ConnectorRepoLink, trigger: ConnectorTrigger, dock: Parameters<ComputeProvider['exec']>[0]): Promise<{ name: string; baseBranch: string }> {
+    const prepared = await this.repoRuns.prepare(run, link, trigger);
+    try {
+      const out = await this.provider.exec(dock, {
+        script: buildRepoCloneScript({ repoFull: prepared.repo.repo, baseBranch: prepared.repo.baseBranch, baseSha: prepared.repo.baseSha, branch: prepared.repo.branch }),
+        timeoutSeconds: LAUNCH_TIMEOUT_SECONDS,
+        env: { GITHUB_CLONE_TOKEN: prepared.readToken },
+        idempotencyToken: `connector-run:${run.id}:clone`,
+      });
+      if (out.exitCode !== 0) throw new Error(`clone exited ${out.exitCode}`);
+    } finally {
+      await this.repoRuns.revoke(prepared.readToken);
+    }
+    return { name: prepared.repo.repo, baseBranch: prepared.repo.baseBranch };
   }
 
   private callbackBase(): string {
@@ -245,17 +285,39 @@ export class ConnectorRunsService implements OnModuleInit, OnModuleDestroy {
       .where(and(eq(connectorRuns.id, run.id), inArray(connectorRuns.state, [...ACTIVE])))
       .returning();
     if (!claimed) return { runId: run.id, state: run.state };
-    this.background(this.finish(claimed, input.status));
+    this.background(this.finish(claimed, input.status, input));
     return { runId: run.id, state: claimed.state };
   }
 
-  private async finish(run: ConnectorRun, status: string): Promise<void> {
-    const text =
+  private async finish(run: ConnectorRun, status: string, input: CompleteConnectorRunInput): Promise<void> {
+    let text =
       status === 'failed'
         ? `Dock could not finish this${run.reason ? ` (${run.reason})` : ''}.${run.summary ? `\n\n${run.summary}` : ''}`
         : run.summary || (status === 'no_change' ? 'Nothing needed to change.' : 'Done.');
-    await this.reply(run, text, status === 'done');
+    let opened = false;
+    if (status === 'done' && input.changes?.length) {
+      const note = await this.openPullRequest(run, input);
+      if (note) {
+        text = `${text}\n\n${note.text}`;
+        opened = note.opened;
+      }
+    }
+    await this.reply(run, text, status === 'done' && !opened);
     await this.stopDock(run);
+  }
+
+  /** Pull request for a linked run's changes; null when the run has no repository, so the reply stays as it was. */
+  private async openPullRequest(run: ConnectorRun, input: CompleteConnectorRunInput): Promise<{ text: string; opened: boolean } | null> {
+    try {
+      const repo = await this.repoRuns.forRun(run.id);
+      if (!repo) return null;
+      const url = await this.repoRuns.publish(run, repo, { parentSha: input.parentSha, changes: input.changes ?? [], summary: run.summary ?? '' });
+      return { text: `Pull request: ${url}`, opened: true };
+    } catch (err) {
+      const code = err instanceof RepoPublishError ? err.code : 'push_failed';
+      if (!(err instanceof RepoPublishError)) this.logger.warn(`Pull request for connector run ${run.id} failed: ${(err as Error).message}`);
+      return { text: `Dock changed files but could not open a pull request (${code}).`, opened: false };
+    }
   }
 
   /** Marks an unfinished run failed and says so; a run another path already settled is left alone, with no second reply. */

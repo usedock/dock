@@ -25,6 +25,7 @@ export * from './github';
 export * from './agent-credentials';
 export * from './chatgpt-connections';
 export * from './connectors';
+export * from './connector-repo-links';
 export * from './notifications';
 
 import * as usersModule from './users';
@@ -54,6 +55,7 @@ import * as githubModule from './github';
 import * as agentCredentialsModule from './agent-credentials';
 import * as chatgptConnectionsModule from './chatgpt-connections';
 import * as connectorsModule from './connectors';
+import * as connectorRepoLinksModule from './connector-repo-links';
 import * as notificationsModule from './notifications';
 
 export const schema = {
@@ -83,6 +85,7 @@ export const schema = {
   ...agentCredentialsModule,
   ...chatgptConnectionsModule,
   ...connectorsModule,
+  ...connectorRepoLinksModule,
   ...notificationsModule,
   ...workspacesModule,
 };
