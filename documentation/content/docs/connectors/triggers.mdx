@@ -61,7 +61,7 @@ curl -X PUT $DOCK_API/v1/workspaces/$WORKSPACE_ID/connectors/sentry/webhook \
 | Field | Meaning |
 |---|---|
 | `secret` | The signing secret or passcode; 8 to 512 characters. Stored sealed, never returned. Omit it for Figma to have Dock generate a passcode and return it once. |
-| `externalId` | The routing id: Sentry installation uuid or Figma webhook id. Linear (organization) and Slack (team) ids are recorded automatically when the token is connected. |
+| `externalId` | The routing id: Sentry installation uuid or Figma webhook id. Linear (organization) and Slack (team) ids are recorded automatically when the token is connected; a different Linear or Slack id is accepted only with your own `secret`, since the app-level secret cannot vouch for it. |
 
 `400 webhook_secret_required` means no secret is stored and no app-level secret
 covers the kind. `409 connector_account_in_use` means another workspace already
@@ -72,7 +72,8 @@ An unknown account answers `404 connector_not_found`; a wrong signature answers
 `401 stale_webhook`. A delivery seen before is acknowledged with
 `duplicate: true` and starts nothing. Deliveries are deduplicated per tool by
 Linear's `Linear-Delivery`, Slack's `event_id`, Sentry's `Request-ID` and, for
-Figma, webhook id, event type, comment id and timestamp.
+Figma, webhook id, event type, comment id and timestamp. Linear and Sentry do not
+sign those headers, so a repeat of the same signed body is a duplicate too.
 
 ## Inbound routes
 
@@ -98,8 +99,9 @@ are refused. `url_verification` is answered with the challenge. Routed by
 ### Sentry
 
 `POST /v1/connectors/sentry/webhooks`. Verified with `Sentry-Hook-Signature`: the
-hex HMAC-SHA256 of the request body with the integration's client secret. Sentry
-sends no timestamp, so replays are stopped by the `Request-ID` delivery id. Routed
+hex HMAC-SHA256 of the request body with the integration's client secret. Sentry's
+timestamp header is not signed, so replays are stopped by deduplicating the signed
+body. Routed
 by `installation.uuid`; the resource comes from `Sentry-Hook-Resource`.
 
 ### Figma

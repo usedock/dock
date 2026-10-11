@@ -287,6 +287,21 @@ describe('ConnectorsService', () => {
       await expect(service.setWebhook('u1', 'w1', 'linear', {})).resolves.toMatchObject({ kind: 'linear' });
     });
 
+    it('refuses a typed Linear or Slack id that would route events signed with the shared app secret', async () => {
+      config.LINEAR_WEBHOOK_SECRET = 'app-level';
+      config.SLACK_SIGNING_SECRET = 'app-sign';
+      const set = updateChain();
+      db.select.mockReturnValue(rowQ([{ id: 'c1', kind: 'linear', externalId: 'org-mine', webhookSecret: null }]));
+      await expect(service.setWebhook('u1', 'w1', 'linear', { externalId: 'org-victim' })).rejects.toMatchObject({ response: { code: 'webhook_secret_required' } });
+      db.select.mockReturnValue(rowQ([{ id: 'c2', kind: 'slack', externalId: null, webhookSecret: null }]));
+      await expect(service.setWebhook('u1', 'w1', 'slack', { externalId: 'T-victim' })).rejects.toMatchObject({ response: { code: 'webhook_secret_required' } });
+      expect(set).not.toHaveBeenCalled();
+      // The token-proven id, or a typed id with the admin's own secret, is fine.
+      db.select.mockReturnValue(rowQ([{ id: 'c1', kind: 'linear', externalId: 'org-mine', webhookSecret: null }]));
+      await expect(service.setWebhook('u1', 'w1', 'linear', { externalId: 'org-mine' })).resolves.toMatchObject({ externalId: 'org-mine' });
+      await expect(service.setWebhook('u1', 'w1', 'linear', { externalId: 'org-other', secret: 'own-signing-secret' })).resolves.toMatchObject({ externalId: 'org-other' });
+    });
+
     it('requires a per-connector secret and an id for Sentry, whose id an app secret cannot vouch for', async () => {
       db.select.mockReturnValue(rowQ([{ id: 'c1', kind: 'sentry', externalId: null, webhookSecret: null }]));
       updateChain();

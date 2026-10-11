@@ -13,6 +13,10 @@ class EchoController {
   raw(req: Request) {
     return { raw: Buffer.isBuffer(req.body) ? req.body.toString('utf8') : null };
   }
+
+  signed(req: Request & { rawBody?: Buffer }) {
+    return { raw: req.rawBody?.toString('utf8') ?? null, parsed: typeof req.body === 'object' };
+  }
 }
 const proto = EchoController.prototype;
 const method = (name: keyof EchoController) => Object.getOwnPropertyDescriptor(proto, name)!;
@@ -21,6 +25,8 @@ Post(['docks', 'github/runs/:id/complete', 'docks/:id/exec', 'fleet/commands/:id
 Body()(proto, 'echo', 0);
 Post(['llm/anthropic', 'connectors/gateway/linear/api/graphql'])(proto, 'raw', method('raw'));
 Req()(proto, 'raw', 0);
+Post(['connectors/sentry/webhooks', 'connectors/slack/events'])(proto, 'signed', method('signed'));
+Req()(proto, 'signed', 0);
 
 class EchoModule {}
 Module({ controllers: [EchoController] })(EchoModule);
@@ -60,5 +66,11 @@ describe('registerBodyLimits', () => {
     expect(await post('/docks/d1/exec', JSON.stringify({ command }))).toEqual({ body: { command } });
     const stdout = 'y'.repeat(3 * 1024 * 1024);
     expect(await post('/fleet/commands/c1/result', JSON.stringify({ data: { stdout } }))).toEqual({ body: { data: { stdout } } });
+  });
+
+  it('keeps the exact bytes of large vendor webhooks for signature checks', async () => {
+    const body = `{ "data" :  {"event": "${'z'.repeat(300 * 1024)}"} }`;
+    expect(await post('/connectors/sentry/webhooks', body)).toEqual({ raw: body, parsed: true });
+    expect(await post('/connectors/slack/events', '{"type":"url_verification"}')).toEqual({ raw: '{"type":"url_verification"}', parsed: true });
   });
 });

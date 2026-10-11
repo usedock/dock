@@ -60,8 +60,7 @@ export class ConnectorWebhooksService {
     const connector = await this.route(kind, payload);
     if (!connector) throw new NotFoundException({ code: 'connector_not_found', message: 'No workspace is connected for this account' });
     this.verify(kind, req, payload, this.connectors.webhookSecretsFor(connector), nowMs);
-    const deliveryId = this.deliveryId(kind, req, payload);
-    if (!(await this.claim(kind, deliveryId))) return { status: 200, body: { received: true, duplicate: true } };
+    if (!(await this.claimAll(kind, this.deliveryIds(kind, req, payload)))) return { status: 200, body: { received: true, duplicate: true } };
     const trigger = this.trigger(kind, req, payload, connector);
     if (!trigger) return { status: 200, body: { received: true, ignored: true } };
     // Acknowledge now (Slack allows three seconds); the run proceeds in the background.
@@ -81,7 +80,9 @@ export class ConnectorWebhooksService {
 
   private async allSlackSecrets(): Promise<string[]> {
     const rows = await this.connectors.listByKind('slack');
-    return rows.flatMap((row) => this.connectors.webhookSecretsFor(row));
+    // The app-level secret also counts, so the Request URL can be set before any workspace connects.
+    const env = this.connectors.envWebhookSecret('slack');
+    return [...new Set([...rows.flatMap((row) => this.connectors.webhookSecretsFor(row)), ...(env ? [env] : [])])];
   }
 
   private verify(kind: ConnectorKind, req: ConnectorWebhookRequest, payload: Json, secrets: string[], nowMs: number): void {
@@ -103,19 +104,25 @@ export class ConnectorWebhooksService {
     if (check !== 'ok') throw refused(check);
   }
 
-  /** Vendor delivery id where one exists, else a stable digest of what identifies the event. */
-  private deliveryId(kind: ConnectorKind, req: ConnectorWebhookRequest, payload: Json): string {
-    const digest = () => createHash('sha256').update(req.rawBody).digest('hex');
+  /** Ids that mark this delivery as seen; Linear and Sentry delivery headers are not signed, so the signed body is claimed too. */
+  private deliveryIds(kind: ConnectorKind, req: ConnectorWebhookRequest, payload: Json): string[] {
+    const digest = `body:${createHash('sha256').update(req.rawBody).digest('hex')}`;
     switch (kind) {
       case 'linear':
-        return first(req.headers['linear-delivery']) ?? digest();
+        return [first(req.headers['linear-delivery']), digest].filter((id): id is string => !!id);
       case 'slack':
-        return String(payload.event_id ?? digest());
+        return [String(payload.event_id ?? digest)];
       case 'sentry':
-        return first(req.headers['request-id']) ?? digest();
+        return [first(req.headers['request-id']), digest].filter((id): id is string => !!id);
       default:
-        return `${payload.webhook_id}:${payload.event_type}:${payload.comment_id ?? ''}:${payload.timestamp ?? digest()}`;
+        return [`${payload.webhook_id}:${payload.event_type}:${payload.comment_id ?? ''}:${payload.timestamp ?? digest}`];
     }
+  }
+
+  /** True when none of the ids was seen: a retry repeats the delivery id, a replay repeats the body. */
+  private async claimAll(kind: ConnectorKind, ids: string[]): Promise<boolean> {
+    for (const id of ids) if (!(await this.claim(kind, id))) return false;
+    return true;
   }
 
   /** True when this delivery is new. */

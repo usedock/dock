@@ -13,14 +13,14 @@ function connector(kind: string, over: Record<string, unknown> = {}) {
 describe('ConnectorWebhooksService', () => {
   let db: { insert: Mock };
   let insertValues: Mock;
-  let connectors: { findByExternalId: Mock; listByKind: Mock; webhookSecretsFor: Mock };
+  let connectors: { findByExternalId: Mock; listByKind: Mock; webhookSecretsFor: Mock; envWebhookSecret: Mock };
   let runs: { start: Mock };
   let service: ConnectorWebhooksService;
 
   beforeEach(() => {
     insertValues = vi.fn().mockResolvedValue(undefined);
     db = { insert: vi.fn().mockReturnValue({ values: insertValues }) };
-    connectors = { findByExternalId: vi.fn(), listByKind: vi.fn().mockResolvedValue([]), webhookSecretsFor: vi.fn().mockReturnValue(['secret']) };
+    connectors = { findByExternalId: vi.fn(), listByKind: vi.fn().mockResolvedValue([]), webhookSecretsFor: vi.fn().mockReturnValue(['secret']), envWebhookSecret: vi.fn().mockReturnValue(null) };
     runs = { start: vi.fn().mockResolvedValue('run-1') };
     service = new ConnectorWebhooksService(db as never, connectors as never, runs as never);
   });
@@ -74,6 +74,19 @@ describe('ConnectorWebhooksService', () => {
       expect(runs.start).not.toHaveBeenCalled();
     });
 
+    it('treats a replayed body with a fresh Linear-Delivery as a duplicate', async () => {
+      connectors.findByExternalId.mockResolvedValue(connector('linear'));
+      const seen = new Set<string>();
+      insertValues.mockImplementation(async (row: { deliveryId: string }) => {
+        if (seen.has(row.deliveryId)) throw unique;
+        seen.add(row.deliveryId);
+      });
+      expect((await service.handle('linear', req(assigned, 'secret', 'd1'), NOW)).body).toEqual({ received: true, runId: 'run-1' });
+      expect((await service.handle('linear', req(assigned, 'secret', 'd2'), NOW)).body).toEqual({ received: true, duplicate: true });
+      expect((await service.handle('linear', req({ ...assigned, webhookTimestamp: NOW + 1 }, 'secret', 'd1'), NOW)).body).toEqual({ received: true, duplicate: true });
+      expect(runs.start).toHaveBeenCalledTimes(1);
+    });
+
     it('acknowledges events that are not triggers without a run', async () => {
       connectors.findByExternalId.mockResolvedValue(connector('linear'));
       const out = await service.handle('linear', req({ ...assigned, type: 'Comment' }), NOW);
@@ -117,6 +130,12 @@ describe('ConnectorWebhooksService', () => {
       expect(connectors.findByExternalId).not.toHaveBeenCalled();
     });
 
+    it('answers url_verification signed with the app-level secret before any workspace connects', async () => {
+      connectors.envWebhookSecret.mockReturnValue('app-secret');
+      const out = await service.handle('slack', req({ type: 'url_verification', challenge: 'c1' }, 'app-secret'), NOW);
+      expect(out).toEqual({ status: 200, body: 'c1' });
+    });
+
     it('refuses an unsigned url_verification', async () => {
       connectors.listByKind.mockResolvedValue([connector('slack')]);
       await expect(service.handle('slack', req({ type: 'url_verification', challenge: 'x' }, 'wrong'), NOW)).rejects.toMatchObject({ response: { code: 'invalid_signature' } });
@@ -154,6 +173,19 @@ describe('ConnectorWebhooksService', () => {
       await expect(service.handle('sentry', req(issue, 'wrong'), NOW)).rejects.toMatchObject({ response: { code: 'invalid_signature' } });
       insertValues.mockRejectedValueOnce(unique);
       expect((await service.handle('sentry', req(issue), NOW)).body).toMatchObject({ duplicate: true });
+    });
+    it('treats a captured body replayed with a new Request-ID as a duplicate', async () => {
+      connectors.findByExternalId.mockResolvedValue(connector('sentry'));
+      const seen = new Set<string>();
+      insertValues.mockImplementation(async (row: { deliveryId: string }) => {
+        if (seen.has(row.deliveryId)) throw unique;
+        seen.add(row.deliveryId);
+      });
+      const first = req(issue);
+      expect((await service.handle('sentry', first, NOW)).body).toEqual({ received: true, runId: 'run-1' });
+      const replay = { ...first, headers: { ...first.headers, 'request-id': 'r2' } };
+      expect((await service.handle('sentry', replay, NOW)).body).toEqual({ received: true, duplicate: true });
+      expect(runs.start).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -246,12 +246,14 @@ export class ConnectorsService {
     const given = input.secret?.trim();
     const generated = !given && checked === 'figma' ? randomBytes(24).toString('hex') : undefined;
     const secret = given || generated;
-    const externalId = input.externalId?.trim() || row.externalId;
+    const typed = input.externalId?.trim();
+    const externalId = typed || row.externalId;
     if (!secret && !row.webhookSecret && !this.envWebhookSecret(checked)) {
       throw new BadRequestException({ code: 'webhook_secret_required', message: 'secret is required for this tool' });
     }
-    // Sentry and Figma ids are typed by the admin, so only a secret the admin holds can vouch for them.
-    if ((checked === 'sentry' || checked === 'figma') && !secret && !row.webhookSecret) {
+    // An id the admin types (always for Sentry and Figma) is not proven by the token, so only a secret the admin holds can vouch for it.
+    const typedId = checked === 'sentry' || checked === 'figma' || (!!typed && typed !== row.externalId);
+    if (typedId && !secret && !row.webhookSecret) {
       throw new BadRequestException({ code: 'webhook_secret_required', message: 'secret is required for this tool' });
     }
     if ((checked === 'sentry' || checked === 'figma') && !externalId) {
