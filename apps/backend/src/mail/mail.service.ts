@@ -107,6 +107,13 @@ function textFor(template: MailTemplate, context: MailContext): string {
  * transport failures are logged with a correlation id and the API path
  * stays green.
  */
+/** Keeps the first character and the domain, so log-only mode shows which mail went where without the raw address. */
+export function maskAddress(address: string): string {
+  const at = address.lastIndexOf('@');
+  if (at < 1) return '***';
+  return `${address[0]}***${address.slice(at)}`;
+}
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger('MailService');
@@ -163,7 +170,10 @@ export class MailService {
           headers: { 'X-Dock-Template': options.template, 'X-Dock-Cid': correlationId },
         });
         if (this.logOnly) {
-          this.logger.warn(`mail not delivered (no SMTP_HOST) template=${options.template} to=${options.to} cid=${correlationId}\n${rendered.text}`);
+          // Several bodies quote the address; re-render the logged copy with it masked.
+          const email = options.context.email === undefined ? undefined : maskAddress(options.context.email);
+          const logged = textFor(options.template, { ...options.context, email, subject: options.subject });
+          this.logger.warn(`mail not delivered (no SMTP_HOST) template=${options.template} to=${maskAddress(options.to)} cid=${correlationId}\n${logged}`);
         } else {
           this.logger.log(`mail delivered template=${options.template} cid=${correlationId}`);
         }
