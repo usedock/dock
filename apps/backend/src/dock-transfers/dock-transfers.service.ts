@@ -41,9 +41,11 @@ const MIN_PART_SIZE = 16 * MIB;
 const MAX_PARTS = 10000;
 /** A proxied part is buffered whole in memory (the store client cannot stream a part), so it stays modest. */
 const MAX_PROXY_PART_SIZE = 128 * MIB;
-/** In-flight proxied parts are buffered, so memory is bounded by these caps instead of by part size: at most 2 per organization and 256 MiB of reserved part size overall. */
-export const MAX_PROXY_PARTS_PER_ORG = 2;
+/** In-flight proxied parts are buffered, so memory is bounded by reserved part size, not part count; one organization gets at most half. */
 export const MAX_PROXY_BYTES_IN_FLIGHT = 256 * MIB;
+export const MAX_PROXY_BYTES_PER_ORG = MAX_PROXY_BYTES_IN_FLIGHT / 2;
+/** A part queues this long for budget before 429; its unread body waits in the socket, not in memory. */
+export const PROXY_PART_WAIT_MS = 60_000;
 const MAX_OPEN_IMPORTS = 5;
 const MAX_LIVE_EXPORTS = 5;
 const SWEEP_MS = 10 * 60_000;
@@ -142,8 +144,9 @@ export function parseRange(header: string | undefined, size: number): { start: n
 @Injectable()
 export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(DockTransfersService.name);
-  private readonly proxyPartsByOrg = new Map<string, number>();
+  private readonly proxyBytesByOrg = new Map<string, number>();
   private proxyBytesInFlight = 0;
+  private readonly proxyWaiters: Array<{ orgId: string; bytes: number; grant: () => void }> = [];
   private sweepTimer?: NodeJS.Timeout;
 
   constructor(
@@ -244,7 +247,7 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
     if (row.mode !== 'proxy') throw new ConflictException({ code: 'conflict', message: 'This import uploads straight to the store; use the part URLs from the import response' });
     if (!Number.isInteger(number) || number < 1 || number > row.partCount) throw validationError(`part number must be 1..${row.partCount}`);
     if (declaredLength !== undefined && declaredLength > row.partSize) throw partTooLarge(row.partSize);
-    const release = this.reserveProxyPart(row.organizationId, row.partSize);
+    const release = await this.reserveProxyPart(row.organizationId, row.partSize);
     try {
       const chunks: Buffer[] = [];
       let total = 0;
@@ -262,21 +265,55 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Reserves a buffered part's worth of memory, or answers 429 so the client retries; the store client cannot stream a part. */
-  private reserveProxyPart(orgId: string, bytes: number): () => void {
-    const orgParts = this.proxyPartsByOrg.get(orgId) ?? 0;
-    if (orgParts >= MAX_PROXY_PARTS_PER_ORG) throw new PartUploadBusyException('This organization already has parts uploading through the control plane; retry shortly');
-    if (this.proxyBytesInFlight + bytes > MAX_PROXY_BYTES_IN_FLIGHT) throw new PartUploadBusyException('The control plane is busy with other part uploads; retry shortly');
-    this.proxyPartsByOrg.set(orgId, orgParts + 1);
-    this.proxyBytesInFlight += bytes;
+  /** Reserves a buffered part's worth of memory, queueing in order for up to PROXY_PART_WAIT_MS, then 429 so the client retries. */
+  private reserveProxyPart(orgId: string, bytes: number): Promise<() => void> {
+    return new Promise((resolve, reject) => {
+      let timer: NodeJS.Timeout | undefined;
+      const waiter = {
+        orgId,
+        bytes,
+        grant: () => {
+          clearTimeout(timer);
+          resolve(this.proxyReleaser(orgId, bytes));
+        },
+      };
+      this.proxyWaiters.push(waiter);
+      this.drainProxyWaiters();
+      if (!this.proxyWaiters.includes(waiter)) return;
+      timer = setTimeout(() => {
+        this.proxyWaiters.splice(this.proxyWaiters.indexOf(waiter), 1);
+        reject(new PartUploadBusyException('The control plane is busy with other part uploads; retry shortly'));
+        this.drainProxyWaiters();
+      }, PROXY_PART_WAIT_MS);
+    });
+  }
+
+  /** Grants waiters in arrival order; one held back only by its own organization's share does not block other organizations. */
+  private drainProxyWaiters(): void {
+    for (let i = 0; i < this.proxyWaiters.length; ) {
+      const w = this.proxyWaiters[i];
+      if (this.proxyBytesInFlight + w.bytes > MAX_PROXY_BYTES_IN_FLIGHT) return;
+      if ((this.proxyBytesByOrg.get(w.orgId) ?? 0) + w.bytes > MAX_PROXY_BYTES_PER_ORG) {
+        i++;
+        continue;
+      }
+      this.proxyWaiters.splice(i, 1);
+      this.proxyBytesInFlight += w.bytes;
+      this.proxyBytesByOrg.set(w.orgId, (this.proxyBytesByOrg.get(w.orgId) ?? 0) + w.bytes);
+      w.grant();
+    }
+  }
+
+  private proxyReleaser(orgId: string, bytes: number): () => void {
     let released = false;
     return () => {
       if (released) return;
       released = true;
       this.proxyBytesInFlight -= bytes;
-      const left = (this.proxyPartsByOrg.get(orgId) ?? 1) - 1;
-      if (left <= 0) this.proxyPartsByOrg.delete(orgId);
-      else this.proxyPartsByOrg.set(orgId, left);
+      const left = (this.proxyBytesByOrg.get(orgId) ?? bytes) - bytes;
+      if (left <= 0) this.proxyBytesByOrg.delete(orgId);
+      else this.proxyBytesByOrg.set(orgId, left);
+      this.drainProxyWaiters();
     };
   }
 

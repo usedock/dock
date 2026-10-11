@@ -369,8 +369,8 @@ response header. Keep the etag of every part for the complete call. Uploading a
 part again replaces it.
 
 Errors: `import_not_found`, `validation_error` (part number out of range or an
-empty body), `part_too_large` (400), `part_upload_busy` (429, retryable: too many
-proxy parts in flight; send the part again shortly), `conflict` (the import is
+empty body), `part_too_large` (400), `part_upload_busy` (429, retryable: the part
+waited 60 seconds for room among proxy parts in flight; send it again), `conflict` (the import is
 no longer `uploading`, has expired, or is `direct`).
 
 ### `POST /v1/docks/import/:importId/complete`
