@@ -50,14 +50,20 @@ function pinnedFetch(url: URL, init: RequestInit, resolveHost: HostResolver): Pr
       url,
       { method: init.method ?? 'GET', headers, lookup: pinnedLookup(resolveHost) as never, agent: false, signal },
       (res) => {
-        const out = new Headers();
-        for (const [name, value] of Object.entries(res.headers)) {
-          for (const v of Array.isArray(value) ? value : value === undefined ? [] : [value]) out.append(name, v);
+        // Response refuses what node's parser lets through (a status outside 200-599); throwing here would be uncaught.
+        try {
+          const out = new Headers();
+          for (const [name, value] of Object.entries(res.headers)) {
+            for (const v of Array.isArray(value) ? value : value === undefined ? [] : [value]) out.append(name, v);
+          }
+          const status = res.statusCode ?? 0;
+          const empty = status === 204 || status === 205 || status === 304;
+          if (empty) res.resume();
+          resolve(new Response(empty ? null : (Readable.toWeb(res) as ReadableStream), { status, statusText: res.statusMessage, headers: out }));
+        } catch (err) {
+          res.destroy();
+          reject(err);
         }
-        const status = res.statusCode ?? 0;
-        const empty = status === 204 || status === 205 || status === 304;
-        if (empty) res.resume();
-        resolve(new Response(empty ? null : (Readable.toWeb(res) as ReadableStream), { status, statusText: res.statusMessage, headers: out }));
       },
     );
     req.on('error', reject);
