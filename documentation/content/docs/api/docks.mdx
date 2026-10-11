@@ -1,6 +1,6 @@
 ---
 title: Docks
-description: Create, list, update, stop, resume, branch, delete, and run commands in Docks, plus ports, terminal, stats, and operations.
+description: Create, list, update, stop, resume, branch, delete, and run commands in Docks, plus ports, terminal, stats, operations, and disk import and export.
 ---
 
 A Dock is an isolated Linux machine; see [Docks](/concepts/docks) and
@@ -296,3 +296,158 @@ organization of the thing they changed; ones you cannot see read as not found.
 
 Response: the [operation object](/api/objects#operation). Errors:
 `operation_not_found`.
+
+## Import and export
+
+These six routes move a Dock's disk between control planes; the `dock push`
+and `dock pull` commands drive them. The walkthrough, with the upload and
+download steps, is in [Push and pull](/local-docks/push-pull). The file that
+moves is `rootfs.ext4.zst`, the raw ext4 disk compressed with zstd. Only the
+disk moves, never memory, so an imported or exported Dock boots fresh. Both
+directions need a `microvm` runtime; a `gvisor` Dock cannot be exported.
+
+Imports land only on hosts whose docklet advertises the `verified-imports`
+feature, so older docklets never boot a disk they cannot verify. When no online
+`microvm` host has it, `POST /v1/docks/import` fails with `runtime_unsupported`
+(409) and nothing is uploaded. The check applies on a real fleet
+(`RUNTIME_DRIVER=restate`).
+
+### `POST /v1/docks/import`
+
+Start an import (201): reserve an upload for a disk and get the part URLs.
+
+Auth: API key or session. Role: `member` of the workspace's organization. An
+organization can hold 5 open imports at once.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `workspaceId` | uuid | yes | | Workspace the Dock is created in. |
+| `name` | string | no | max 100, unique per workspace | Generated when omitted. |
+| `image` | string | yes | a name from `GET /v1/images` | The Dockyard image the disk was built from. |
+| `cpus` | integer | yes | 1 to 64 | vCPUs of the new Dock. |
+| `memoryMiB` | integer | yes | 512 to 262144 | Memory in MiB. |
+| `diskGiB` | integer | yes | 1 to 2048 | Disk in GiB. |
+| `sizeBytes` | integer | yes | at least 1; at most `diskGiB` GiB in bytes | Size of the compressed file. |
+| `sha256` | string | yes | 64 lowercase hex characters | sha256 of the compressed file. |
+
+Response: the [Import upload object](/api/objects#import-upload).
+Cut the file into `partSize` bytes (the last part may be shorter) and `PUT` the
+raw bytes of part `number` to its `url`. Part numbers start at 1. The part size
+is at least 16 MiB, and grows for a very large disk so the file stays within
+10000 parts. The import expires 24 hours after it starts, together with its
+uploaded parts.
+
+Errors: `validation_error` (a malformed body or `sha256`), `image_unknown`,
+`dock_not_found` (unknown workspace), `import_too_large` (413: `sizeBytes`
+above the `diskGiB` limit, or in `proxy` mode a disk whose part size would
+exceed 128 MiB), `runtime_unsupported` (409), `dock_name_taken`,
+`import_limit_reached` (429).
+
+### `PUT /v1/docks/import/:importId/parts/:number`
+
+Upload one part through the control plane. Only used when the import's
+`upload.mode` is `proxy`; in `direct` mode it fails with `conflict` (409) and
+the part goes to the presigned URL instead.
+
+Auth: API key or session. Only the member who started the import can use it.
+
+The body is the raw part bytes, not JSON.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `importId` (path) | uuid | yes | | Id from the start response. |
+| `number` (path) | integer | yes | 1 to the number of parts | Part number. |
+| body | bytes | yes | non-empty, at most `partSize` bytes (and at most 128 MiB) | Raw part bytes. |
+
+Response: `{ "number": 1, "etag": "..." }`, with the same value in the `etag`
+response header. Keep the etag of every part for the complete call. Uploading a
+part again replaces it.
+
+Errors: `import_not_found`, `validation_error` (part number out of range or an
+empty body), `part_too_large` (400), `conflict` (the import is no longer
+`uploading`, has expired, or is `direct`).
+
+### `POST /v1/docks/import/:importId/complete`
+
+Complete an import (202): join the parts, check the size and create the Dock
+from the disk. Only the member who started the import can use it.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `parts` | array of objects | yes | 1 to 10000 items; every part number 1 to N exactly once | Each item is `{ "number": integer, "etag": string }`; `etag` max 200 characters. |
+
+Response: the [Dock object](/api/objects#dock), in the `provisioning` state.
+The host checks the sha256 and size when it materializes the disk; a Dock whose
+file does not match ends in `error`. Repeating the call for a completed import
+returns the same Dock. If no host can take the Dock right now, or the name was
+taken meanwhile, the call fails with `no_host_capacity`, `capacity_exhausted`
+or `dock_name_taken` and can be repeated without uploading again. Any other
+failure ends the import and removes its uploaded parts; start a new one. The
+Dock boots in the background, so a host that refuses the image or base later
+leaves the Dock in `error` instead of failing this call.
+
+Errors: `import_not_found`, `validation_error` (the parts are not exactly 1 to N
+with an etag, or the size is larger than every online host),
+`import_too_large` (413: the assembled object is bigger than the `diskGiB`
+disk), `import_checksum_mismatch` (400: the assembled object is not the declared
+`sizeBytes`), `conflict` (the import failed, expired or is already being
+completed), `environment_secrets_admin_only` (a member, when the organization's
+default Environment passes admins-only secrets), `no_host_capacity`,
+`capacity_exhausted`, `dock_name_taken`, `subscription_required`,
+`concurrency_exceeded`, `budget_exceeded`.
+
+### `POST /v1/docks/:id/export`
+
+Start an export (202): the host takes a full, disk-only snapshot of the Dock,
+which keeps running.
+
+Auth: API key or session. Role: the same as opening the Dock. A Dock with
+connectors, or with secrets from an admins-only Environment, can be exported
+only by its creator or an `admin`.
+
+No body. Response: `{ "exportId": "..." }`. Read it with
+`GET /v1/docks/exports/:exportId`.
+
+The Dock is then re-applied, so its gateway tokens and its dock API key rotate
+and the copy cannot use them. If they cannot be rotated, the export fails with
+`export_failed` instead of publishing a disk with live credentials. A Dock holds
+one pending export at a time, and an organization 5 live exports.
+
+Errors: `dock_not_found`, `environment_secrets_admin_only`,
+`connector_admin_only`, `zdr_blocks_exports` (403: retention is enabled),
+`runtime_unsupported` (409: not a `microvm` Dock), `dock_not_running` (409: the
+Dock must be `ready`, `idle` or `running`), `conflict` (an export of this Dock is
+already in progress), `export_limit_reached` (429).
+
+### `GET /v1/docks/exports/:exportId`
+
+Read an export and a fresh download URL.
+
+Auth: API key or session. Role: the same as opening the source Dock. When the
+source Dock is gone, only the export's creator or an `admin` can read it.
+
+Response: the [Export object](/api/objects#export). Poll until `state` is
+`ready` or `failed`. Every call to a ready export issues a new `url`.
+
+Errors: `export_not_found` (unknown, expired, or not yours to read),
+`environment_secrets_admin_only`, `connector_admin_only`.
+
+### `GET /v1/docks/exports/:exportId/download`
+
+Stream a ready export through the control plane. This is the route the export's
+`url` points to when the object store has no address clients can reach; with a
+reachable store, use the presigned `url` directly.
+
+Auth and role: as for reading the export.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `Range` (header) | string | no | one `bytes=start-` or `bytes=start-end` | Resume a download. A malformed header is ignored and the whole file is sent. |
+
+Response: the raw bytes (`application/octet-stream`), 200, or 206 with
+`content-range` for a range. Check the file against the export's `sha256`.
+
+Errors: `export_not_found`, `environment_secrets_admin_only`,
+`connector_admin_only`, `conflict` (the export is not `ready`),
+`validation_error` (an unsatisfiable range: start past the end of the file, or
+end before start).
