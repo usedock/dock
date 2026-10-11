@@ -58,7 +58,7 @@ export const dockExports = pgTable(
     diskGiB: integer('disk_gib').notNull(),
     sizeBytes: bigint('size_bytes', { mode: 'number' }),
     sha256: text('sha256'),
-    /** Allocated bytes of the flattened disk before compression, so a pull sizes its free-space check; null for exports whose host did not report it. */
+    /** Space the flattened disk's data takes decompressed and written sparse, so a pull sizes its free-space check; null for exports whose host did not report it. */
     dataBytes: bigint('data_bytes', { mode: 'number' }),
     baseImage: text('base_image'),
     storeSnapshotId: text('store_snapshot_id'),

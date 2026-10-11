@@ -19,7 +19,7 @@ export interface DiskExport {
   snapshotId: string;
   sizeBytes: number;
   sha256: string;
-  /** Allocated bytes of the flattened disk before compression; null when the host did not report it. */
+  /** Space the flattened disk's data takes decompressed and written sparse; null when the host did not report it. */
   dataBytes: number | null;
   /** Dockyard image the disk was built from; empty when the base was built on the host. */
   baseImage: string;
