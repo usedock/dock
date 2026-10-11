@@ -8,8 +8,8 @@ const win = (env: Record<string, string>, present: string[]) =>
 
 describe('resolveBash', () => {
   it('uses bash from PATH off Windows', () => {
-    expect(resolveBash({ platform: 'linux', env: {}, exists: () => false })).toEqual({ bash: 'bash' });
-    expect(resolveBash({ platform: 'darwin', env: {}, exists: () => false })).toEqual({ bash: 'bash' });
+    expect(resolveBash({ platform: 'linux', env: {}, exists: () => false }).bash).toBe('bash');
+    expect(resolveBash({ platform: 'darwin', env: {}, exists: () => false }).bash).toBe('bash');
   });
 
   it('prefers Git Bash bin, then usr/bin, on Windows', () => {
@@ -41,6 +41,19 @@ describe('resolveBash', () => {
     const r = win({ DOCK_TEST_BASH: p }, [p, GIT]);
     expect(r.bash).toBeUndefined();
     expect(r.reason).toBeTruthy();
+  });
+
+  it('finds scoop Git under USERPROFILE and puts usr\\bin first on PATH', () => {
+    const p = 'C:\\Users\\me\\scoop\\apps\\git\\current\\bin\\bash.exe';
+    const r = resolveBash({ platform: 'win32', env: { USERPROFILE: 'C:\\Users\\me', Path: 'C:\\x' }, exists: (q) => q === p });
+    expect(r.bash).toBe(p);
+    expect(r.env?.Path).toBe('C:\\Users\\me\\scoop\\apps\\git\\current\\usr\\bin;C:\\Users\\me\\scoop\\apps\\git\\current\\bin;C:\\x');
+  });
+
+  it('rejects SysWOW64 and Sysnative overrides', () => {
+    for (const p of ['C:\\Windows\\SysWOW64\\bash.exe', 'C:/Windows/Sysnative/bash.exe']) {
+      expect(win({ DOCK_TEST_BASH: p }, [p]).bash).toBeUndefined();
+    }
   });
 
   it('skips when DOCK_TEST_BASH does not exist', () => {

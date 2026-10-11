@@ -230,7 +230,7 @@ const resolved = resolveBash({ platform: process.platform, env: process.env, exi
 if (resolved.reason) console.warn(`composite file commands skipped: ${resolved.reason}`);
 const bashPath = resolved.bash;
 const bashRun = (command: string, cwd?: string) =>
-  bashPath ? spawnSync(bashPath, ['-c', command], { cwd, encoding: 'utf8' }) : undefined;
+  bashPath ? spawnSync(bashPath, ['-c', command], { cwd, env: resolved.env, encoding: 'utf8' }) : undefined;
 const bash = bashRun('base64 -w0 </dev/null');
 // Some filesystems (NTFS) cannot hold newlines in names; the newline cases skip there.
 const nl = bashRun('d=$(mktemp -d) && touch "$d/a"$\'\\n\'"b" && rm -r "$d"');
@@ -238,6 +238,9 @@ const canNewline = bash?.status === 0 && nl?.status === 0;
 const hostileNames = ["it's.txt", '-n.txt', 'dir with space/$(touch pwned).txt', "x'; touch pwned; echo '", 'a\nb.txt', 'trail\n', '\nlead.txt', 'a\n\nb'];
 const names = hostileNames.filter((n) => canNewline || !n.includes('\n'));
 const flat = (name: string) => name.replace(/\//g, '_');
+
+// CI must run these, never skip them silently.
+if (process.env.CI) it('bash with GNU coreutils is usable in CI', () => expect(bash?.status, resolved.reason).toBe(0));
 
 describe.skipIf(bash?.status !== 0)('composite file commands', () => {
   const run = (cwd: string, command: string) => bashRun(command, cwd)!;
