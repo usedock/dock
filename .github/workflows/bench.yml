@@ -59,7 +59,7 @@ jobs:
         working-directory: bench
         run: |
           mkdir -p results
-          ./scripts/environment.sh | tee results/environment.json
+          bash scripts/environment.sh | tee results/environment.json
       # Cold create from the cached image, one at a time, then four at once.
       - name: sequential create
         working-directory: bench
