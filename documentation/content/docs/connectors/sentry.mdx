@@ -54,3 +54,7 @@ read when the token was connected (or the one in the issue URL). They need the
 `event:write` scope and a user token (`sntryu_`) or OAuth: Sentry refuses notes
 from organization and internal-integration tokens. See
 [Triggers and replies](/docs/connectors/triggers) for the webhook setup.
+
+## Pull requests
+
+An admin can link a Sentry project slug (or `*`) to a GitHub repository so runs started from Sentry open draft pull requests there, with the link posted in the reply. Links are managed with `PUT /v1/workspaces/:workspaceId/connectors/sentry/repo-links`; see [Open pull requests in a linked repository](/docs/connectors/triggers#open-pull-requests-in-a-linked-repository). Scope key: project slug.

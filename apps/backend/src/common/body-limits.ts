@@ -24,6 +24,8 @@ export function registerBodyLimits(http: Pick<Express, 'use'>): void {
   for (const path of ['/v1/connectors/linear/webhooks', '/v1/connectors/slack/events', '/v1/connectors/sentry/webhooks', '/v1/connectors/figma/webhooks']) {
     http.use(path, anonymous(json({ limit: '5mb', verify: keepRaw })));
   }
+  // A connector run linked to a repository returns its change set, like a GitHub run.
+  http.use('/v1/connectors/runs/:id/complete', anonymous(json({ limit: '16mb' })));
   http.use('/v1/github/runs/:id/complete', anonymous(json({ limit: '16mb' })));
   http.use('/v1/docks/:id/exec', anonymous(json({ limit: '1mb' })));
   http.use('/v1/fleet/commands/:id/result', anonymous(json({ limit: '16mb' })));

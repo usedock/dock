@@ -21,7 +21,7 @@ class EchoController {
 const proto = EchoController.prototype;
 const method = (name: keyof EchoController) => Object.getOwnPropertyDescriptor(proto, name)!;
 Controller()(EchoController);
-Post(['docks', 'github/runs/:id/complete', 'docks/:id/exec', 'fleet/commands/:id/result'])(proto, 'echo', method('echo'));
+Post(['docks', 'github/runs/:id/complete', 'connectors/runs/:id/complete', 'docks/:id/exec', 'fleet/commands/:id/result'])(proto, 'echo', method('echo'));
 Body()(proto, 'echo', 0);
 Post(['llm/anthropic', 'connectors/gateway/linear/api/graphql'])(proto, 'raw', method('raw'));
 Req()(proto, 'raw', 0);
@@ -57,6 +57,7 @@ describe('registerBodyLimits', () => {
   it('parses large run completions and forwards gateway bytes untouched', async () => {
     const big = 'x'.repeat(2 * 1024 * 1024);
     expect(await post('/github/runs/r1/complete', JSON.stringify({ summary: big }))).toEqual({ body: { summary: big } });
+    expect(await post('/connectors/runs/r1/complete', JSON.stringify({ summary: big }))).toEqual({ body: { summary: big } });
     expect(await post('/llm/anthropic', '{"model":"m"}')).toEqual({ raw: '{"model":"m"}' });
     expect(await post('/connectors/gateway/linear/api/graphql', '{"query":"{}"}')).toEqual({ raw: '{"query":"{}"}' });
   });

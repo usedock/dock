@@ -68,6 +68,75 @@ data it can see over the network. Connect tools with the least access that works
 keep the sender checks above tight, and treat a run like a teammate with that
 tool's access.
 
+## Open pull requests in a linked repository
+
+By default a triggered run can investigate and reply, and nothing more. An admin
+can link a connector scope to a GitHub repository so the run can change code and
+open a pull request there.
+
+| Tool | Scope key |
+|---|---|
+| `linear` | Team id |
+| `slack` | Channel id |
+| `sentry` | Project slug |
+| `figma` | File key |
+
+Use `*` as the scope to link every subject of that tool. A run uses the link for
+its own scope first and falls back to `*`. Without a matching link nothing
+changes: the run replies only.
+
+- `GET /v1/workspaces/:workspaceId/connectors/:kind/repo-links` lists the links.
+- `PUT /v1/workspaces/:workspaceId/connectors/:kind/repo-links` creates or
+  replaces one with `{ "scope": "<scope key or *>", "repo": "owner/name" }`.
+- `DELETE /v1/workspaces/:workspaceId/connectors/:kind/repo-links?scope=<scope key>`
+  removes one.
+
+All three are for organization admins only, and the tool must be connected.
+Linking checks that a [GitHub App](/docs/connectors/github) installation of the
+workspace lists the repository and that the App has Contents and Pull requests
+write access on it: `400 github_repo_not_accessible`,
+`400 github_permissions_missing`, `400 github_installation_missing` or
+`503 github_app_not_configured` otherwise.
+
+```bash
+curl -X PUT $DOCK_API/v1/workspaces/$WORKSPACE_ID/connectors/linear/repo-links   -H "Authorization: Bearer $DOCK_API_KEY" -H "content-type: application/json"   -d '{"scope":"<linear team id>","repo":"acme/app"}'
+```
+
+For a linked run:
+
+1. Dock pins the repository's default branch head and mints an installation token
+   of the Dock GitHub App limited to that one repository with `contents: read`.
+   The token reaches only the one exec that clones, through a git credential
+   helper, so it is in no URL, file or git config; Dock revokes it as soon as the
+   clone ends.
+2. The agent works on branch `dock/<tool>-<short run id>` in the clone. It holds
+   no GitHub credential and cannot push.
+3. When the agent reports `done`, the dock returns the changed files. The control
+   plane mints a second token limited to the same repository with
+   `contents: write` and `pull_requests: write`, commits the changes on the
+   branch from the pinned base commit, opens a draft pull request, and revokes
+   the token. The title comes from the subject; the body links back to the Linear
+   issue, Slack thread, Sentry issue or Figma file, and carries the run summary
+   after the same redaction as replies (GitHub tokens included). `@` mentions in
+   it are neutralized.
+4. The reply in the tool includes the pull request link. A Linear issue is not
+   moved to completed when a pull request was opened. If the pull request cannot
+   be opened the reply says so with a short reason (`push_failed`,
+   `pr_create_failed`, `token_mint_failed`).
+
+A change set too large (over 1000 files or 8 MiB) or touching a symlink target
+Dock cannot represent fails the run. A run that cannot clone fails with
+`repo_unavailable`.
+
+Who can cause a pull request is exactly who can start a run, as set out in
+[Who can start a run](#who-can-start-a-run); nothing about the link widens it.
+Anyone allowed to start a run can steer the agent, so treat a link like giving
+those people a contributor who opens draft pull requests in that repository.
+Pull requests are authored by the Dock GitHub App, never by a person, never
+merged by Dock, and always opened as drafts for human review. The run still has
+no environment secrets, and no GitHub token is ever placed in the agent's
+environment.
+
 ## How a run works
 
 The run acts on behalf of the organization admin who connected the tool
@@ -91,7 +160,7 @@ holds. See [Security model](#security-model) for what the dock holds.
 4. A run that never reports is failed after `CONNECTOR_RUN_TIMEOUT_MINUTES` plus a
    15 minute margin (default 30), with a reply naming the reason (`timed_out`,
    `launch_failed`, `dock_provision_failed`, `provider_not_configured`,
-   `agent_unsupported`, `no_owner`). A completion and a timeout cannot both win: the
+   `agent_unsupported`, `no_owner`, `repo_unavailable`). A completion and a timeout cannot both win: the
    first one to settle the run is the only one that replies.
 
 ## Configure verification

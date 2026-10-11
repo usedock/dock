@@ -77,3 +77,18 @@ export async function exchangeInstallationToken(input: {
   if (typeof data.token !== 'string' || !data.token) throw new Error('token mint returned no token');
   return { token: data.token, expiresAt: typeof data.expires_at === 'string' ? data.expires_at : '' };
 }
+
+/** Revokes an installation token (DELETE /installation/token) so a run-scoped token does not outlive its use. Best effort. */
+export async function revokeInstallationToken(input: { apiBase: string; token: string; fetchFn?: typeof fetch }): Promise<boolean> {
+  const doFetch = input.fetchFn ?? fetch;
+  try {
+    const res = await doFetch(`${input.apiBase}/installation/token`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${input.token}`, accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(15_000),
+    });
+    return res.status === 204;
+  } catch {
+    return false;
+  }
+}

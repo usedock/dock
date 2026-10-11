@@ -1,5 +1,5 @@
 import { sanitizeIssueText, truncateIssueText } from '../github/agent-prompt';
-import { DOCK_USER_HOME, RUN_WORK_DIR, agentModel, buildAgentConfig, buildCodexConfig, modelId, shellQuote, writeFile } from '../github/runner';
+import { DOCK_USER_HOME, MAX_CHANGE_BYTES, MAX_CHANGE_FILES, RUN_WORK_DIR, agentModel, buildAgentConfig, buildCodexConfig, modelId, shellQuote, writeFile } from '../github/runner';
 import { envStem, type ConnectorKind } from './connector-kinds';
 
 export const CONNECTOR_RUN_DIR = `${DOCK_USER_HOME}/.dock/connector-run`;
@@ -16,8 +16,15 @@ export interface ConnectorPromptInput {
 }
 
 /** Trusted instructions; the request itself travels separately because it is untrusted. */
-export function renderConnectorSystem(input: Pick<ConnectorPromptInput, 'kind' | 'timeoutMinutes'>): string {
+export function renderConnectorSystem(input: Pick<ConnectorPromptInput, 'kind' | 'timeoutMinutes'> & { repo?: { name: string; baseBranch: string } }): string {
   const stem = envStem(input.kind);
+  const repo = input.repo
+    ? [
+        `REPOSITORY: ${RUN_WORK_DIR} is a checkout of ${input.repo.name} (base ${input.repo.baseBranch}), on a fresh branch. Make the change there and leave it uncommitted or committed, as you like.`,
+        'You have no git credentials and cannot push: Dock turns the changes in the work tree into a pull request after you finish. Write a clear summary of what changed and why. If nothing should change, report "no_change".',
+        '',
+      ]
+    : [];
   return [
     `You are Dock, an engineer working in an isolated Ubuntu dock. A request arrived from ${input.kind}.`,
     '',
@@ -28,6 +35,7 @@ export function renderConnectorSystem(input: Pick<ConnectorPromptInput, 'kind' |
     `- The ${input.kind} API is at $DOCK_${stem}_API_URL; send \`Authorization: Bearer $DOCK_CONNECTOR_TOKEN\` with every call.`,
     `- Work in ${RUN_WORK_DIR}. Do not post to ${input.kind} yourself: your summary is posted back for you.`,
     '',
+    ...repo,
     `BUDGET: finish within ${input.timeoutMinutes} minutes.`,
     `Finally write ${CONNECTOR_RUN_DIR}/RESULT.json as {"status": "done" | "no_change" | "failed", "summary": string, "reason"?: string}.`,
     'The summary is the reply the requester reads: plain text, under 1500 characters, with no secrets. Without RESULT.json the run fails.',
@@ -41,8 +49,33 @@ export function renderConnectorRequest(input: Pick<ConnectorPromptInput, 'title'
   return [`Request: ${sanitizeIssueText(input.title)}`, ...(input.url ? [`Link: ${input.url}`] : []), '', text || '(no further detail)', ''].join('\n');
 }
 
-const CALLBACK_PY = `import json, os, re, sys
+const CALLBACK_PY = `import base64, json, os, re, subprocess, sys
 art, code = sys.argv[1], sys.argv[2]
+run_dir = sys.argv[3] if len(sys.argv) > 3 else None
+MAX_FILES, MAX_BYTES = ${MAX_CHANGE_FILES}, ${MAX_CHANGE_BYTES}
+def git(*args):
+    return subprocess.run(['git', '-C', run_dir, *args], check=True, capture_output=True).stdout
+def collect():
+    with open(os.path.join(art, 'start.sha'), encoding='utf-8') as f:
+        start = f.read().strip()
+    git('add', '-A')
+    parts = git('diff', '--cached', '--name-status', '--no-renames', '-z', start).split(b'\\0')
+    changes, total = [], 0
+    for status, path in zip(parts[0::2], parts[1::2]):
+        name = path.decode('utf-8', 'surrogateescape')
+        if status == b'D':
+            changes.append({'path': name, 'deleted': True})
+            continue
+        entry = git('ls-files', '-s', '-z', '--', path).split(b' ')[0].decode()
+        if entry not in ('100644', '100755', '120000'):
+            return None
+        full = os.path.join(run_dir, name)
+        raw = os.readlink(full).encode() if entry == '120000' else open(full, 'rb').read()
+        total += len(raw)
+        changes.append({'path': name, 'mode': entry, 'content': base64.b64encode(raw).decode()})
+    if len(changes) > MAX_FILES or total > MAX_BYTES:
+        return None
+    return {'parentSha': start, 'changes': changes}
 secrets = [v for k, v in os.environ.items() if len(v) >= 8 and (k in ('DOCK_CONNECTOR_TOKEN', 'DOCK_LLM_TOKEN', 'CONNECTOR_RUN_TOKEN') or re.search('KEY|TOKEN|SECRET|PASSWORD', k))]
 def scrub(text):
     for secret in secrets:
@@ -59,6 +92,15 @@ if isinstance(res, dict) and res.get('status') in ('done', 'no_change', 'failed'
         out['summary'] = scrub(res['summary'])[:2000]
     if isinstance(res.get('reason'), str):
         out['reason'] = scrub(res['reason'])[:200]
+    if run_dir and res['status'] == 'done':
+        try:
+            found = collect()
+        except Exception:
+            found = None
+        if found is None:
+            out = {'status': 'failed', 'reason': 'unsupported_or_too_large_change'}
+        else:
+            out.update(found)
 else:
     out = {'status': 'failed', 'reason': 'agent_timeout' if code == '124' else 'agent_failed' if code != '0' else 'agent_no_result'}
 print(json.dumps(out))
@@ -73,6 +115,38 @@ export interface ConnectorRunScriptInput {
   model: string;
   gatewayUrl: string;
   timeoutMinutes: number;
+  /** The work tree is a clone of a linked repository: the callback also returns its changes. */
+  repoLinked?: boolean;
+}
+
+export interface RepoCloneInput {
+  repoFull: string;
+  baseBranch: string;
+  baseSha: string;
+  branch: string;
+  /** Guest path and git host overrides; production uses the defaults. */
+  gitHost?: string;
+}
+
+/**
+ * The only exec that holds a GitHub credential: a read-only token read by a git credential helper
+ * from `GITHUB_CLONE_TOKEN`. Nothing persists the token (not the remote URL, not git config), and the
+ * caller revokes it as soon as this exec returns.
+ */
+export function buildRepoCloneScript(input: RepoCloneInput): string {
+  return [
+    'set -eu',
+    `RUN_DIR=${shellQuote(RUN_WORK_DIR)}`,
+    `ART=${shellQuote(CONNECTOR_RUN_DIR)}`,
+    'mkdir -p "$ART" "$RUN_DIR"',
+    `AUTH=(-c credential.helper= -c 'credential.helper=!f() { echo username=x-access-token; echo "password=\${GITHUB_CLONE_TOKEN}"; }; f')`,
+    `git "\${AUTH[@]}" clone --quiet --no-tags --branch ${shellQuote(input.baseBranch)} ${shellQuote(`${input.gitHost ?? 'https://github.com'}/${input.repoFull}.git`)} "$RUN_DIR"`,
+    `git -C "$RUN_DIR" checkout --quiet ${shellQuote(input.baseSha)}`,
+    `git -C "$RUN_DIR" checkout --quiet -b ${shellQuote(input.branch)}`,
+    'git -C "$RUN_DIR" rev-parse HEAD > "$ART/start.sha"',
+    "git -C \"$RUN_DIR\" config user.name 'dock[bot]'",
+    "git -C \"$RUN_DIR\" config user.email 'dock[bot]@users.noreply.github.com'",
+  ].join('\n');
 }
 
 /**
@@ -93,7 +167,7 @@ export function buildConnectorRunScript(input: ConnectorRunScriptInput): string 
     'CODE=1',
     'finish() {',
     '  trap - EXIT',
-    '  python3 "$ART/callback.py" "$ART" "$CODE" > "$ART/callback.json" 2>> "$ART/runner.log" || printf \'%s\' \'{"status":"failed","reason":"runner_failed"}\' > "$ART/callback.json"',
+    `  python3 "$ART/callback.py" "$ART" "$CODE"${input.repoLinked ? ' "$DIR"' : ''} > "$ART/callback.json" 2>> "$ART/runner.log" || printf '%s' '{"status":"failed","reason":"runner_failed"}' > "$ART/callback.json"`,
     `  curl -fsS --retry 5 --retry-all-errors --max-time 60 -X POST ${shellQuote(input.callbackUrl)} -H "authorization: Bearer $CONNECTOR_RUN_TOKEN" -H 'content-type: application/json' --data-binary @"$ART/callback.json" >> "$ART/runner.log" 2>&1 || true`,
     '}',
     'trap finish EXIT',

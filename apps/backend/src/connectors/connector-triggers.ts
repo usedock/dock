@@ -9,11 +9,15 @@ export interface ConnectorTrigger {
   body: string;
   url: string | null;
   reply: ConnectorReplyTarget;
+  /** Linear team id, Slack channel id, Sentry project slug or Figma file key; what a repository link is matched on. */
+  scope?: string;
 }
 
 type Json = Record<string, any>;
 
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+const scopeOf = (value: unknown): { scope?: string } => (typeof value === 'string' && value ? { scope: value } : {});
 
 /** The label that opts a Linear issue in. */
 export const LINEAR_LABEL = 'dock';
@@ -37,6 +41,7 @@ export function linearTrigger(payload: Json, vendorUserId: string | null): Conne
     body: str(data.description),
     url: str(payload.url) || str(data.url) || null,
     reply: { issueId: String(data.id) },
+    ...scopeOf(data.teamId ?? data.team?.id),
   };
 }
 
@@ -53,6 +58,7 @@ export function slackTrigger(payload: Json): ConnectorTrigger | null {
     body: str(event.text).replace(/<@[A-Z0-9]+>/g, '').trim(),
     url: null,
     reply: { channel: String(event.channel), threadTs },
+    scope: String(event.channel),
   };
 }
 
@@ -82,6 +88,7 @@ export function sentryTrigger(resource: string | undefined, payload: Json): Conn
       body: [str(issue.culprit) && `Culprit: ${issue.culprit}`, str(issue.level) && `Level: ${issue.level}`, str(issue.project?.slug) && `Project: ${issue.project.slug}`].filter(Boolean).join('\n'),
       url: str(issue.web_url) || str(issue.permalink) || null,
       reply: { issueId: String(issue.id), org: sentryOrgFromUrl(str(issue.web_url) || str(issue.permalink)) },
+      ...scopeOf(issue.project?.slug),
     };
   }
   if (resource === 'event_alert' && payload.action === 'triggered' && data.event?.issue_id) {
@@ -93,6 +100,7 @@ export function sentryTrigger(resource: string | undefined, payload: Json): Conn
       body: [str(data.triggered_rule) && `Alert rule: ${data.triggered_rule}`, str(event.culprit) && `Culprit: ${event.culprit}`].filter(Boolean).join('\n'),
       url: str(event.web_url) || null,
       reply: { issueId: String(event.issue_id), org: sentryOrgFromUrl(str(event.web_url)) },
+      ...scopeOf(event.project_slug ?? data.project_slug),
     };
   }
   return null;
@@ -115,5 +123,6 @@ export function figmaTrigger(payload: Json, vendorUserId: string | null): Connec
     body: text,
     url: `https://www.figma.com/file/${payload.file_key}`,
     reply: { fileKey: String(payload.file_key), commentId: root },
+    scope: String(payload.file_key),
   };
 }

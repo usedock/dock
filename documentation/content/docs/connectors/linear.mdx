@@ -23,3 +23,7 @@ see [Triggers and replies](/docs/connectors/triggers).
 curl -H "Authorization: Bearer $DOCK_CONNECTOR_TOKEN" -H "content-type: application/json" \
   -d '{"query":"{ viewer { name } }"}' $DOCK_LINEAR_API_URL/graphql
 ```
+
+## Pull requests
+
+An admin can link a Linear team id (or `*`) to a GitHub repository so runs started from Linear open draft pull requests there, with the link posted in the reply. Links are managed with `PUT /v1/workspaces/:workspaceId/connectors/linear/repo-links`; see [Open pull requests in a linked repository](/docs/connectors/triggers#open-pull-requests-in-a-linked-repository). Scope key: team id.

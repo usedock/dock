@@ -1,4 +1,5 @@
-import { buildConnectorRunScript, renderConnectorRequest, renderConnectorSystem } from './connector-run-script';
+import { buildConnectorRunScript, buildRepoCloneScript, renderConnectorRequest, renderConnectorSystem } from './connector-run-script';
+import { shellQuote } from '../github/runner';
 
 const decodedFiles = (script: string): string[] =>
   [...script.matchAll(/printf '%s' '([A-Za-z0-9+/=]+)' \| base64 -d/g)].map((m) => Buffer.from(m[1], 'base64').toString('utf8'));
@@ -82,5 +83,30 @@ describe('buildConnectorRunScript', () => {
   it('waits for the agent to be installed and says so when it never is', () => {
     expect(runner()).toContain('seq 1 60');
     expect(runner()).toContain('is not installed in this dock');
+  });
+});
+
+describe('repository runs', () => {
+  const clone = buildRepoCloneScript({ repoFull: 'acme/app', baseBranch: 'main', baseSha: 'a'.repeat(40), branch: 'dock/linear-11111111' });
+
+  it('clones through a credential helper so the token is in no URL, no config and no file', () => {
+    expect(clone).toContain('GITHUB_CLONE_TOKEN');
+    expect(clone).toContain("'https://github.com/acme/app.git'");
+    expect(clone).toContain("checkout --quiet -b 'dock/linear-11111111'");
+    expect(clone).not.toMatch(/x-access-token:|ghs_/);
+    expect(clone).not.toContain('remote set-url');
+  });
+
+  it('quotes a hostile branch name instead of interpolating it', () => {
+    const hostile = buildRepoCloneScript({ repoFull: 'acme/app', baseBranch: "main'; rm -rf ~; '", baseSha: 'a'.repeat(40), branch: 'b' });
+    expect(hostile).toContain(`--branch ${shellQuote("main'; rm -rf ~; '")} `);
+  });
+
+  it('tells the agent it cannot push, and returns the changes through the callback only when linked', () => {
+    expect(renderConnectorSystem({ kind: 'linear', timeoutMinutes: 30, repo: { name: 'acme/app', baseBranch: 'main' } })).toContain('cannot push');
+    expect(renderConnectorSystem({ kind: 'linear', timeoutMinutes: 30 })).not.toContain('REPOSITORY');
+    const base = { system: 's', request: 'r', callbackUrl: 'https://x/c', agent: 'opencode', model: 'anthropic/m', gatewayUrl: 'https://x/llm', timeoutMinutes: 30 };
+    expect(decodedFiles(buildConnectorRunScript({ ...base, repoLinked: true })).some((f) => f.includes('"$CODE" "$DIR"'))).toBe(true);
+    expect(decodedFiles(buildConnectorRunScript(base)).some((f) => f.includes('"$CODE" "$DIR"'))).toBe(false);
   });
 });

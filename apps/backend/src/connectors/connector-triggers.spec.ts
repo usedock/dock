@@ -121,3 +121,13 @@ describe('figmaTrigger', () => {
     expect(figmaTrigger(comment({ event_type: 'PING' }), '99')).toBeNull();
   });
 });
+
+describe('trigger scope for repository links', () => {
+  it('carries the Linear team, Slack channel, Sentry project and Figma file', () => {
+    expect(linearTrigger(linearIssue({ assigneeId: 'me', teamId: 'team-1' }, { assigneeId: null }), 'me')?.scope).toBe('team-1');
+    expect(linearTrigger(linearIssue({ assigneeId: 'me' }, { assigneeId: null }), 'me')?.scope).toBeUndefined();
+    expect(slackTrigger({ type: 'event_callback', event: { type: 'app_mention', channel: 'C9', ts: '1.1', text: 'hi' } })?.scope).toBe('C9');
+    expect(sentryTrigger('issue', { action: 'created', data: { issue: { id: '1', project: { slug: 'web' } } } })?.scope).toBe('web');
+    expect(figmaTrigger({ event_type: 'FILE_COMMENT', file_key: 'FK1', comment_id: '5', comment: [{ text: '@dock hi' }], mentions: [] }, 'me')?.scope).toBe('FK1');
+  });
+});

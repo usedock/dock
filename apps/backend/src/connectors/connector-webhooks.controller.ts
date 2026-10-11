@@ -6,7 +6,7 @@ import { Public } from '../common/public.decorator';
 import { ConnectorRunsService } from './connector-runs.service';
 import { ConnectorWebhooksService } from './connector-webhooks.service';
 import type { ConnectorKind } from './connector-kinds';
-import { CompleteConnectorRunDto } from './dto/connect-connector.dto';
+import { CompleteConnectorRunChangesDto } from './dto/connect-connector.dto';
 
 // Vendor-to-control-plane callbacks, not a client API: kept out of the public contract and SDKs.
 @ApiExcludeController()
@@ -49,7 +49,7 @@ export class ConnectorWebhooksController {
   @Post('runs/:id/complete')
   @Public()
   @HttpCode(HttpStatus.OK)
-  completeRun(@Param('id') id: string, @Req() req: Request, @Body() dto: CompleteConnectorRunDto) {
+  completeRun(@Param('id') id: string, @Req() req: Request, @Body() dto: CompleteConnectorRunChangesDto) {
     return this.runs.complete(id, req.headers.authorization, dto);
   }
 

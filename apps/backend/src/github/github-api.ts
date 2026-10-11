@@ -31,6 +31,8 @@ export interface GithubApi {
     path: string;
     ref: string;
   }): Promise<{ content: string | null }>;
+  /** The repository's default branch name. */
+  getDefaultBranch(input: { token: string; owner: string; repo: string }): Promise<string>;
   /** Full names of every repository the installation token can reach. */
   listInstallationRepositories(input: { token: string }): Promise<string[]>;
   /** Effective repo permission (admin, maintain, write, triage, read, none). */
@@ -148,6 +150,14 @@ export class HttpGithubApi implements GithubApi {
     const data = (await githubFetch(this.fetchFn, token, path, { method: 'POST', body: JSON.stringify(body) })) as { sha?: unknown };
     if (typeof data.sha !== 'string') throw new Error(`github api ${path} returned no sha`);
     return { sha: data.sha };
+  }
+
+  async getDefaultBranch(input: { token: string; owner: string; repo: string }) {
+    const data = (await githubFetch(this.fetchFn, input.token, `/repos/${input.owner}/${input.repo}`, { method: 'GET', signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS) })) as {
+      default_branch?: unknown;
+    };
+    if (typeof data.default_branch !== 'string' || !data.default_branch) throw new Error('github api returned no default branch');
+    return data.default_branch;
   }
 
   async listInstallationRepositories(input: { token: string }) {
