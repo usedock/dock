@@ -76,6 +76,14 @@ const envSchema = z
     SLACK_CLIENT_SECRET: z.string().optional().default(''),
     SENTRY_CLIENT_ID: z.string().optional().default(''),
     SENTRY_CLIENT_SECRET: z.string().optional().default(''),
+    // Connector triggers: app-level secrets for Linear and Slack apps; Sentry and Figma secrets are stored per connector.
+    LINEAR_WEBHOOK_SECRET: z.string().optional().default(''),
+    SLACK_SIGNING_SECRET: z.string().optional().default(''),
+    /** Agent that connector runs start in the dock (opencode or codex); its environment must install it. */
+    CONNECTOR_RUN_AGENT: z.enum(['opencode', 'codex', '']).default('opencode'),
+    /** Model for connector runs, passed to the agent as is; empty uses the agent default. */
+    CONNECTOR_RUN_MODEL: z.string().optional().default(''),
+    CONNECTOR_RUN_TIMEOUT_MINUTES: z.string().regex(/^[0-9]*$/).optional().default('30'),
     /** Personal ChatGPT subscription sign-in for runs; unofficial (Codex client), so off unless opted in. */
     CHATGPT_SIGNIN_ENABLED: z.enum(['true', 'false']).default('false'),
     RESTATE_INGRESS_URL: z.string().url('RESTATE_INGRESS_URL must be a URL').optional(),

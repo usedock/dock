@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Put } from 
 import { CurrentUser } from '../auth/current-user.decorator';
 import { RequestUser } from '../auth/jwt-auth.guard';
 import { ConnectorsService } from './connectors.service';
-import { ConnectConnectorDto } from './dto/connect-connector.dto';
+import { ConnectConnectorDto, SetWebhookDto } from './dto/connect-connector.dto';
 
 /** Workspace tool connections: admins connect and disconnect, members list; tokens are never returned. */
 @Controller('workspaces/:workspaceId/connectors')
@@ -22,7 +22,18 @@ export class ConnectorsController {
     @Param('kind') kind: string,
     @Body() dto: ConnectConnectorDto,
   ) {
-    return this.connectors.connect(user.id, workspaceId, kind, dto.token);
+    return this.connectors.connect(user.id, workspaceId, kind, dto.token, dto.host);
+  }
+
+  @Put(':kind/webhook')
+  @HttpCode(HttpStatus.OK)
+  setWebhook(
+    @CurrentUser() user: RequestUser,
+    @Param('workspaceId') workspaceId: string,
+    @Param('kind') kind: string,
+    @Body() dto: SetWebhookDto,
+  ) {
+    return this.connectors.setWebhook(user.id, workspaceId, kind, dto);
   }
 
   @Delete(':kind')

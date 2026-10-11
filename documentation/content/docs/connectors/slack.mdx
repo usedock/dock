@@ -10,9 +10,12 @@ The account label is the Slack team name.
 
 | | |
 |---|---|
-| OAuth bot scopes requested | `channels:read`, `channels:history`, `chat:write`, `users:read` |
+| OAuth bot scopes requested | `channels:read`, `channels:history`, `chat:write`, `users:read`, `app_mentions:read` |
 | Web API in a dock | `$DOCK_SLACK_API_URL/<method>`, for example `chat.postMessage` |
 | MCP in a dock | not available |
+
+A mention of the app (`app_mention`) starts a run and is answered in its thread; see
+[Triggers and replies](/docs/connectors/triggers). The bot must be in the channel.
 
 Only Web API method names are accepted as the path (letters, digits and dots).
 

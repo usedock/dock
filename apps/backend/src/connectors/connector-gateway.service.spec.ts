@@ -13,12 +13,16 @@ function selectQ(rows: unknown[]) {
 describe('resolveUpstream', () => {
   it('maps api and mcp targets onto the fixed vendor hosts', () => {
     expect(resolveUpstream('figma', 'api/v1/files/abc', '?depth=1')).toEqual({ url: 'https://api.figma.com/v1/files/abc?depth=1', target: 'api' });
-    expect(resolveUpstream('figma', 'mcp', '')).toEqual({ url: 'https://mcp.figma.com/mcp', target: 'mcp' });
+    // mcp.figma.com admits only catalog OAuth clients, so Figma has no MCP target.
+    expect(resolveUpstream('figma', 'mcp', '')).toBeNull();
     expect(resolveUpstream('linear', 'api/graphql', '')?.url).toBe('https://api.linear.app/graphql');
     expect(resolveUpstream('linear', 'mcp', '')?.url).toBe('https://mcp.linear.app/mcp');
     expect(resolveUpstream('slack', 'api/chat.postMessage', '')?.url).toBe('https://slack.com/api/chat.postMessage');
     expect(resolveUpstream('sentry', 'api/0/organizations/', '')?.url).toBe('https://sentry.io/api/0/organizations/');
     expect(resolveUpstream('sentry', 'mcp', '')?.url).toBe('https://mcp.sentry.dev/mcp');
+    expect(resolveUpstream('sentry', 'api/0/organizations/', '', 'https://de.sentry.io')?.url).toBe('https://de.sentry.io/api/0/organizations/');
+    expect(resolveUpstream('sentry', 'api/0/organizations/', '', 'https://sentry.example.com')?.url).toBe('https://sentry.example.com/api/0/organizations/');
+    expect(resolveUpstream('linear', 'api/graphql', '', 'https://evil.example')?.url).toBe('https://api.linear.app/graphql');
   });
 
   it('refuses paths outside each allowlist, traversal, odd characters and unknown targets', () => {

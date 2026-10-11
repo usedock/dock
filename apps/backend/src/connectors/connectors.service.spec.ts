@@ -2,7 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { vi, type Mock } from 'vitest';
 import { openValue } from '../environments/secrets';
 import { WorkspaceNotFoundException } from '../workspaces/workspaces.service';
-import { ConnectorNotConnectedException, ConnectorNotFoundException, ConnectorsService } from './connectors.service';
+import { ConnectorAccountInUseException, ConnectorNotConnectedException, ConnectorNotFoundException, ConnectorsService } from './connectors.service';
 import type { ConnectorCredential } from './connector-kinds';
 
 type Row = Record<string, unknown>;
@@ -216,6 +216,101 @@ describe('ConnectorsService', () => {
       fetchFn.mockResolvedValue(json({ error: 'invalid_grant' }, 400));
       await expect(service.accessFor('w1', 'linear')).rejects.toBeInstanceOf(ConnectorNotConnectedException);
       expect(set.mock.calls[0][0]).toMatchObject({ status: 'reauth_required' });
+    });
+  });
+  describe('webhook routing and Sentry host', () => {
+    const rowQ = (rows: Row[]) => selectQ(rows);
+
+    it('records the vendor account and user a webhook routes by when a token is connected', async () => {
+      fetchFn.mockResolvedValue(json({ data: { viewer: { id: 'u-lin', name: 'Pat', organization: { id: 'org-9', name: 'Acme' } } } }));
+      const { values, onConflictDoUpdate } = mockUpsert();
+      await service.connect('u1', 'w1', 'linear', 'lin_api_x');
+      expect(values.mock.calls[0][0]).toMatchObject({ externalId: 'org-9', vendorUserId: 'u-lin' });
+      // The connecting admin owns the connector's docks, also on reconnect.
+      expect(onConflictDoUpdate.mock.calls[0][0].set).toMatchObject({ createdBy: 'u1', externalId: 'org-9' });
+    });
+
+    it('stores a validated Sentry region and verifies against it', async () => {
+      fetchFn.mockResolvedValue(json([{ slug: 'acme' }]));
+      const { values } = mockUpsert();
+      await service.connect('u1', 'w1', 'sentry', 'sntryu_x', 'de.sentry.io');
+      expect(fetchFn.mock.calls[0][0]).toBe('https://de.sentry.io/api/0/organizations/');
+      expect(values.mock.calls[0][0]).toMatchObject({ host: 'https://de.sentry.io' });
+    });
+
+    it('refuses a host for other tools and self-hosted hosts on private addresses', async () => {
+      await expect(service.connect('u1', 'w1', 'linear', 'lin_api_x', 'sentry.example.com')).rejects.toMatchObject({ response: { code: 'validation_error' } });
+      await expect(service.connect('u1', 'w1', 'sentry', 'sntryu_x', 'https://10.0.0.7')).rejects.toMatchObject({ response: { code: 'connector_host_invalid' } });
+      await expect(service.connect('u1', 'w1', 'sentry', 'sntryu_x', 'http://sentry.example.com')).rejects.toMatchObject({ response: { code: 'connector_host_invalid' } });
+      expect(fetchFn).not.toHaveBeenCalled();
+    });
+
+    it('returns the row host with the credential for the gateway and replies, and re-vets it', async () => {
+      const { sealValue } = await import('../environments/secrets');
+      const row = { id: 'c1', kind: 'sentry', status: 'connected', host: 'https://de.sentry.io', credentials: sealValue(KEY, JSON.stringify({ type: 'token', access: 't' })) };
+      db.select.mockReturnValue(selectQ([row]));
+      await expect(service.accessFor('w1', 'sentry')).resolves.toMatchObject({ access: 't', host: 'https://de.sentry.io' });
+      db.select.mockReturnValue(selectQ([{ ...row, host: 'https://192.168.1.5' }]));
+      await expect(service.accessFor('w1', 'sentry')).rejects.toMatchObject({ response: { code: 'connector_host_invalid' } });
+    });
+
+    it('maps a taken vendor account to connector_account_in_use', async () => {
+      fetchFn.mockResolvedValue(json({ ok: true, team: 'Acme', team_id: 'T1', user_id: 'UBOT' }));
+      const returning = vi.fn().mockRejectedValue(Object.assign(new Error('dup'), { code: '23505' }));
+      db.insert.mockReturnValue({ values: vi.fn().mockReturnValue({ onConflictDoUpdate: vi.fn().mockReturnValue({ returning }) }) });
+      await expect(service.connect('u1', 'w1', 'slack', 'xoxb-1')).rejects.toBeInstanceOf(ConnectorAccountInUseException);
+    });
+
+    const updateChain = () => {
+      const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) });
+      db.update.mockReturnValue({ set });
+      return set;
+    };
+
+    it('generates and returns a Figma passcode once, storing it sealed', async () => {
+      db.select.mockReturnValue(rowQ([{ id: 'c1', kind: 'figma', externalId: null, webhookSecret: null }]));
+      const set = updateChain();
+      const out = await service.setWebhook('u1', 'w1', 'figma', { externalId: '77' });
+      expect(out).toMatchObject({ kind: 'figma', externalId: '77', secret: expect.stringMatching(/^[0-9a-f]{48}$/) });
+      expect(openValue(KEY, set.mock.calls[0][0].webhookSecret)).toBe(out.secret);
+      expect(set.mock.calls[0][0].externalId).toBe('77');
+    });
+
+    it('stores a given secret without echoing it, and needs a secret where no app-level one exists', async () => {
+      db.select.mockReturnValue(rowQ([{ id: 'c1', kind: 'linear', externalId: 'org-9', webhookSecret: null }]));
+      await expect(service.setWebhook('u1', 'w1', 'linear', {})).rejects.toMatchObject({ response: { code: 'webhook_secret_required' } });
+      const set = updateChain();
+      const out = await service.setWebhook('u1', 'w1', 'linear', { secret: 'lin_wh_secret' });
+      expect(out).toEqual({ kind: 'linear', externalId: 'org-9' });
+      expect(openValue(KEY, set.mock.calls[0][0].webhookSecret)).toBe('lin_wh_secret');
+      config.LINEAR_WEBHOOK_SECRET = 'app-level';
+      await expect(service.setWebhook('u1', 'w1', 'linear', {})).resolves.toMatchObject({ kind: 'linear' });
+    });
+
+    it('requires a per-connector secret and an id for Sentry, whose id an app secret cannot vouch for', async () => {
+      db.select.mockReturnValue(rowQ([{ id: 'c1', kind: 'sentry', externalId: null, webhookSecret: null }]));
+      updateChain();
+      config.SENTRY_CLIENT_SECRET = 'oauth-secret';
+      await expect(service.setWebhook('u1', 'w1', 'sentry', { externalId: 'inst-1' })).rejects.toMatchObject({ response: { code: 'webhook_secret_required' } });
+      await expect(service.setWebhook('u1', 'w1', 'sentry', { secret: 'client-secret' })).rejects.toMatchObject({ response: { code: 'validation_error' } });
+      await expect(service.setWebhook('u1', 'w1', 'sentry', { secret: 'client-secret', externalId: 'inst-1' })).resolves.toMatchObject({ externalId: 'inst-1' });
+    });
+
+    it('is admin only and needs a connected tool', async () => {
+      orgs.requireMembership.mockRejectedValueOnce(new ForbiddenException());
+      await expect(service.setWebhook('u1', 'w1', 'figma', {})).rejects.toBeInstanceOf(ForbiddenException);
+      db.select.mockReturnValue(rowQ([]));
+      await expect(service.setWebhook('u1', 'w1', 'figma', {})).rejects.toBeInstanceOf(ConnectorNotFoundException);
+    });
+
+    it('picks the connector secret over the app-level one and never uses the app secret for Sentry or Figma', async () => {
+      const { sealValue } = await import('../environments/secrets');
+      config.SLACK_SIGNING_SECRET = 'app-sign';
+      config.SENTRY_CLIENT_SECRET = 'oauth-secret';
+      expect(service.webhookSecretsFor({ kind: 'slack', webhookSecret: null } as never)).toEqual(['app-sign']);
+      expect(service.webhookSecretsFor({ kind: 'slack', webhookSecret: sealValue(KEY, 'own') } as never)).toEqual(['own']);
+      expect(service.webhookSecretsFor({ kind: 'sentry', webhookSecret: null } as never)).toEqual([]);
+      expect(service.webhookSecretsFor({ kind: 'figma', webhookSecret: null } as never)).toEqual([]);
     });
   });
 });

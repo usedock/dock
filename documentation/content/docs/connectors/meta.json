@@ -1,4 +1,4 @@
 {
   "title": "Connectors",
-  "pages": ["index", "figma", "linear", "slack", "sentry", "github", "model-keys"]
+  "pages": ["index", "triggers", "figma", "linear", "slack", "sentry", "github", "model-keys"]
 }

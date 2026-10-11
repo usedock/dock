@@ -31,13 +31,13 @@ export const CONNECTOR_SPECS: Record<ConnectorKind, ConnectorSpec> = {
       authorizeUrl: 'https://www.figma.com/oauth',
       tokenUrl: 'https://api.figma.com/v1/oauth/token',
       refreshUrl: 'https://api.figma.com/v1/oauth/refresh',
-      scopes: ['current_user:read', 'file_content:read', 'file_comments:read'],
+      scopes: ['current_user:read', 'file_content:read', 'file_comments:read', 'file_comments:write'],
       scopeSeparator: ',',
       pkce: true,
       basicAuth: true,
     },
+    // No MCP target: mcp.figma.com admits only OAuth clients from Figma's MCP catalog, not tokens or ordinary OAuth apps.
     api: { base: 'https://api.figma.com', allow: /^v[12]\// },
-    mcp: 'https://mcp.figma.com/mcp',
   },
   linear: {
     oauth: {
@@ -55,7 +55,7 @@ export const CONNECTOR_SPECS: Record<ConnectorKind, ConnectorSpec> = {
     oauth: {
       authorizeUrl: 'https://slack.com/oauth/v2/authorize',
       tokenUrl: 'https://slack.com/api/oauth.v2.access',
-      scopes: ['channels:read', 'channels:history', 'chat:write', 'users:read'],
+      scopes: ['channels:read', 'channels:history', 'chat:write', 'users:read', 'app_mentions:read'],
       scopeSeparator: ',',
       pkce: false,
       basicAuth: false,
@@ -66,7 +66,7 @@ export const CONNECTOR_SPECS: Record<ConnectorKind, ConnectorSpec> = {
     oauth: {
       authorizeUrl: 'https://sentry.io/oauth/authorize/',
       tokenUrl: 'https://sentry.io/oauth/token/',
-      scopes: ['org:read', 'project:read', 'event:read'],
+      scopes: ['org:read', 'project:read', 'event:read', 'event:write'],
       scopeSeparator: ' ',
       pkce: false,
       basicAuth: false,
@@ -76,6 +76,12 @@ export const CONNECTOR_SPECS: Record<ConnectorKind, ConnectorSpec> = {
   },
 };
 
+/** Sentry API base for a connector's region or self-hosted origin; `host` is an already validated origin. */
+export function apiBase(kind: ConnectorKind, host?: string | null): string {
+  if (kind === 'sentry' && host) return `${host}/api`;
+  return CONNECTOR_SPECS[kind].api.base;
+}
+
 /** What a connector's sealed credential holds. */
 export interface ConnectorCredential {
   type: 'token' | 'oauth';
@@ -84,6 +90,9 @@ export interface ConnectorCredential {
   /** Epoch ms; absent for tokens that do not expire. */
   expiresAt?: number;
 }
+
+/** A credential plus the non-secret row fields calls need. */
+export type ConnectorAccess = ConnectorCredential & { host?: string | null };
 
 /** Authorization headers for one upstream call; personal tokens use each vendor's own scheme on its API host. */
 export function upstreamAuth(kind: ConnectorKind, target: 'api' | 'mcp', cred: ConnectorCredential): Record<string, string> {

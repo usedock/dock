@@ -1,0 +1,141 @@
+---
+title: Triggers and replies
+description: Start an agent run from a Linear issue, Slack mention, Sentry issue or Figma comment, and post the result back.
+---
+
+A connected tool can start work in Dock. The tool sends a webhook to the control
+plane, the control plane checks its signature, finds the workspace, and starts a
+run: a dock with that connector attached, running your agent on a prompt built
+from the event. When the agent finishes, Dock posts its summary back where the
+event came from.
+
+| Kind | Starts a run when | Dock posts back |
+|---|---|---|
+| `linear` | An issue is assigned to the connected Linear user, or the label `dock` is added | A comment; the issue moves to a started state when the run begins and to a completed state when the agent reports `done` |
+| `slack` | The app is mentioned (`app_mention`) | A message in the mention's thread (`thread_ts`), plus an "On it." acknowledgement |
+| `sentry` | A new issue (`issue.created`) or an issue alert (`event_alert`) fires | A note on the issue |
+| `figma` | A file comment mentions the connected Figma user or writes `@dock` | A reply in the comment thread, plus an "On it." acknowledgement |
+
+A Sentry issue that creates an issue webhook and an alert webhook starts one run:
+a subject (issue, Slack thread, Figma thread) has at most one run in flight.
+
+## How a run works
+
+The run acts on behalf of the organization admin who connected the tool
+(`created_by` on the connector), so the admins-only rule for docks with connectors
+holds: members never gain access to the tool's credential through a trigger.
+Reconnecting the tool makes the reconnecting admin the owner.
+
+1. The control plane creates a dock in the workspace with the connector attached
+   and the workspace's default environment. Dock never installs agents: the
+   environment's setup script must install the agent named by
+   `CONNECTOR_RUN_AGENT` (`opencode` by default, or `codex`), and the
+   environment or organization must supply its provider key.
+2. The agent gets a prompt built from the event (sanitized and bounded like a
+   GitHub issue) and the tool's API at `$DOCK_<KIND>_API_URL` with
+   `$DOCK_CONNECTOR_TOKEN`. It writes `RESULT.json` with a `status` of `done`,
+   `no_change` or `failed` and a `summary`.
+3. The dock calls back with `POST /v1/connectors/runs/:id/complete`, authorized by
+   a token only that dock holds; the first result wins. Dock then posts the
+   summary and stops the dock.
+4. A run that never reports is failed after `CONNECTOR_RUN_TIMEOUT_MINUTES` plus a
+   15 minute margin (default 30), with a reply naming the reason (`timed_out`,
+   `launch_failed`, `dock_provision_failed`, `agent_unsupported`, `no_owner`).
+
+## Configure verification
+
+Each tool signs its webhooks differently. Dock finds the workspace from a vendor
+account id stored at connect time or by you, and verifies the signature with a
+secret stored sealed on the connector or, for Linear and Slack, an app-level
+secret from the environment.
+
+`PUT /v1/workspaces/:workspaceId/connectors/:kind/webhook` (admins only) records
+the secret and routing id for a connected tool:
+
+```bash
+curl -X PUT $DOCK_API/v1/workspaces/$WORKSPACE_ID/connectors/sentry/webhook \
+  -H "Authorization: Bearer $DOCK_API_KEY" -H "content-type: application/json" \
+  -d '{"secret":"<client secret>","externalId":"<installation uuid>"}'
+```
+
+| Field | Meaning |
+|---|---|
+| `secret` | The signing secret or passcode; 8 to 512 characters. Stored sealed, never returned. Omit it for Figma to have Dock generate a passcode and return it once. |
+| `externalId` | The routing id: Sentry installation uuid or Figma webhook id. Linear (organization) and Slack (team) ids are recorded automatically when the token is connected. |
+
+`400 webhook_secret_required` means no secret is stored and no app-level secret
+covers the kind. `409 connector_account_in_use` means another workspace already
+holds that vendor account.
+
+An unknown account answers `404 connector_not_found`; a wrong signature answers
+`401 invalid_signature`; a stale Linear or Slack timestamp answers
+`401 stale_webhook`. A delivery seen before is acknowledged with
+`duplicate: true` and starts nothing. Deliveries are deduplicated per tool by
+Linear's `Linear-Delivery`, Slack's `event_id`, Sentry's `Request-ID` and, for
+Figma, webhook id, event type, comment id and timestamp.
+
+## Inbound routes
+
+These routes are called by the tools, not by clients. Each answers `200` at once
+and processes the event in the background (Slack requires an answer within three
+seconds).
+
+### Linear
+
+`POST /v1/connectors/linear/webhooks`. Verified with `Linear-Signature`: the hex
+HMAC-SHA256 of the raw body with the webhook's signing secret, and the
+`webhookTimestamp` in the body must be within one minute. Routed by
+`organizationId`.
+
+### Slack
+
+`POST /v1/connectors/slack/events`. Verified with `X-Slack-Signature`
+(`v0=` plus the hex HMAC-SHA256 of `v0:{timestamp}:{raw body}` with the signing
+secret); requests whose `X-Slack-Request-Timestamp` is more than five minutes old
+are refused. `url_verification` is answered with the challenge. Routed by
+`team_id`. Messages from bots are ignored.
+
+### Sentry
+
+`POST /v1/connectors/sentry/webhooks`. Verified with `Sentry-Hook-Signature`: the
+hex HMAC-SHA256 of the request body with the integration's client secret. Sentry
+sends no timestamp, so replays are stopped by the `Request-ID` delivery id. Routed
+by `installation.uuid`; the resource comes from `Sentry-Hook-Resource`.
+
+### Figma
+
+`POST /v1/connectors/figma/webhooks`. Webhooks v2 put the `passcode` chosen at
+creation in every payload; Dock compares it in constant time. Routed by
+`webhook_id`. The `PING` sent when a webhook is created is acknowledged. Comments
+made by the connected Figma user never trigger a run, so replies do not loop.
+
+### Run completion
+
+`POST /v1/connectors/runs/:id/complete` is used only by the run's dock, with
+`Authorization: Bearer <run token>` and `{ "status": "done" | "no_change" | "failed", "summary"?, "reason"? }`.
+
+## Set up each tool
+
+| | Linear | Slack | Sentry | Figma |
+|---|---|---|---|---|
+| Webhook URL | `<PUBLIC_API_URL>/v1/connectors/linear/webhooks` | `<PUBLIC_API_URL>/v1/connectors/slack/events` | `<PUBLIC_API_URL>/v1/connectors/sentry/webhooks` | `<PUBLIC_API_URL>/v1/connectors/figma/webhooks` |
+| Subscribe to | Issues | Bot event `app_mention` | `issue` (created) and, for alerts, an alert rule action that calls the integration | `FILE_COMMENT` |
+| Secret | Webhook signing secret, or `LINEAR_WEBHOOK_SECRET` | Signing secret, or `SLACK_SIGNING_SECRET` | The integration's client secret, sent in `secret` | The passcode (generated by Dock when omitted) |
+| Routing id | Automatic | Automatic | Installation uuid, sent in `externalId` | Webhook id from the create response, sent in `externalId` |
+| Scopes the reply needs | `write` | `chat:write`, `app_mentions:read` | `event:write` | `file_comments:write` |
+
+Tokens connected before these triggers existed may lack the reply scopes:
+reconnect with a token that has them.
+
+## Environment
+
+| Variable | Meaning |
+|---|---|
+| `LINEAR_WEBHOOK_SECRET` | App-level Linear signing secret, used when the connector stores none |
+| `SLACK_SIGNING_SECRET` | App-level Slack signing secret, used when the connector stores none |
+| `CONNECTOR_RUN_AGENT` | `opencode` (default) or `codex`; must be installed by the environment |
+| `CONNECTOR_RUN_MODEL` | Model passed to the agent; empty uses the agent default |
+| `CONNECTOR_RUN_TIMEOUT_MINUTES` | Agent budget in minutes, at least 5 (default 30) |
+
+Sentry and Figma have no app-level secret on purpose: their routing ids are typed
+by an admin, so only a secret the admin holds may vouch for them.

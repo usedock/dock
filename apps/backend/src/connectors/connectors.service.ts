@@ -1,14 +1,16 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq } from 'drizzle-orm';
+import { randomBytes } from 'crypto';
+import { and, eq, lt } from 'drizzle-orm';
 import { DB, Db } from '../database/database.module';
-import { connectors, githubInstallations, providerKeys, type Connector } from '../database/schema';
+import { connectorDeliveries, connectors, githubInstallations, providerKeys, type Connector } from '../database/schema';
 import { openValue, sealValue } from '../environments/secrets';
-import { OrganizationsService } from '../organizations/organizations.service';
+import { OrganizationsService, isUniqueViolation } from '../organizations/organizations.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
-import { CONNECTOR_KINDS, isConnectorKind, type ConnectorCredential, type ConnectorKind } from './connector-kinds';
+import { assertPublicSentryHost, normalizeSentryHost } from './connector-host';
+import { CONNECTOR_KINDS, isConnectorKind, type ConnectorAccess, type ConnectorCredential, type ConnectorKind } from './connector-kinds';
 import { needsRefresh, oauthClient, refreshCredential } from './connector-oauth';
-import { verifyCredential } from './connector-verify';
+import { verifyCredential, type VerifiedIdentity } from './connector-verify';
 
 export interface ConnectorView {
   kind: string;
@@ -19,6 +21,12 @@ export interface ConnectorView {
   oauthAvailable: boolean;
   readOnly: boolean;
   updatedAt: Date | null;
+}
+
+export class ConnectorAccountInUseException extends ConflictException {
+  constructor() {
+    super({ code: 'connector_account_in_use', message: 'This account is already connected to another workspace' });
+  }
 }
 
 export class ConnectorNotFoundException extends NotFoundException {
@@ -111,28 +119,58 @@ export class ConnectorsService {
   }
 
   /** Stores a personal or bot token after checking it against the vendor. */
-  async connect(callerId: string, workspaceId: string, kind: string, token: string): Promise<ConnectorView> {
+  async connect(callerId: string, workspaceId: string, kind: string, token: string, host?: string): Promise<ConnectorView> {
     const checked = this.checkedKind(kind);
     const trimmed = typeof token === 'string' ? token.trim() : '';
     if (!trimmed || trimmed.length > 2048) throw new BadRequestException({ code: 'validation_error', message: 'token must be 1-2048 characters' });
     const ws = await this.requireAdmin(callerId, workspaceId);
     const credential: ConnectorCredential = { type: 'token', access: trimmed };
-    const label = await verifyCredential(this.fetchFn, checked, credential);
-    return this.store(ws.id, checked, credential, label, [], callerId);
+    const origin = await this.checkedHost(checked, host);
+    const identity = await verifyCredential(this.fetchFn, checked, credential, origin);
+    return this.store(ws.id, checked, credential, identity, [], callerId, origin);
   }
 
   /** Upsert shared by the token and OAuth paths. */
-  async store(workspaceId: string, kind: ConnectorKind, credential: ConnectorCredential, label: string | null, scopes: string[], userId: string): Promise<ConnectorView> {
+  async store(
+    workspaceId: string,
+    kind: ConnectorKind,
+    credential: ConnectorCredential,
+    identity: VerifiedIdentity,
+    scopes: string[],
+    userId: string,
+    host?: string | null,
+  ): Promise<ConnectorView> {
     const sealed = sealValue(this.key, JSON.stringify(credential));
-    const [row] = await this.db
-      .insert(connectors)
-      .values({ workspaceId, kind, credentials: sealed, accountLabel: label, scopes, createdBy: userId })
-      .onConflictDoUpdate({
-        target: [connectors.workspaceId, connectors.kind],
-        set: { credentials: sealed, accountLabel: label, scopes, status: 'connected', updatedAt: new Date() },
-      })
-      .returning();
-    return connectorView(row, !!oauthClient(this.config, kind));
+    // A reconnect without an id or host keeps what the webhook setup recorded.
+    const optional = {
+      ...(identity.externalId ? { externalId: identity.externalId } : {}),
+      ...(identity.userId ? { vendorUserId: identity.userId } : {}),
+      ...(host !== undefined ? { host } : {}),
+    };
+    try {
+      const [row] = await this.db
+        .insert(connectors)
+        .values({ workspaceId, kind, credentials: sealed, accountLabel: identity.label, scopes, createdBy: userId, ...optional })
+        .onConflictDoUpdate({
+          target: [connectors.workspaceId, connectors.kind],
+          // The connecting admin owns the connector's docks: triggered runs act on their behalf.
+          set: { credentials: sealed, accountLabel: identity.label, scopes, status: 'connected', createdBy: userId, updatedAt: new Date(), ...optional },
+        })
+        .returning();
+      return connectorView(row, !!oauthClient(this.config, kind));
+    } catch (err) {
+      if (isUniqueViolation(err)) throw new ConnectorAccountInUseException();
+      throw err;
+    }
+  }
+
+  /** Validated Sentry origin (null for sentry.io); other kinds take no host. */
+  async checkedHost(kind: ConnectorKind, host: string | undefined): Promise<string | null | undefined> {
+    if (host === undefined) return undefined;
+    if (kind !== 'sentry') throw new BadRequestException({ code: 'validation_error', message: 'host applies to sentry only' });
+    const origin = normalizeSentryHost(host);
+    await assertPublicSentryHost(origin);
+    return origin;
   }
 
   async disconnect(callerId: string, workspaceId: string, kind: string): Promise<{ kind: string; status: 'not_connected' }> {
@@ -159,15 +197,17 @@ export class ConnectorsService {
   }
 
   /** Gateway path: the live credential, refreshed when an OAuth token is about to expire. */
-  async accessFor(workspaceId: string, kind: ConnectorKind): Promise<ConnectorCredential> {
+  async accessFor(workspaceId: string, kind: ConnectorKind): Promise<ConnectorAccess> {
     const [row] = await this.db
       .select()
       .from(connectors)
       .where(and(eq(connectors.workspaceId, workspaceId), eq(connectors.kind, kind)))
       .limit(1);
     if (!row || row.status !== 'connected') throw new ConnectorNotConnectedException([kind]);
+    // DNS may have changed since connect.
+    if (kind === 'sentry') await assertPublicSentryHost(row.host);
     const cred = JSON.parse(openValue(this.key, row.credentials)) as ConnectorCredential;
-    if (!needsRefresh(cred)) return cred;
+    if (!needsRefresh(cred)) return { ...cred, host: row.host };
     // The row lock makes concurrent calls refresh once; vendors that rotate refresh tokens reject a second use.
     const fresh = await this.db.transaction(async (tx) => {
       const [locked] = await tx.select().from(connectors).where(eq(connectors.id, row.id)).for('update');
@@ -189,7 +229,72 @@ export class ConnectorsService {
       return next;
     });
     if (!fresh) throw new ConnectorNotConnectedException([kind]);
-    return fresh;
+    return { ...fresh, host: row.host };
+  }
+
+  /** Records how this connector's inbound webhooks are verified and routed; a Figma passcode is generated when omitted and shown once. */
+  async setWebhook(
+    callerId: string,
+    workspaceId: string,
+    kind: string,
+    input: { secret?: string; externalId?: string },
+  ): Promise<{ kind: ConnectorKind; externalId: string | null; secret?: string }> {
+    const checked = this.checkedKind(kind);
+    const ws = await this.requireAdmin(callerId, workspaceId);
+    const [row] = await this.db.select().from(connectors).where(and(eq(connectors.workspaceId, ws.id), eq(connectors.kind, checked))).limit(1);
+    if (!row) throw new ConnectorNotFoundException();
+    const given = input.secret?.trim();
+    const generated = !given && checked === 'figma' ? randomBytes(24).toString('hex') : undefined;
+    const secret = given || generated;
+    const externalId = input.externalId?.trim() || row.externalId;
+    if (!secret && !row.webhookSecret && !this.envWebhookSecret(checked)) {
+      throw new BadRequestException({ code: 'webhook_secret_required', message: 'secret is required for this tool' });
+    }
+    // Sentry and Figma ids are typed by the admin, so only a secret the admin holds can vouch for them.
+    if ((checked === 'sentry' || checked === 'figma') && !secret && !row.webhookSecret) {
+      throw new BadRequestException({ code: 'webhook_secret_required', message: 'secret is required for this tool' });
+    }
+    if ((checked === 'sentry' || checked === 'figma') && !externalId) {
+      throw new BadRequestException({ code: 'validation_error', message: checked === 'figma' ? 'externalId must be the Figma webhook id' : 'externalId must be the Sentry installation uuid' });
+    }
+    try {
+      await this.db
+        .update(connectors)
+        .set({ ...(secret ? { webhookSecret: sealValue(this.key, secret) } : {}), externalId, updatedAt: new Date() })
+        .where(eq(connectors.id, row.id));
+    } catch (err) {
+      if (isUniqueViolation(err)) throw new ConnectorAccountInUseException();
+      throw err;
+    }
+    return { kind: checked, externalId: externalId ?? null, ...(generated ? { secret: generated } : {}) };
+  }
+
+  /** App-level secret, only for kinds whose routing id the token proves (Linear, Slack). */
+  envWebhookSecret(kind: ConnectorKind): string | null {
+    const name = kind === 'linear' ? 'LINEAR_WEBHOOK_SECRET' : kind === 'slack' ? 'SLACK_SIGNING_SECRET' : null;
+    return (name && this.config.get<string>(name)) || null;
+  }
+
+  /** Inbound routing: the connector a vendor account id belongs to. */
+  async findByExternalId(kind: ConnectorKind, externalId: string): Promise<Connector | null> {
+    const [row] = await this.db.select().from(connectors).where(and(eq(connectors.kind, kind), eq(connectors.externalId, externalId))).limit(1);
+    return row ?? null;
+  }
+
+  /** Dedupe rows only matter inside vendor retry windows. */
+  async pruneDeliveries(olderThanDays = 7): Promise<void> {
+    await this.db.delete(connectorDeliveries).where(lt(connectorDeliveries.receivedAt, new Date(Date.now() - olderThanDays * 86_400_000)));
+  }
+
+  async listByKind(kind: ConnectorKind): Promise<Connector[]> {
+    return this.db.select().from(connectors).where(eq(connectors.kind, kind));
+  }
+
+  /** Secrets that may sign this connector's webhooks: its own, else the app-level one. */
+  webhookSecretsFor(row: Connector): string[] {
+    if (row.webhookSecret) return [openValue(this.key, row.webhookSecret)];
+    const env = this.envWebhookSecret(row.kind);
+    return env ? [env] : [];
   }
 
   /** The workspace when the caller is an org admin; members and outsiders are refused. */

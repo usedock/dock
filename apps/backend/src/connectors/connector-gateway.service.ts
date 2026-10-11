@@ -4,7 +4,7 @@ import { RateLimitService } from '../auth/rate-limit.service';
 import { hashToken } from '../crypto/tokens';
 import { DB, Db } from '../database/database.module';
 import { docks } from '../database/schema';
-import { CONNECTOR_SPECS, isConnectorKind, upstreamAuth, type ConnectorKind } from './connector-kinds';
+import { CONNECTOR_SPECS, apiBase, isConnectorKind, upstreamAuth, type ConnectorKind } from './connector-kinds';
 import { ConnectorsService } from './connectors.service';
 
 /** Requests per dock per hour; bounds what a leaked dock token can spend. */
@@ -43,7 +43,7 @@ function badPath(): HttpException {
 }
 
 /** Resolves a gateway path to one fixed vendor URL, or null when it is not on the kind's allowlist. */
-export function resolveUpstream(kind: ConnectorKind, path: string, query: string): { url: string; target: 'api' | 'mcp' } | null {
+export function resolveUpstream(kind: ConnectorKind, path: string, query: string, host?: string | null): { url: string; target: 'api' | 'mcp' } | null {
   if (!PATH_RE.test(path) || path.split('/').some((s) => s === '..' || s === '.')) return null;
   const [target, ...rest] = path.split('/');
   const tail = rest.join('/');
@@ -51,14 +51,14 @@ export function resolveUpstream(kind: ConnectorKind, path: string, query: string
   let url: string;
   if (target === 'api') {
     if (!spec.api.allow.test(tail)) return null;
-    url = `${spec.api.base}/${tail}${query}`;
+    url = `${apiBase(kind, host)}/${tail}${query}`;
   } else if (target === 'mcp' && spec.mcp) {
     url = `${spec.mcp}${tail ? `/${tail}` : ''}${query}`;
   } else {
     return null;
   }
   // Defense in depth: the host can never differ from the allowlisted one.
-  const base = new URL(target === 'api' ? spec.api.base : (spec.mcp as string));
+  const base = new URL(target === 'api' ? apiBase(kind, host) : (spec.mcp as string));
   const parsed = new URL(url);
   if (parsed.origin !== base.origin || !parsed.pathname.startsWith(base.pathname)) return null;
   return { url, target };
@@ -105,10 +105,11 @@ export class ConnectorGatewayService {
       if (value !== undefined) headers[name] = Array.isArray(value) ? value.join(', ') : value;
     }
     Object.assign(headers, upstreamAuth(kind, resolved.target, cred));
+    const upstream = resolveUpstream(kind, req.path, req.query, cred.host) ?? resolved;
     const hasBody = req.method !== 'GET' && req.method !== 'HEAD' && req.body && req.body.length > 0;
     let response: Response;
     try {
-      response = await this.fetchFn(resolved.url, {
+      response = await this.fetchFn(upstream.url, {
         method: req.method,
         headers,
         body: hasBody ? new Uint8Array(req.body as Buffer) : undefined,

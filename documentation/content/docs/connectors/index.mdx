@@ -11,10 +11,12 @@ call to the tool.
 
 | Kind | API through the gateway | MCP through the gateway |
 |---|---|---|
-| `figma` | `api.figma.com` (`/v1/*`, `/v2/*`) | `mcp.figma.com/mcp` |
+| `figma` | `api.figma.com` (`/v1/*`, `/v2/*`) | none |
 | `linear` | `api.linear.app/graphql` | `mcp.linear.app/mcp` |
 | `slack` | `slack.com/api` | none |
-| `sentry` | `sentry.io/api/0/*` | `mcp.sentry.dev/mcp` |
+| `sentry` | `sentry.io/api/0/*`, or your region or self-hosted host | `mcp.sentry.dev/mcp` |
+
+Figma has no MCP target: `mcp.figma.com` admits only OAuth clients from Figma's MCP catalog, not personal tokens or ordinary OAuth apps, so it would reject the gateway. Use the REST API.
 
 GitHub and model provider keys are separate features and appear in the same list
 as read-only entries: see [GitHub](/docs/connectors/github) and
@@ -31,6 +33,8 @@ curl -X PUT $DOCK_API/v1/workspaces/$WORKSPACE_ID/connectors/linear \
   -d '{"token":"lin_api_..."}'
 ```
 
+Sentry accepts an optional `host` for another region (`de.sentry.io`, `us.sentry.io`) or a self-hosted instance (an `https://` origin with no path). The host must be a public name: a host that resolves to a private or local address answers `400 connector_host_invalid`, and it is checked again on every call. OAuth sign-in always uses sentry.io; use a token for other hosts.
+
 An invalid token answers `400 connector_token_invalid`. If the tool cannot be
 reached the answer is `502 connector_unreachable` and nothing is stored.
 
@@ -42,10 +46,14 @@ reached the answer is `502 connector_unreachable` and nothing is stored.
   `not_connected` or `reauth_required`), `accountLabel`, `scopes`,
   `oauthAvailable`, `readOnly` and `updatedAt`. It never contains a token.
 - `PUT /v1/workspaces/:workspaceId/connectors/:kind` connects with
-  `{ "token": "..." }`. Reconnecting replaces the stored credential. Admins only.
+  `{ "token": "...", "host"?: "..." }`. Reconnecting replaces the stored credential and makes the reconnecting admin the owner of the connector's docks and runs. Admins only. A vendor account can be connected to one workspace at a time (`409 connector_account_in_use`).
+- `PUT /v1/workspaces/:workspaceId/connectors/:kind/webhook` stores the secret and routing id for inbound events. See [Triggers and replies](/docs/connectors/triggers).
 - `DELETE /v1/workspaces/:workspaceId/connectors/:kind` disconnects; docks that
   used it get `409 connector_not_connected` from the gateway from then on. Admins
   only. Answers `404 connector_not_found` when the kind was not connected.
+
+Events from a connected tool can also start runs; see
+[Triggers and replies](/docs/connectors/triggers).
 
 ## Sign in with OAuth
 

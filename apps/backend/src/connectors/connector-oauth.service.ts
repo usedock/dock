@@ -58,8 +58,9 @@ export class ConnectorOauthService {
         redirectUri: this.redirectUri(checked),
         verifier: stored || null,
       });
-      const label = result.label ?? (await verifyCredential(this.fetchFn, checked, result.credential).catch(() => null));
-      await this.connectors.store(state.w, checked, result.credential, label, result.scopes, state.u);
+      const identity = await verifyCredential(this.fetchFn, checked, result.credential).catch(() => null);
+      const who = { label: result.label ?? identity?.label ?? null, externalId: identity?.externalId ?? null, userId: identity?.userId ?? null };
+      await this.connectors.store(state.w, checked, result.credential, who, result.scopes, state.u);
       return back('connected');
     } catch (err) {
       return back('error', String((err as { response?: { code?: string } }).response?.code ?? 'failed'));
