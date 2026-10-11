@@ -108,11 +108,16 @@ describe('ConnectorRepoLinksService', () => {
   it('resolves the exact scope first, then the wildcard, then nothing', async () => {
     const any = { scope: '*', repo: 'acme/any' };
     const exact = { scope: 'T1', repo: 'acme/team' };
-    selects = [[any, exact]];
+    selects = [[any, exact], [{ id: 'i1' }]];
     expect(await service.resolve('w1', 'linear', 'T1')).toBe(exact);
-    selects = [[any, exact]];
+    selects = [[any, exact], [{ id: 'i1' }]];
     expect(await service.resolve('w1', 'linear', 'T2')).toBe(any);
     selects = [[exact]];
     expect(await service.resolve('w1', 'linear', undefined)).toBeNull();
+  });
+
+  it('refuses a link whose installation was removed from the workspace (or moved to another one)', async () => {
+    selects = [[{ scope: '*', repo: 'acme/app', installationId: 7 }], []];
+    await expect(service.resolve('w1', 'linear', 'T1')).rejects.toThrow('no longer linked');
   });
 });

@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { DB, Db } from '../database/database.module';
-import { connectorRunRepos, type ConnectorKind, type ConnectorRepoLink, type ConnectorRun, type ConnectorRunRepo } from '../database/schema';
+import { connectorRunRepos, githubInstallations, type ConnectorKind, type ConnectorRepoLink, type ConnectorRun, type ConnectorRunRepo } from '../database/schema';
 import { sanitizeIssueText } from '../github/agent-prompt';
 import type { GitTreeEntry } from '../github/github-api';
 import { safeRepoPath } from '../github/github.service';
@@ -93,6 +93,14 @@ export class ConnectorRepoRunsService {
     if (!input.changes.length) throw new RepoPublishError('empty_fix');
     if (input.parentSha !== repo.baseSha) throw new RepoPublishError('push_failed');
     if (input.changes.some((c) => !safeRepoPath(c.path))) throw new RepoPublishError('unsupported_change');
+    // The publish token has no `workflows` permission, so GitHub would refuse these anyway; say why.
+    if (input.changes.some((c) => /^\.github\/workflows\//i.test(c.path))) throw new RepoPublishError('workflow_change_refused');
+    const [installed] = await this.db
+      .select({ id: githubInstallations.id })
+      .from(githubInstallations)
+      .where(and(eq(githubInstallations.workspaceId, run.workspaceId), eq(githubInstallations.installationId, repo.installationId)))
+      .limit(1);
+    if (!installed) throw new RepoPublishError('repo_unavailable');
     const [owner, name] = repo.repo.split('/');
     let token: string;
     try {

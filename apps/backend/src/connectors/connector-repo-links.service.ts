@@ -83,7 +83,21 @@ export class ConnectorRepoLinksService {
       .select()
       .from(connectorRepoLinks)
       .where(and(eq(connectorRepoLinks.workspaceId, workspaceId), eq(connectorRepoLinks.kind, kind)));
-    return (scope ? rows.find((r) => r.scope === scope) : undefined) ?? rows.find((r) => r.scope === REPO_LINK_ANY_SCOPE) ?? null;
+    const link = (scope ? rows.find((r) => r.scope === scope) : undefined) ?? rows.find((r) => r.scope === REPO_LINK_ANY_SCOPE) ?? null;
+    if (link && !(await this.installationOwned(workspaceId, link.installationId))) {
+      throw new Error(`installation ${link.installationId} is no longer linked to this workspace`);
+    }
+    return link;
+  }
+
+  /** A link outlives removing its installation from the workspace, so every use rechecks that the workspace still owns it. */
+  async installationOwned(workspaceId: string, installationId: number): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: githubInstallations.id })
+      .from(githubInstallations)
+      .where(and(eq(githubInstallations.workspaceId, workspaceId), eq(githubInstallations.installationId, installationId)))
+      .limit(1);
+    return !!row;
   }
 
   /**

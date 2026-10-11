@@ -289,6 +289,18 @@ describe('ConnectorRunsService', () => {
       expect(texts()).toEqual(['Fixed the build\n\nPull request: https://github.com/acme/app/pull/9']);
     });
 
+    it('leaves a Linear issue open for review when a pull request was opened', async () => {
+      repoRuns.forRun.mockResolvedValue(repoRow);
+      repoRuns.publish.mockResolvedValue('https://github.com/acme/app/pull/9');
+      const done = runRow({ kind: 'linear', state: 'succeeded', summary: 'Fixed', reply: { issueId: 'i1' }, dockId: 'dock-1' });
+      const service = build(fakeDb([[runRow({ kind: 'linear', state: 'working' })], [{ createdBy: 'admin-1' }]], [[done]]));
+      await service.complete(RUN_ID, 'Bearer tok-1', { status: 'done', summary: 'Fixed', changes });
+      await service.settled();
+      const bodies = fetchFn.mock.calls.map((c) => c[1].body as string).join('\n');
+      expect(bodies).toContain('Pull request: https://github.com/acme/app/pull/9');
+      expect(bodies).not.toMatch(/states \{ nodes|issueUpdate/);
+    });
+
     it('says so when the pull request cannot be opened, and still completes a Linear issue', async () => {
       repoRuns.forRun.mockResolvedValue(repoRow);
       repoRuns.publish.mockRejectedValue(new RepoPublishError('pr_create_failed'));

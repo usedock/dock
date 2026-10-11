@@ -99,7 +99,9 @@ write access on it: `400 github_repo_not_accessible`,
 `503 github_app_not_configured` otherwise.
 
 ```bash
-curl -X PUT $DOCK_API/v1/workspaces/$WORKSPACE_ID/connectors/linear/repo-links   -H "Authorization: Bearer $DOCK_API_KEY" -H "content-type: application/json"   -d '{"scope":"<linear team id>","repo":"acme/app"}'
+curl -X PUT $DOCK_API/v1/workspaces/$WORKSPACE_ID/connectors/linear/repo-links \
+  -H "Authorization: Bearer $DOCK_API_KEY" -H "content-type: application/json" \
+  -d '{"scope":"<linear team id>","repo":"acme/app"}'
 ```
 
 For a linked run:
@@ -122,11 +124,14 @@ For a linked run:
 4. The reply in the tool includes the pull request link. A Linear issue is not
    moved to completed when a pull request was opened. If the pull request cannot
    be opened the reply says so with a short reason (`push_failed`,
-   `pr_create_failed`, `token_mint_failed`).
+   `pr_create_failed`, `token_mint_failed`, `workflow_change_refused` for a
+   change under `.github/workflows/`, `repo_unavailable`).
 
 A change set too large (over 1000 files or 8 MiB) or touching a symlink target
 Dock cannot represent fails the run. A run that cannot clone fails with
-`repo_unavailable`.
+`repo_unavailable`, as does a run whose link points at a GitHub App installation
+no longer linked to the workspace: removing an installation stops its repository
+links from being used.
 
 Who can cause a pull request is exactly who can start a run, as set out in
 [Who can start a run](#who-can-start-a-run); nothing about the link widens it.
@@ -136,6 +141,19 @@ Pull requests are authored by the Dock GitHub App, never by a person, never
 merged by Dock, and always opened as drafts for human review. The run still has
 no environment secrets, and no GitHub token is ever placed in the agent's
 environment.
+
+What a link does give those people:
+
+- Read access to the repository. The agent has the whole clone and the dock has
+  network egress, so a requester can have it send the code elsewhere. Do not link
+  a repository the people who can start runs should not read.
+- Code in your CI. The branch is pushed to the repository itself, not a fork,
+  and pushes made by a GitHub App start workflows. `push` and `pull_request`
+  workflows then run the agent's version of the code (build scripts, tests,
+  dependency manifests) with the repository's Actions secrets. Changes under
+  `.github/workflows/` are refused, but that does not stop a changed test
+  script. Before linking, keep secrets out of workflows that run on `dock/**`
+  branches, for example with deployment environments that require reviewers.
 
 ## How a run works
 

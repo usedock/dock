@@ -91,6 +91,15 @@ describe('ConnectorRepoRunsService', () => {
       expect(github.mint).not.toHaveBeenCalled();
     });
 
+    it('refuses workflow files and an installation the workspace no longer owns, without minting a token', async () => {
+      for (const path of ['.github/workflows/ci.yml', '.GitHub/Workflows/x.yaml']) {
+        await expect(service.publish(RUN, repoRow as never, { parentSha: BASE, changes: [{ path, content: 'eA==' }], summary: '' })).rejects.toMatchObject({ code: 'workflow_change_refused' });
+      }
+      db.select.mockReturnValue({ from: () => ({ where: () => ({ limit: async () => [] }) }) });
+      await expect(service.publish(RUN, repoRow as never, { parentSha: BASE, changes, summary: '' })).rejects.toMatchObject({ code: 'repo_unavailable' });
+      expect(github.mint).not.toHaveBeenCalled();
+    });
+
     it('reports the failing step and still revokes the token', async () => {
       github.api.setBranch.mockRejectedValue(new Error('422'));
       await expect(service.publish(RUN, repoRow as never, { parentSha: BASE, changes, summary: 's' })).rejects.toMatchObject({ code: 'push_failed' });
