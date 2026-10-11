@@ -656,18 +656,24 @@ export class EnvironmentsService {
 
   /**
    * The org's real key for a dock's gateway call, or null. Re-checks the
-   * dock's pinned environment on every call, so switching to plain, turning
-   * agent credentials off or removing the key cuts a dock off without a re-apply.
+   * dock's pinned environment version on every call. A dock is pinned when it
+   * is created, resumed or upgraded, so switching the environment to plain
+   * (a new version) cuts a dock off once it is pinned to that version, e.g. on
+   * its next apply or upgrade; turning agent credentials off or removing the
+   * key in place takes effect at once. A same-name environment created after
+   * the dock was bound says nothing about the dock, so it yields null.
    */
   async gatewayKeyFor(
     organizationId: string,
-    dock: { environment: string; envVersionPin: string | null; noEnv: boolean },
+    dock: { environment: string; envVersionPin: string | null; noEnv: boolean; createdAt: Date; envBoundAt?: Date | null },
     keyVar: string,
   ): Promise<string | null> {
     if (dock.noEnv || !requiredKeysFor(DEFAULT_DOCK_AGENTS).includes(keyVar)) return null;
     let version: EnvironmentVersion;
     try {
-      const current = (await this.resolveVersion(organizationId, dock.environment)).version;
+      const resolved = await this.resolveVersion(organizationId, dock.environment);
+      if (resolved.environment.createdAt > (dock.envBoundAt ?? dock.createdAt)) return null;
+      const current = resolved.version;
       const match = dock.envVersionPin ? VERSION_PIN_RE.exec(dock.envVersionPin) : null;
       version = match ? await this.versionAt(current.environmentId, Number(match[1])) : current;
     } catch (err) {

@@ -91,7 +91,7 @@ export class LlmGatewayService {
       throw new HttpException({ code: 'validation_error', message: 'Unsupported gateway path' }, HttpStatus.BAD_REQUEST);
     }
     const hit = await this.limits.hit(`rl:llm-gw:${caller.rateKey}`, caller.dock ? DOCK_REQUEST_LIMIT : RUN_REQUEST_LIMIT, 3600);
-    if (!hit.allowed) throw new HttpException({ code: 'rate_limited', message: 'Run LLM budget exhausted' }, HttpStatus.TOO_MANY_REQUESTS);
+    if (!hit.allowed) throw new HttpException({ code: 'rate_limited', message: caller.dock ? 'Dock LLM budget exhausted; it resets within the hour' : 'Run LLM budget exhausted' }, HttpStatus.TOO_MANY_REQUESTS);
     const headers: Record<string, string> = {};
     for (const [name, value] of Object.entries(req.headers)) {
       if (value === undefined || DROPPED_HEADERS.has(name.toLowerCase()) || name.toLowerCase().startsWith('x-forwarded-')) continue;

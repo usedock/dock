@@ -235,6 +235,10 @@ describe('LlmGatewayService dock tokens', () => {
 
   it('applies the dock budget', async () => {
     expect(await status(setup(null, { dock: live, allowed: false }).service.forward(anthropic()))).toBe(429);
+    const dockErr = await setup(null, { dock: live, allowed: false }).service.forward(anthropic()).catch((e) => e);
+    expect(dockErr.getResponse().message).toMatch(/^Dock LLM budget/);
+    const runErr = await setup(liveRun(), { allowed: false }).service.forward(request()).catch((e) => e);
+    expect(runErr.getResponse().message).toBe('Run LLM budget exhausted');
   });
 });
 

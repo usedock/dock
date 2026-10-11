@@ -31,7 +31,12 @@ stores only its hash. A leaked token can spend that budget while the Dock runs,
 but cannot be turned into the provider key.
 
 A key you set yourself in the Environment or per Dock is not replaced: it is
-yours and goes in as written.
+yours and goes in as written. Likewise an Environment's own `*_BASE_URL` or
+`OPENCODE_CONFIG_CONTENT` overrides the gateway wiring: the agent then talks to
+that endpoint with the gateway token and fails, and nothing leaks.
+
+The budget is 3000 requests per Dock per hour, shared by every provider the Dock
+uses, including a ChatGPT Dock. A Dock over budget gets a 429 saying so.
 
 ## Plain mode
 
