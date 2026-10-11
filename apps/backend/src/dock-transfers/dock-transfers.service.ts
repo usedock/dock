@@ -25,6 +25,7 @@ import {
   ImportNotFoundException,
   ImportTooLargeException,
   RangeNotSatisfiableException,
+  PartUploadBusyException,
   RuntimeUnsupportedException,
   TransferLimitException,
 } from './dock-transfer-errors';
@@ -38,8 +39,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Parts below this are slow on the wire; larger disks grow the part size to stay under the S3 part cap. */
 const MIN_PART_SIZE = 16 * MIB;
 const MAX_PARTS = 10000;
-/** A proxied part is buffered whole in memory, so it stays modest. */
+/** A proxied part is buffered whole in memory (the store client cannot stream a part), so it stays modest. */
 const MAX_PROXY_PART_SIZE = 128 * MIB;
+/** In-flight proxied parts are buffered, so memory is bounded by these caps instead of by part size: at most 2 per organization and 256 MiB of reserved part size overall. */
+export const MAX_PROXY_PARTS_PER_ORG = 2;
+export const MAX_PROXY_BYTES_IN_FLIGHT = 256 * MIB;
 const MAX_OPEN_IMPORTS = 5;
 const MAX_LIVE_EXPORTS = 5;
 const SWEEP_MS = 10 * 60_000;
@@ -138,6 +142,8 @@ export function parseRange(header: string | undefined, size: number): { start: n
 @Injectable()
 export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(DockTransfersService.name);
+  private readonly proxyPartsByOrg = new Map<string, number>();
+  private proxyBytesInFlight = 0;
   private sweepTimer?: NodeJS.Timeout;
 
   constructor(
@@ -231,24 +237,47 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
     return { importId: row.id, upload: { mode, partSize, parts } };
   }
 
-  /** Stores one proxied part; the body is buffered, so it is capped at the announced part size. */
+  /** Stores one proxied part; the body is buffered, so it is capped at the announced part size and the number of parts in flight is capped. */
   async putPart(callerId: string, importId: string, number: number, body: AsyncIterable<Buffer | string>, declaredLength?: number): Promise<{ number: number; etag: string }> {
     const row = await this.loadImport(callerId, importId);
     if (row.status !== 'uploading' || row.expiresAt.getTime() < Date.now()) throw new ConflictException({ code: 'conflict', message: 'Import is no longer accepting parts' });
     if (row.mode !== 'proxy') throw new ConflictException({ code: 'conflict', message: 'This import uploads straight to the store; use the part URLs from the import response' });
     if (!Number.isInteger(number) || number < 1 || number > row.partCount) throw validationError(`part number must be 1..${row.partCount}`);
     if (declaredLength !== undefined && declaredLength > row.partSize) throw partTooLarge(row.partSize);
-    const chunks: Buffer[] = [];
-    let total = 0;
-    for await (const chunk of body) {
-      const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
-      total += buf.length;
-      if (total > row.partSize) throw partTooLarge(row.partSize);
-      chunks.push(buf);
+    const release = this.reserveProxyPart(row.organizationId, row.partSize);
+    try {
+      const chunks: Buffer[] = [];
+      let total = 0;
+      for await (const chunk of body) {
+        const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+        total += buf.length;
+        if (total > row.partSize) throw partTooLarge(row.partSize);
+        chunks.push(buf);
+      }
+      if (total === 0) throw validationError('part body is empty');
+      const etag = await this.objects.uploadPart(row.storeSnapshotId, DISK_OBJECT, row.uploadId, number, Buffer.concat(chunks));
+      return { number, etag };
+    } finally {
+      release();
     }
-    if (total === 0) throw validationError('part body is empty');
-    const etag = await this.objects.uploadPart(row.storeSnapshotId, DISK_OBJECT, row.uploadId, number, Buffer.concat(chunks));
-    return { number, etag };
+  }
+
+  /** Reserves a buffered part's worth of memory, or answers 429 so the client retries; the store client cannot stream a part. */
+  private reserveProxyPart(orgId: string, bytes: number): () => void {
+    const orgParts = this.proxyPartsByOrg.get(orgId) ?? 0;
+    if (orgParts >= MAX_PROXY_PARTS_PER_ORG) throw new PartUploadBusyException('This organization already has parts uploading through the control plane; retry shortly');
+    if (this.proxyBytesInFlight + bytes > MAX_PROXY_BYTES_IN_FLIGHT) throw new PartUploadBusyException('The control plane is busy with other part uploads; retry shortly');
+    this.proxyPartsByOrg.set(orgId, orgParts + 1);
+    this.proxyBytesInFlight += bytes;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.proxyBytesInFlight -= bytes;
+      const left = (this.proxyPartsByOrg.get(orgId) ?? 1) - 1;
+      if (left <= 0) this.proxyPartsByOrg.delete(orgId);
+      else this.proxyPartsByOrg.set(orgId, left);
+    };
   }
 
   /** Assembles the upload, records it as a whole-image generation and boots a dock from it. */

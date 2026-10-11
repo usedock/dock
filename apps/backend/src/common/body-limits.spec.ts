@@ -3,6 +3,7 @@ import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { Request } from 'express';
 import { registerBodyLimits } from './body-limits';
+import { HttpExceptionFilter } from './http-exception.filter';
 
 // Decorators applied as calls: the spec transform does not parse decorator syntax.
 class EchoController {
@@ -38,6 +39,7 @@ describe('registerBodyLimits', () => {
   beforeAll(async () => {
     app = await NestFactory.create(EchoModule, { rawBody: true, logger: false });
     app.setGlobalPrefix('v1');
+    app.useGlobalFilters(new HttpExceptionFilter());
     registerBodyLimits(app.getHttpAdapter().getInstance());
     await app.listen(0, '127.0.0.1');
     base = `${await app.getUrl()}/v1`;
@@ -73,5 +75,17 @@ describe('registerBodyLimits', () => {
     const body = `{ "data" :  {"event": "${'z'.repeat(300 * 1024)}"} }`;
     expect(await post('/connectors/sentry/webhooks', body)).toEqual({ raw: body, parsed: true });
     expect(await post('/connectors/slack/events', '{"type":"url_verification"}')).toEqual({ raw: '{"type":"url_verification"}', parsed: true });
+  });
+
+  it('answers 413 payload_too_large for an oversized JSON body and an oversized raw webhook body', async () => {
+    const send = (path: string, body: string) =>
+      fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body }).then(async (r) => ({ status: r.status, json: await r.json() }));
+    const expected = { ok: false, code: 'payload_too_large', message: 'The request body is too large' };
+    // JSON route: exec takes 1 MiB.
+    expect(await send('/docks/d1/exec', JSON.stringify({ command: 'x'.repeat(2 * 1024 * 1024) }))).toEqual({ status: 413, json: expected });
+    // Connector webhook: signature-verified JSON, 5 MiB.
+    expect(await send('/connectors/sentry/webhooks', JSON.stringify({ e: 'x'.repeat(6 * 1024 * 1024) }))).toEqual({ status: 413, json: expected });
+    // Raw gateway body: 32 MiB.
+    expect(await send('/llm/anthropic', 'x'.repeat(33 * 1024 * 1024))).toEqual({ status: 413, json: expected });
   });
 });

@@ -5,7 +5,7 @@ import { DockNotFoundException } from '../docks/dock-errors';
 import { ConnectorAdminOnlyException } from '../connectors/connectors.service';
 import { EnvironmentSecretsAdminOnlyException } from '../environments/environments.service';
 import { WorkspaceNotFoundException } from '../workspaces/workspaces.service';
-import { DockTransfersService, parseRange, partSizeFor, wholeImageManifest } from './dock-transfers.service';
+import { DockTransfersService, MAX_PROXY_BYTES_IN_FLIGHT, MAX_PROXY_PARTS_PER_ORG, parseRange, partSizeFor, wholeImageManifest } from './dock-transfers.service';
 
 const MIB = 1024 ** 2;
 const GIB = 1024 ** 3;
@@ -308,6 +308,44 @@ describe('DockTransfersService', () => {
       const result = await service.putPart('u1', importId, 1, body('he', 'llo'), 5);
       expect(result).toEqual({ number: 1, etag: 'etag-1' });
       expect(objects.uploadPart).toHaveBeenCalledWith('gen-1', 'rootfs.ext4.zst', 'up-1', 1, Buffer.from('hello'));
+    });
+
+    describe('memory bound', () => {
+      // A body that parks until released, so parts stay in flight.
+      const parked = () => {
+        let open!: () => void;
+        const gate = new Promise<void>((resolve) => (open = resolve));
+        const iterable = (async function* () { await gate; yield Buffer.from('x'); })();
+        return { iterable, open };
+      };
+
+      it('answers a retryable 429 once an organization has its cap of parts in flight, and frees the slot afterwards', async () => {
+        const held = Array.from({ length: MAX_PROXY_PARTS_PER_ORG }, () => parked());
+        queueSelects(...held.map(() => [importRow({ mode: 'proxy', partSize: 4 * MIB })]), [importRow({ mode: 'proxy', partSize: 4 * MIB })], [importRow({ mode: 'proxy', partSize: 4 * MIB })]);
+        const inFlight = held.map((h) => service.putPart('u1', importId, 1, h.iterable, 1));
+        await new Promise((r) => setTimeout(r, 10));
+        const err = await catchErr(service.putPart('u1', importId, 1, body('y'), 1));
+        expect(err).toMatchObject({ status: 429, body: { code: 'part_upload_busy' } });
+        expect(objects.uploadPart).not.toHaveBeenCalled();
+        held.forEach((h) => h.open());
+        await Promise.all(inFlight);
+        await expect(service.putPart('u1', importId, 1, body('y'), 1)).resolves.toMatchObject({ number: 1 });
+      });
+
+      it('caps the total reserved part size across organizations and releases it when a part fails', async () => {
+        const huge = 128 * MIB;
+        const fits = MAX_PROXY_BYTES_IN_FLIGHT / huge;
+        const orgs2 = Array.from({ length: fits + 1 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+        const held = orgs2.slice(0, fits).map(() => parked());
+        queueSelects(...orgs2.map((o) => [importRow({ mode: 'proxy', partSize: huge, organizationId: o })]), [importRow({ mode: 'proxy', partSize: huge, organizationId: orgs2[0] })]);
+        const inFlight = held.map((h) => service.putPart('u1', importId, 1, h.iterable, 1));
+        await new Promise((r) => setTimeout(r, 10));
+        expect(await catchErr(service.putPart('u1', importId, 1, body('y'), 1))).toMatchObject({ status: 429, body: { code: 'part_upload_busy' } });
+        held.forEach((h) => h.open());
+        await Promise.all(inFlight);
+        // A failing part (empty body) must still release its reservation.
+        expect((await catchErr(service.putPart('u1', importId, 1, body(), 0))).body.code).toBe('validation_error');
+      });
     });
 
     it('stops a body larger than the part size, declared or streamed', async () => {

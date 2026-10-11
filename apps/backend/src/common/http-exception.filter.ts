@@ -24,12 +24,24 @@ interface SentryRequestContext {
   user?: { id?: unknown };
 }
 
+/** body-parser's oversized-body error, raised before any controller runs. */
+function isBodyTooLarge(exception: unknown): boolean {
+  if (typeof exception !== 'object' || exception === null) return false;
+  const err = exception as { type?: unknown; status?: unknown };
+  return err.type === 'entity.too.large' || (err.status === 413 && !(exception instanceof HttpException));
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger('HttpExceptionFilter');
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<Response>();
+    if (isBodyTooLarge(exception)) {
+      // The client's fault, not a server fault: no Sentry report.
+      res.status(HttpStatus.PAYLOAD_TOO_LARGE).json({ ok: false, code: 'payload_too_large', message: 'The request body is too large' });
+      return;
+    }
     this.reportToSentry(exception, host);
 
     if (exception instanceof HttpException) {

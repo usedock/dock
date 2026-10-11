@@ -38,6 +38,14 @@ describe('HttpExceptionFilter', () => {
     expect(captureException).not.toHaveBeenCalled();
   });
 
+  it('maps a body-parser entity.too.large error to 413 payload_too_large without reporting it', () => {
+    const { filter, res, host } = setup();
+    filter.catch(Object.assign(new Error('request entity too large'), { type: 'entity.too.large', status: 413 }), host);
+    expect(res.status).toHaveBeenCalledWith(413);
+    expect(res.json).toHaveBeenCalledWith({ ok: false, code: 'payload_too_large', message: 'The request body is too large' });
+    expect(captureException).not.toHaveBeenCalled();
+  });
+
   it('joins array messages with "; "', () => {
     const { filter, res, host } = setup();
     filter.catch(new BadRequestException({ code: 'bad', message: ['a', 'b'] }), host);

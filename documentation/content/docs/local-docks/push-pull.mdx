@@ -69,7 +69,10 @@ default Environment passes admins-only secrets (`environment_secrets_admin_only`
 `PUT /v1/docks/import/:importId/parts/:number` takes the raw part bytes as the
 body (not JSON) and answers `{ "number": 1, "etag": "..." }`. Only the member
 who started the import can use it. A part larger than `partSize` is refused
-with `part_too_large`.
+with `part_too_large`. The control plane buffers each part in memory, so it
+limits parts in flight: at most two per organization, and a global cap on their
+combined part size. Past a cap it answers `part_upload_busy` (HTTP 429); wait a
+moment and send the part again. `docklet push` retries it on its own.
 
 ### Complete an import
 
@@ -162,6 +165,8 @@ past the end can restart.
 | `import_too_large` | 413: the file is bigger than the `diskGiB` disk, either the declared `sizeBytes` at start or the uploaded object at complete. In `proxy` mode also a disk whose part size would pass 128 MiB |
 | `import_checksum_mismatch` | 400, from complete: the uploaded size is not the declared one and is not above the disk size (that case is `import_too_large`). A sha256 mismatch found by the host while booting returns no code: the dock goes to `error` |
 | `part_too_large` | A proxy part is bigger than `partSize` |
+| `part_upload_busy` | 429: too many proxy parts are uploading at once for the organization or the control plane. Retryable: send the same part again shortly |
+| `payload_too_large` | 413: a request body is over the route's size limit (any route, not only imports) |
 | `runtime_unsupported` | 409: no online microVM host has a docklet that verifies imported disks (checked only with `RUNTIME_DRIVER=restate`), or the dock to export is not a microVM dock |
 | `import_egress_unsupported` | 409, at start (only with `RUNTIME_DRIVER=restate`): the default Environment has an egress allowlist and no host that verifies imports confines egress on resume; upgrade the docklets |
 | `host_egress_unsupported` | 503, from complete: no suitable host can apply the default Environment's egress allowlist. Retryable: the uploaded disk is kept |

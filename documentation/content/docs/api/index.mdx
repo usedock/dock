@@ -80,6 +80,7 @@ specific to an operation.
 | `forbidden` | 403 | Authenticated, but not allowed. |
 | `not_found` | 404 | The resource does not exist or is not visible to you. |
 | `conflict` | 409 | The state does not allow the request, for example resuming a Dock that is not archived. |
+| `payload_too_large` | 413 | The request body is over the route's size limit. |
 | `rate_limited` | 429 | A [rate limit](#rate-limits) was hit. |
 | `internal_error` | 500 | Unexpected failure. |
 | `bad_gateway` | 502 | An upstream answered badly. |
