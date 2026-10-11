@@ -73,7 +73,8 @@ Two contexts are built in:
 
 - `local` runs docks on this machine with QEMU and needs no account (see
   [The local context](#the-local-context)). It is the active context until you
-  run `dock login` or set `DOCK_API_KEY`.
+  run `dock login`, set `DOCK_API_KEY` or `DOCK_API_URL`, or pick another with
+  `dock context use`.
 - `cloud` points at `https://api.usedock.io`.
 
 For a self-hosted control plane, add a context and make it active:
@@ -126,6 +127,7 @@ Environment variables for the local engine:
 | Variable | Effect |
 | --- | --- |
 | `DOCK_QEMU` | Path to the `qemu-system` binary. Default: found on `PATH`, then the standard install directories |
+| `DOCK_QEMU_IMG` | Path to `qemu-img`. Default: next to the `qemu-system` binary, then `PATH` and the standard install directories |
 | `DOCK_DATA_DIR` | Where docks and cached images live. Default: `~/.local/share/dock` (Linux, or `$XDG_DATA_HOME/dock`), `~/Library/Application Support/dock` (macOS), `%LOCALAPPDATA%\dock` (Windows) |
 | `DOCK_DOCKYARD_URL` | Use another Dockyard image index. It is unpinned and the CLI warns |
 | `DOCK_DOCKYARD_SHA256` | SHA-256 of that index; it is verified only when this is set |

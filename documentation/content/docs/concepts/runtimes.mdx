@@ -50,7 +50,7 @@ with the image's own kernel.
 |---|---|---|
 | Linux x86_64 | KVM | Available |
 | Windows x86_64 | Windows Hypervisor Platform (WHPX) | Available. See [Windows](/local-docks/windows) |
-| macOS | Hypervisor.framework (HVF) | Built, not yet tested |
+| macOS | Hypervisor.framework (HVF) | Built, not yet tested. Dockyard images are amd64 only, so Apple silicon has none yet |
 
 Firecracker (`microvm`) stays the engine for Linux fleet hosts. The local engine
 is for your own machine, and it never falls back to software emulation unless
@@ -63,11 +63,17 @@ What the isolation is, stated plainly:
 - QEMU's device model is larger than Firecracker's, and a local dock is not run
   under the jailer. Prefer `microvm` on a fleet host for hostile or
   multi-tenant workloads.
-- The network is QEMU user-mode networking. The guest agent's port is forwarded
-  to `127.0.0.1` on the host only. `dock new --network off` blocks the dock's
-  network.
+- The network is QEMU user-mode networking. With the network on, the dock can
+  reach the internet and services listening on your machine, including ones
+  bound to `127.0.0.1` (the guest sees the host as `10.0.2.2`).
+  `dock new --network off` blocks both. The guest agent's port is forwarded to
+  `127.0.0.1` on the host only.
 - The guest agent's config, including its token, is passed through a QEMU
   `fw_cfg` file with mode 0600, not on the QEMU command line, which other users
   on the machine can read.
+- Each dock's directory, which holds its agent token, is kept to your user: it
+  is created with mode 0700 on Linux and macOS, and on Windows the data
+  directory gets a protected ACL that allows only your user, SYSTEM and
+  Administrators.
 - A local dock is one user's dock on that user's machine: the engine has no
   tenancy of its own.

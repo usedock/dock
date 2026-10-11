@@ -8,8 +8,9 @@ runs each dock as a QEMU virtual machine on your machine. This is the built-in
 `local` context; see [CLI](/cli#contexts) for how it is selected. For a first
 run, follow the [Quickstart](/quickstart).
 
-The CLI is early and not released yet; these pages describe the
-[usedock/docklet](https://github.com/usedock/docklet) `dock` CLI.
+Local docks need `dock` v0.2.0 or later ([Install](/cli#install); run the
+installer again to update). The CLI is early; its source is in
+[usedock/docklet](https://github.com/usedock/docklet).
 
 ## What you need
 
@@ -21,6 +22,9 @@ software emulation on its own.
 | Linux x86_64 | KVM (`/dev/kvm`) | Available |
 | Windows x86_64 | Windows Hypervisor Platform (WHPX) | Available. See [Windows](/local-docks/windows) |
 | macOS | Hypervisor.framework (HVF) | Built, not yet tested |
+
+[Dockyard](/dockyard) publishes amd64 images only today, so an arm64 machine
+(Apple silicon, Linux arm64) has no image to boot yet.
 
 On Linux, install QEMU (for example `sudo apt install qemu-system-x86
 qemu-utils`) and make sure your user can read and write `/dev/kvm` (for example

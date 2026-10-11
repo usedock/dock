@@ -28,8 +28,9 @@ official QEMU for Windows build: other builds may lack the `whpx` accelerator.
 
 `dock` looks for `qemu-system-x86_64.exe` on `PATH`, then in `C:\Program
 Files\qemu`, `C:\Program Files (x86)\qemu` and `%LOCALAPPDATA%\Programs\qemu`.
-`qemu-img.exe` is taken from the same directory. To use QEMU from anywhere
-else, set `DOCK_QEMU`:
+`qemu-img.exe` is taken from the same directory when it is there
+(`DOCK_QEMU_IMG` overrides it). To use QEMU from anywhere else, set
+`DOCK_QEMU`:
 
 ```powershell
 $env:DOCK_QEMU = 'D:\tools\qemu\qemu-system-x86_64.exe'
@@ -60,8 +61,7 @@ control plane.
 | `dock doctor` says | What to do |
 | --- | --- |
 | `qemu` missing | Install QEMU, or set `DOCK_QEMU` to the full path of `qemu-system-x86_64.exe`. A `DOCK_QEMU` path that does not exist is an error. |
-| `accelerator`: Windows Hypervisor Platform is not available | Run the `Enable-WindowsOptionalFeature` command above as administrator and reboot. |
-| `accelerator`: QEMU could not start a Windows Hypervisor Platform machine | The feature may be installed but unusable: check that virtualization is enabled in firmware, and reboot after enabling the feature. `dock doctor` boots a short probe machine to detect this. |
+| `accelerator`: QEMU could not start a Windows Hypervisor Platform machine | `dock doctor` boots a short probe machine to test the platform. Run the `Enable-WindowsOptionalFeature` command above as administrator and reboot. If the feature is already on, check that virtualization is enabled in firmware. |
 | `accelerator`: this QEMU build has no whpx accelerator | Install the official QEMU for Windows build. |
 | `disk space` low | Free at least 5 GiB, or set `DOCK_DATA_DIR` to a larger drive. |
 | `dockyard` unreachable | Check your network. See [Dockyard](/dockyard). |

@@ -7,7 +7,7 @@ Dockyard is the catalog of official images a Dock can start from. The images are
 built from source in `usedock/docklet`. Control plane hosts serve only
 `ubuntu-24.04` today; the other images become usable as hosts learn to serve
 Dockyard images. The `dock` CLI's [local engine](/local-docks) boots any of them
-directly.
+directly on an amd64 machine.
 
 ## Images
 
@@ -83,8 +83,10 @@ own kernel. Each image file is checked against its size and SHA-256 in the
 Dockyard index.
 
 The `dock` binary pins the Dockyard release and the SHA-256 of its
-`dockyard.json` index, and refuses an index that does not match. Until a
-release is pinned, `dock images` prints that there are no images to list.
-`DOCK_DOCKYARD_URL` points the CLI at another index; it is then unpinned, the
+`dockyard.json` index, and refuses an index that does not match. `dock` v0.2.0
+pins the
+[`images-2026.10.11`](https://github.com/usedock/docklet/releases/tag/images-2026.10.11)
+release, whose files are also signed with cosign. Images are amd64 only today,
+so `dock images` lists nothing on an arm64 machine. `DOCK_DOCKYARD_URL` points the CLI at another index; it is then unpinned, the
 CLI warns, and the index is verified only when `DOCK_DOCKYARD_SHA256` is also
 set.

@@ -6,7 +6,8 @@ description: Run your first Dock on your laptop with no account, or against a co
 ## Your first dock on your laptop
 
 No account, no server. The `dock` CLI runs docks on your own machine with QEMU
-([Local docks](/local-docks)). The CLI is early and not released yet.
+([Local docks](/local-docks)). Local docks need `dock` v0.2.0 or later; the
+CLI is early.
 
 Install it. On macOS and Linux:
 
@@ -21,7 +22,8 @@ irm https://usedock.io/install.ps1 | iex
 ```
 
 Local docks need QEMU and your machine's hardware accelerator (KVM on Linux,
-Windows Hypervisor Platform on Windows; macOS is built but not yet tested).
+Windows Hypervisor Platform on Windows; macOS is built but not yet tested, and
+Dockyard has amd64 images only, so Apple silicon has none yet).
 `dock doctor` checks and tells you what to fix. On Windows, see
 [Windows](/local-docks/windows).
 
@@ -48,7 +50,7 @@ host ([Self-hosting](/self-hosting)):
 ```sh
 dock context add home --url https://dock.example.com
 dock context use home
-dock login                    # reads your API key from stdin
+dock login                    # prompts for your API key
 ```
 
 Create the key as described below. Switch back any time with
