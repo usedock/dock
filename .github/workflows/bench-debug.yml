@@ -1,0 +1,45 @@
+name: Bench debug
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/bench-debug.yml
+
+permissions:
+  contents: read
+
+jobs:
+  branch-repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DOCK_DATA_DIR: /home/runner/dockdata
+    steps:
+      - name: install qemu
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
+      - name: allow /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: install dock
+        env:
+          DOCK_VERSION: v0.3.1
+        run: |
+          curl -fsSL https://usedock.io/install | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: branch repro
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          dock images pull ubuntu-24.04
+          dock new src --cpus 2 --memory 1gb --disk 10gb --json
+          dock exec src -- true
+          for n in 1 3 3; do
+            echo "=== branch --count $n"
+            start=$(date +%s)
+            timeout 200 dock branch src --count "$n" --json; echo "exit $? after $(( $(date +%s) - start ))s"
+            dock ls --all
+            pgrep -fa qemu-system | cut -c1-150 || true
+          done
+          find "$DOCK_DATA_DIR" -maxdepth 3 | head -50
+          for f in "$DOCK_DATA_DIR"/docks/*/*.log; do echo "=== $f"; tail -15 "$f"; done || true
