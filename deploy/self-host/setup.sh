@@ -205,7 +205,22 @@ write_env() {
   if [ "$scheme" = "http" ] && [ "$host" != "localhost" ]; then
     log "note: plain HTTP on ${host}; GitHub webhooks and confined runs need https"
   fi
-  log "wrote ${ENV_FILE} with fresh secrets (keep it; it holds SECRETS_ENCRYPTION_KEY)"
+  log "wrote ${ENV_FILE} with fresh secrets (keep it; it holds SECRETS_ENCRYPTION_KEY and MINIO_KMS_SECRET_KEY)"
+}
+
+# Snapshot encryption key for MinIO's built-in KMS: <key-name>:<base64 of 32 bytes>.
+# Generated once and never replaced, since a new key cannot read existing snapshots.
+ensure_kms_key() {
+  if [ -n "$(env_get MINIO_KMS_SECRET_KEY)" ]; then
+    return
+  fi
+  command -v openssl >/dev/null 2>&1 || die "openssl is required to generate the snapshot encryption key"
+  put_env MINIO_KMS_SECRET_KEY "dock-snapshots:$(openssl rand -base64 32)"
+  log "generated MINIO_KMS_SECRET_KEY in ${ENV_FILE}: snapshots are encrypted at rest with it."
+  log "WARNING: back this key up (with .env). If it is lost, every snapshot becomes unreadable."
+  if docker volume inspect dock_minio-data >/dev/null 2>&1; then
+    log "note: snapshots written before this stay unencrypted until re-encrypted; see the self-hosting docs"
+  fi
 }
 
 if [ -f "$ENV_FILE" ]; then
@@ -218,6 +233,7 @@ else
   write_env
 fi
 
+ensure_kms_key
 PUBLIC_URL="$(env_get DOCK_PUBLIC_URL)"
 if [ -n "$UPGRADE" ]; then
   log "DOCK_VERSION $(env_get DOCK_VERSION) -> ${UPGRADE}"

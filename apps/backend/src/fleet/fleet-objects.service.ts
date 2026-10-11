@@ -3,7 +3,9 @@ import {
   Inject,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
+  type OnModuleInit,
   type Provider,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -45,6 +47,8 @@ const DEFAULT_PRESIGN_TTL_SECONDS = 900;
 const DIRECT_PUT_MAX = 5 * 1024 ** 3 - 1024 ** 2;
 /** MinIO reports a missing key by error code rather than by HTTP status. */
 const NOT_FOUND_CODES = ['NoSuchKey', 'NotFound', 'NoSuchObject'];
+/** What S3 and MinIO answer when a bucket has no default encryption configured. */
+const NO_ENCRYPTION_CODES = ['ServerSideEncryptionConfigurationNotFoundError'];
 
 export interface SnapshotStoreSettings {
   endPoint: string;
@@ -160,10 +164,47 @@ export interface PresignResult {
  * and a reader never observes a half-uploaded generation.
  */
 @Injectable()
-export class FleetObjectsService {
+export class FleetObjectsService implements OnModuleInit {
+  private readonly logger = new Logger(FleetObjectsService.name);
   private connection?: SnapshotStore;
 
   constructor(@Inject(SNAPSHOT_STORE) private readonly createStore: SnapshotStoreFactory) {}
+
+  /**
+   * Warns at boot when the snapshot bucket has no default encryption. Never
+   * awaited and never throws: a store that is down, unconfigured or hides the
+   * setting from this key must not stop the API from starting.
+   */
+  onModuleInit(): void {
+    void this.checkBucketEncryption();
+  }
+
+  /** Resolves true (encrypted), false (not encrypted) or null (could not tell). */
+  async checkBucketEncryption(): Promise<boolean | null> {
+    let store: SnapshotStore;
+    try {
+      store = this.store;
+    } catch {
+      // No store settings: nothing to check, and object routes report it on use.
+      return null;
+    }
+    try {
+      const config = await store.client.getBucketEncryption(store.bucket);
+      if (JSON.stringify(config ?? {}).includes('SSEAlgorithm')) return true;
+    } catch (error) {
+      if (!hasCode(error, NO_ENCRYPTION_CODES)) {
+        this.logger.warn(
+          `could not read default encryption of snapshot bucket ${store.bucket}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return null;
+      }
+    }
+    this.logger.warn(
+      `snapshot bucket ${store.bucket} has no default encryption, so Snapshots are stored unencrypted; ` +
+        'enable SSE-S3 or SSE-KMS on the bucket (see the self-hosting docs)',
+    );
+    return false;
+  }
 
   private get store(): SnapshotStore {
     // Constructed on first use so a missing store config cannot fail boot.
@@ -410,10 +451,14 @@ function endpointParts(raw: string, key: string, ssl?: string): { endPoint: stri
   };
 }
 
-function isNotFound(error: unknown): boolean {
+function hasCode(error: unknown, codes: string[]): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const code = (error as { code?: unknown }).code;
-  return typeof code === 'string' && NOT_FOUND_CODES.includes(code);
+  return typeof code === 'string' && codes.includes(code);
+}
+
+function isNotFound(error: unknown): boolean {
+  return hasCode(error, NOT_FOUND_CODES);
 }
 
 /** True when multipart copy rejected a source below its minimum part size. */
