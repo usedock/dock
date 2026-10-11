@@ -151,7 +151,8 @@ When the control plane has no store address clients can reach, `url` is a path
 on the control plane: `GET /v1/docks/exports/:exportId/download` streams the
 file, with the same permissions, and honors one `Range` header, `bytes=start-` or
 `bytes=start-end`, to resume. A malformed header is ignored and the whole file
-is sent.
+is sent. A range that starts at or past the end of the file answers `416` with
+`Content-Range: bytes */<size>`, so a client resuming past the end can restart.
 
 ## Errors
 
@@ -161,6 +162,9 @@ is sent.
 | `import_checksum_mismatch` | 400, from complete: the uploaded size is not the declared one and is not above the disk size (that case is `import_too_large`). A sha256 mismatch found by the host while booting returns no code: the dock goes to `error` |
 | `part_too_large` | A proxy part is bigger than `partSize` |
 | `runtime_unsupported` | 409: no online microVM host has a docklet that verifies imported disks (checked only with `RUNTIME_DRIVER=restate`), or the dock to export is not a microVM dock |
+| `import_egress_unsupported` | 409, at start (only with `RUNTIME_DRIVER=restate`): the default Environment has an egress allowlist and no host that verifies imports confines egress on resume; upgrade the docklets |
+| `host_egress_unsupported` | 503, from complete: no suitable host can apply the default Environment's egress allowlist. Retryable: the uploaded disk is kept |
+| `range_not_satisfiable` | 416, from the download: the `Range` starts at or past the end of the file; `Content-Range: bytes */<size>` carries the size |
 | `dock_name_taken` | 409: the import's `name` is already used in the workspace, at start or at complete. Retryable at complete |
 | `dock_not_running` | 409: the dock to export is not `ready`, `idle` or `running` |
 | `conflict` | 409: a part is sent to an import that is closed, expired or direct; complete on an import that failed, expired or is already being completed; an export already in progress for the dock; a download of an export that is not `ready` |

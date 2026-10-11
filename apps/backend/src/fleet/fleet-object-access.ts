@@ -18,10 +18,14 @@ export class FleetObjectAccess {
   /**
    * Reads (get, list, presigned get): allowed for a snapshot of a dock placed on
    * this host, or when this host has a queued/claimed command naming the
-   * generation (branch or resume placed elsewhere sends the host a load for it).
+   * generation (branch or resume placed elsewhere sends the host a load for it),
+   * or when the generation is bound to this host's still-claimed capture.
    */
   async assertRead(hostId: string, snapshotId: string): Promise<void> {
     if ((await this.ownsStored(hostId, snapshotId)) || (await this.hasCommandFor(hostId, snapshotId))) return;
+    // A host that may write a generation in its own claimed capture may read it back.
+    const [bound] = await this.db.select().from(hostGenerations).where(eq(hostGenerations.generationId, snapshotId)).limit(1);
+    if (bound) return this.assertBoundTo(hostId, bound);
     throw denied();
   }
 

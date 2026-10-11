@@ -4,6 +4,7 @@ import { Readable } from 'stream';
 import { vi, type Mock } from 'vitest';
 import { EnvelopeInterceptor } from '../common/envelope.interceptor';
 import { HttpExceptionFilter } from '../common/http-exception.filter';
+import { RangeNotSatisfiableException } from './dock-transfer-errors';
 import { DockTransfersController } from './dock-transfers.controller';
 import { DockTransfersService } from './dock-transfers.service';
 
@@ -118,5 +119,13 @@ describe('DockTransfersController', () => {
     expect(part.headers.get('content-range')).toBe('bytes 5-9/10');
     expect(service.openDownload).toHaveBeenLastCalledWith(expect.anything(), 'e1', 'bytes=5-');
     expect(Buffer.from(await part.arrayBuffer()).toString()).toBe('56789');
+  });
+
+  it('answers an unsatisfiable range with 416 and Content-Range: bytes */size', async () => {
+    service.openDownload.mockRejectedValueOnce(new RangeNotSatisfiableException(10));
+    const res = await call('GET', '/docks/exports/e1/download', undefined, { range: 'bytes=10-' });
+    expect(res.status).toBe(416);
+    expect(res.headers.get('content-range')).toBe('bytes */10');
+    expect(await res.json()).toMatchObject({ ok: false, code: 'range_not_satisfiable' });
   });
 });
