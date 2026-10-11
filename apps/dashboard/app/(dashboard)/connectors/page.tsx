@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { getDefaultApi, type Connector } from '@/lib/dock-api';
+import { getDefaultApi, type Connector, type ConnectorCredentialType } from '@/lib/dock-api';
 import { formatDate, messageOf } from '@/lib/format';
 import { useOrg } from '@/components/dashboard/org-context';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
@@ -78,6 +78,18 @@ const REASONS: Record<string, string> = {
   connector_token_invalid: 'The tool rejected the credential.',
   connector_unreachable: 'The tool could not be reached.',
 };
+
+const CREDENTIAL_LABELS: Record<ConnectorCredentialType, string> = {
+  oauth: 'OAuth',
+  personal_token: 'Personal token',
+  bot_token: 'Bot token',
+  org_token: 'Organization token',
+  user_token: 'User token',
+  token: 'Token',
+};
+
+/** Tokens that act as one person: runs and agents are attributed to them. */
+const ACTS_AS_PERSON: ReadonlySet<ConnectorCredentialType> = new Set(['personal_token', 'user_token']);
 
 function statusBadge(c: Connector) {
   if (c.status === 'connected') return <Badge>Connected</Badge>;
@@ -238,6 +250,26 @@ function ConnectorsView() {
                       .filter(Boolean)
                       .join(' · ')}
                   </p>
+                ) : null}
+                {connected && c.credentialType ? (
+                  <p className="text-xs text-muted-foreground">Credential: {CREDENTIAL_LABELS[c.credentialType]}</p>
+                ) : null}
+                {connected && c.credentialType && ACTS_AS_PERSON.has(c.credentialType) ? (
+                  <Alert>
+                    <AlertTitle>Acts as the token owner</AlertTitle>
+                    <AlertDescription>
+                      Runs and agents use this person&apos;s token, so what they do is attributed to that person. Prefer OAuth or a bot or
+                      organization token.{' '}
+                      <a
+                        className="text-foreground underline underline-offset-4"
+                        href={`${DOCS_URL}/connectors#credential-types`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Credential types
+                      </a>
+                    </AlertDescription>
+                  </Alert>
                 ) : null}
                 <div className="mt-auto flex flex-wrap items-center gap-2">
                   {c.readOnly ? (

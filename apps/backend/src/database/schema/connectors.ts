@@ -7,6 +7,9 @@ import { workspaces } from './workspaces';
 export const CONNECTOR_KINDS = ['figma', 'linear', 'slack', 'sentry'] as const;
 export type ConnectorKind = (typeof CONNECTOR_KINDS)[number];
 export type ConnectorStatus = 'connected' | 'reauth_required';
+/** How a connection authenticated: `token` is a pasted token whose kind could not be told from its shape. */
+export const CONNECTOR_CREDENTIAL_TYPES = ['oauth', 'personal_token', 'bot_token', 'org_token', 'user_token', 'token'] as const;
+export type ConnectorCredentialType = (typeof CONNECTOR_CREDENTIAL_TYPES)[number];
 
 /** Workspace-scoped tool connection; the credential is AES-256-GCM sealed and only the gateway opens it. */
 export const connectors = pgTable(
@@ -19,6 +22,8 @@ export const connectors = pgTable(
     kind: text('kind').notNull().$type<ConnectorKind>(),
     status: text('status').notNull().$type<ConnectorStatus>().default('connected'),
     credentials: jsonb('credentials').notNull().$type<SealedValue>(),
+    /** Null on rows from before this column; filled from the sealed credential by a pass at API boot. */
+    credentialType: text('credential_type').$type<ConnectorCredentialType>(),
     accountLabel: text('account_label'),
     scopes: jsonb('scopes').notNull().$type<string[]>().default([]),
     /** Vendor account id inbound webhooks are routed by: Linear organization, Slack team, Sentry installation uuid, Figma webhook id. */

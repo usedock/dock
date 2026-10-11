@@ -1,0 +1,1 @@
+ALTER TABLE "connectors" ADD COLUMN "credential_type" text;

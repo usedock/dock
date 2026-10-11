@@ -1,9 +1,9 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
-import { and, eq, lt } from 'drizzle-orm';
+import { and, eq, isNull, lt } from 'drizzle-orm';
 import { DB, Db } from '../database/database.module';
-import { connectorDeliveries, connectors, githubInstallations, providerKeys, type Connector } from '../database/schema';
+import { connectorDeliveries, connectors, githubInstallations, providerKeys, type Connector, type ConnectorCredentialType } from '../database/schema';
 import { openValue, sealValue } from '../environments/secrets';
 import { OrganizationsService, isUniqueViolation } from '../organizations/organizations.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
@@ -18,6 +18,8 @@ export interface ConnectorView {
   type: 'tool' | 'github' | 'model-keys';
   status: 'connected' | 'not_connected' | 'reauth_required';
   accountLabel: string | null;
+  /** How the connection authenticated; null when not connected or not a tool. */
+  credentialType: ConnectorCredentialType | null;
   scopes: string[];
   oauthAvailable: boolean;
   readOnly: boolean;
@@ -49,6 +51,16 @@ export class ConnectorAdminOnlyException extends ForbiddenException {
   }
 }
 
+/** How a credential authenticated, from the method and the token's shape (vendors prefix their token kinds). */
+export function deriveCredentialType(kind: ConnectorKind, cred: Pick<ConnectorCredential, 'type' | 'access'>): ConnectorCredentialType {
+  if (cred.type === 'oauth') return 'oauth';
+  const t = cred.access;
+  if (kind === 'figma' || kind === 'linear') return t.startsWith('figd_') || t.startsWith('lin_api_') ? 'personal_token' : 'token';
+  if (kind === 'slack') return t.startsWith('xoxb-') ? 'bot_token' : t.startsWith('xoxp-') ? 'user_token' : 'token';
+  if (kind === 'sentry') return t.startsWith('sntrys_') ? 'org_token' : t.startsWith('sntryu_') ? 'user_token' : 'token';
+  return 'token';
+}
+
 /** Public shape of a connection; field by field so the sealed credential can never be exposed. */
 export function connectorView(row: Connector, oauthAvailable: boolean): ConnectorView {
   return {
@@ -56,6 +68,7 @@ export function connectorView(row: Connector, oauthAvailable: boolean): Connecto
     type: 'tool',
     status: row.status,
     accountLabel: row.accountLabel,
+    credentialType: row.credentialType,
     scopes: row.scopes,
     oauthAvailable,
     readOnly: false,
@@ -65,7 +78,8 @@ export function connectorView(row: Connector, oauthAvailable: boolean): Connecto
 
 /** Workspace tool connections, sealed at rest; the plaintext is opened only for the gateway. */
 @Injectable()
-export class ConnectorsService {
+export class ConnectorsService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(ConnectorsService.name);
   private readonly key: Buffer;
   private readonly fetchFn: typeof fetch;
 
@@ -89,7 +103,7 @@ export class ConnectorsService {
       const oauthAvailable = !!oauthClient(this.config, kind);
       return row
         ? connectorView(row, oauthAvailable)
-        : { kind, type: 'tool', status: 'not_connected', accountLabel: null, scopes: [], oauthAvailable, readOnly: false, updatedAt: null };
+        : { kind, type: 'tool', status: 'not_connected', accountLabel: null, credentialType: null, scopes: [], oauthAvailable, readOnly: false, updatedAt: null };
     });
     const installs = await this.db.select().from(githubInstallations).where(eq(githubInstallations.workspaceId, ws.id));
     const keys = await this.db.select().from(providerKeys).where(eq(providerKeys.organizationId, ws.organizationId));
@@ -101,6 +115,7 @@ export class ConnectorsService {
         type: 'github',
         status: installs.length ? 'connected' : 'not_connected',
         accountLabel: installs.length ? `${installs.length} installation${installs.length === 1 ? '' : 's'}` : null,
+        credentialType: null,
         scopes: [],
         oauthAvailable: false,
         readOnly: true,
@@ -111,12 +126,34 @@ export class ConnectorsService {
         type: 'model-keys',
         status: keys.length ? 'connected' : 'not_connected',
         accountLabel: null,
+        credentialType: null,
         scopes: keys.map((k) => k.provider).sort(),
         oauthAvailable: false,
         readOnly: true,
         updatedAt: latest(keys.map((k) => k.updatedAt)),
       },
     ];
+  }
+
+  onApplicationBootstrap(): void {
+    this.backfillCredentialTypes().catch((err) => this.logger.warn(`Credential type backfill failed: ${(err as Error).message}`));
+  }
+
+  /** Rows from before credential_type existed get it derived from their sealed credential, once at boot, off the request path. */
+  async backfillCredentialTypes(): Promise<void> {
+    const rows = await this.db
+      .select({ id: connectors.id, kind: connectors.kind, credentials: connectors.credentials })
+      .from(connectors)
+      .where(isNull(connectors.credentialType));
+    for (const row of rows) {
+      try {
+        const credentialType = deriveCredentialType(row.kind, JSON.parse(openValue(this.key, row.credentials)) as ConnectorCredential);
+        await this.db.update(connectors).set({ credentialType }).where(and(eq(connectors.id, row.id), isNull(connectors.credentialType)));
+      } catch (err) {
+        // An unreadable row stays null instead of failing the pass; only the error class is logged since parse errors quote the plaintext.
+        this.logger.warn(`Credential type backfill skipped connector ${row.id}: ${(err as Error).name}`);
+      }
+    }
   }
 
   /** Stores a personal or bot token after checking it against the vendor. */
@@ -142,6 +179,7 @@ export class ConnectorsService {
     host?: string | null,
   ): Promise<ConnectorView> {
     const sealed = sealValue(this.key, JSON.stringify(credential));
+    const credentialType = deriveCredentialType(kind, credential);
     // A reconnect without an id or host keeps what the webhook setup recorded.
     const optional = {
       ...(identity.externalId ? { externalId: identity.externalId } : {}),
@@ -159,11 +197,11 @@ export class ConnectorsService {
     try {
       const [row] = await this.db
         .insert(connectors)
-        .values({ workspaceId, kind, credentials: sealed, accountLabel: identity.label, scopes, createdBy: userId, ...optional, ...(kind === 'figma' && identity.userId ? { allowedUsers: [identity.userId] } : {}) })
+        .values({ workspaceId, kind, credentials: sealed, credentialType, accountLabel: identity.label, scopes, createdBy: userId, ...optional, ...(kind === 'figma' && identity.userId ? { allowedUsers: [identity.userId] } : {}) })
         .onConflictDoUpdate({
           target: [connectors.workspaceId, connectors.kind],
           // The connecting admin owns the connector's docks: triggered runs act on their behalf.
-          set: { credentials: sealed, accountLabel: identity.label, scopes, status: 'connected', createdBy: userId, updatedAt: new Date(), ...optional, ...(resetAllowlist && identity.userId ? { allowedUsers: [identity.userId] } : {}) },
+          set: { credentials: sealed, credentialType, accountLabel: identity.label, scopes, status: 'connected', createdBy: userId, updatedAt: new Date(), ...optional, ...(resetAllowlist && identity.userId ? { allowedUsers: [identity.userId] } : {}) },
         })
         .returning();
       return connectorView(row, !!oauthClient(this.config, kind));
