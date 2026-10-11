@@ -100,6 +100,13 @@ export interface GithubRun {
 
 export type ConnectorCredentialType = 'oauth' | 'personal_token' | 'bot_token' | 'org_token' | 'user_token' | 'token';
 
+/** A connector scope (Linear team, Slack channel, Sentry project, Figma file, or `*`) mapped to the GitHub repo its triggered runs open pull requests in. */
+export interface ConnectorRepoLink {
+  scope: string;
+  repo: string;
+  createdAt: string;
+}
+
 export interface Connector {
   kind: string;
   type: 'tool' | 'github' | 'model-keys';
@@ -403,6 +410,9 @@ export interface DockApi {
   listConnectors: (workspaceId: string) => Promise<Connector[]>;
   connectConnector: (workspaceId: string, kind: string, token: string) => Promise<Connector>;
   disconnectConnector: (workspaceId: string, kind: string) => Promise<unknown>;
+  listConnectorRepoLinks: (workspaceId: string, kind: string) => Promise<{ links: ConnectorRepoLink[] }>;
+  putConnectorRepoLink: (workspaceId: string, kind: string, input: { scope: string; repo: string }) => Promise<ConnectorRepoLink>;
+  removeConnectorRepoLink: (workspaceId: string, kind: string, scope: string) => Promise<unknown>;
   startConnectorOauth: (workspaceId: string, kind: string) => Promise<{ url: string }>;
   updateDock: (id: string, input: Record<string, unknown>) => Promise<unknown>;
   deleteDock: (id: string) => Promise<unknown>;
@@ -562,6 +572,12 @@ export function createDockApi({ baseUrl = '', fetchImpl = fetch, headers = {} }:
       put<Connector>(`/v1/workspaces/${enc(workspaceId)}/connectors/${enc(kind)}`, { token }),
     disconnectConnector: (workspaceId: string, kind: string) =>
       del<unknown>(`/v1/workspaces/${enc(workspaceId)}/connectors/${enc(kind)}`),
+    listConnectorRepoLinks: (workspaceId: string, kind: string) =>
+      get<{ links: ConnectorRepoLink[] }>(`/v1/workspaces/${enc(workspaceId)}/connectors/${enc(kind)}/repo-links`),
+    putConnectorRepoLink: (workspaceId: string, kind: string, input: { scope: string; repo: string }) =>
+      put<ConnectorRepoLink>(`/v1/workspaces/${enc(workspaceId)}/connectors/${enc(kind)}/repo-links`, input),
+    removeConnectorRepoLink: (workspaceId: string, kind: string, scope: string) =>
+      del<unknown>(`/v1/workspaces/${enc(workspaceId)}/connectors/${enc(kind)}/repo-links?scope=${enc(scope)}`),
     startConnectorOauth: (workspaceId: string, kind: string) =>
       get<{ url: string }>(`/v1/connectors/${enc(kind)}/oauth/start?workspaceId=${enc(workspaceId)}`),
     updateDock: (id: string, input: Record<string, unknown>) => patch<unknown>(`/v1/docks/${enc(id)}`, input),
