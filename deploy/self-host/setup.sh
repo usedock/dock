@@ -81,6 +81,28 @@ DONE
   printf '    sudo --preserve-env=DOCKLET_FLEET_TOKEN bash scripts/bootstrap-host.sh --fleet-url %s --runtime gvisor\n' "$PUBLIC_URL"
 }
 
+# Runs bootstrap-host.sh with the fleet token in the environment, never argv,
+# which ps shows to every user.
+enroll_host() {
+  local cmd=(bash "${DOCKLET_DIR}/scripts/bootstrap-host.sh" --fleet-url "$PUBLIC_URL")
+  case "${RUNTIME:-gvisor}" in
+    gvisor) cmd+=(--runtime gvisor --pool-size 0) ;;
+    microvm) cmd+=(--runtime microvm) ;;
+    *) die "--runtime must be gvisor or microvm" ;;
+  esac
+  if [ -n "$ALLOW_VULNERABLE" ]; then
+    cmd+=(--allow-vulnerable "$ALLOW_VULNERABLE")
+  fi
+  log "enrolling this machine as a host (sudo; first run builds the dock image)"
+  if [ "$(id -u)" -eq 0 ]; then
+    DOCKLET_FLEET_TOKEN="$FLEET_TOKEN" "${cmd[@]}"
+  elif sudo -n true 2>/dev/null || [ -t 0 ]; then
+    DOCKLET_FLEET_TOKEN="$FLEET_TOKEN" sudo --preserve-env=DOCKLET_FLEET_TOKEN "${cmd[@]}"
+  else
+    die "sudo needs a terminal to ask for your password; run this in a terminal: cd ${SELF_DIR} && ./setup.sh --host"
+  fi
+}
+
 # check-setup-output.sh sets DOCK_SETUP_SOURCE_ONLY=1 to load the functions above only.
 if [ "${DOCK_SETUP_SOURCE_ONLY:-}" = "1" ]; then
   return 0
@@ -302,24 +324,8 @@ done
 [ "$ready" = "1" ] || die "API not healthy at ${PUBLIC_URL}; check: docker compose -f ${SELF_DIR}/docker-compose.yml logs backend caddy"
 log "control plane up at ${PUBLIC_URL}"
 
-HOST_CMD=(bash "${DOCKLET_DIR}/scripts/bootstrap-host.sh" --fleet-url "$PUBLIC_URL" --fleet-token "$FLEET_TOKEN")
 if [ "$WITH_HOST" = "1" ]; then
-  case "${RUNTIME:-gvisor}" in
-    gvisor) HOST_CMD+=(--runtime gvisor --pool-size 0) ;;
-    microvm) HOST_CMD+=(--runtime microvm) ;;
-    *) die "--runtime must be gvisor or microvm" ;;
-  esac
-  if [ -n "$ALLOW_VULNERABLE" ]; then
-    HOST_CMD+=(--allow-vulnerable "$ALLOW_VULNERABLE")
-  fi
-  log "enrolling this machine as a host (sudo; first run builds the dock image)"
-  if [ "$(id -u)" -eq 0 ]; then
-    "${HOST_CMD[@]}"
-  elif sudo -n true 2>/dev/null || [ -t 0 ]; then
-    sudo "${HOST_CMD[@]}"
-  else
-    die "sudo needs a terminal to ask for your password; run this in a terminal: cd ${SELF_DIR} && ./setup.sh --host"
-  fi
+  enroll_host
 fi
 
 print_next_steps
