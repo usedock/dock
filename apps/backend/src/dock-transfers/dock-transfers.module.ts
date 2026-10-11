@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DocksModule } from '../docks/docks.module';
+import { EnvironmentsModule } from '../environments/environments.module';
 import { FleetObjectsModule } from '../fleet/fleet-objects.module';
 import { HostsModule } from '../hosts/hosts.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
@@ -10,7 +11,7 @@ import { DockTransfersService } from './dock-transfers.service';
 
 /** Push and pull of a dock's disk: import uploads, exports and their expiry sweep. */
 @Module({
-  imports: [DocksModule, FleetObjectsModule, HostsModule, OrganizationsModule, RetentionModule, WorkspacesModule],
+  imports: [DocksModule, EnvironmentsModule, FleetObjectsModule, HostsModule, OrganizationsModule, RetentionModule, WorkspacesModule],
   controllers: [DockTransfersController],
   providers: [DockTransfersService],
 })

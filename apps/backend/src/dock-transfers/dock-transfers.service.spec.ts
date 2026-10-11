@@ -3,6 +3,7 @@ import { vi } from 'vitest';
 import { FakeComputeProvider } from '../docks/compute.provider';
 import { DockNotFoundException } from '../docks/dock-errors';
 import { ConnectorAdminOnlyException } from '../connectors/connectors.service';
+import { EnvironmentSecretsAdminOnlyException } from '../environments/environments.service';
 import { WorkspaceNotFoundException } from '../workspaces/workspaces.service';
 import { DockTransfersService, parseRange, partSizeFor, wholeImageManifest } from './dock-transfers.service';
 
@@ -21,6 +22,7 @@ describe('DockTransfersService', () => {
   let orgs: any;
   let workspaces: any;
   let docks: any;
+  let envs: any;
   let objects: any;
   let hosts: any;
   let retention: any;
@@ -136,6 +138,7 @@ describe('DockTransfersService', () => {
       loadReadableDock: vi.fn().mockResolvedValue({ dock: dockRow(), orgId }),
       reapply: vi.fn().mockResolvedValue(undefined),
     };
+    envs = { assertSecretsLaunchable: vi.fn().mockResolvedValue(undefined) };
     objects = {
       directTransfers: true,
       startUpload: vi.fn().mockResolvedValue('up-1'),
@@ -154,7 +157,7 @@ describe('DockTransfersService', () => {
     retention = { policyOn: vi.fn().mockResolvedValue(false) };
     config = { get: vi.fn().mockReturnValue('fake') };
     provider = new FakeComputeProvider();
-    service = new DockTransfersService(db, orgs, workspaces, docks, objects, hosts, retention, config, provider as never);
+    service = new DockTransfersService(db, orgs, workspaces, docks, envs, objects, hosts, retention, config, provider as never);
   });
 
   describe('starting an import', () => {
@@ -216,6 +219,15 @@ describe('DockTransfersService', () => {
       workspaces.getById.mockRejectedValueOnce(new WorkspaceNotFoundException());
       const err = await catchErr(start());
       expect(err).toMatchObject({ status: 404, body: { code: 'dock_not_found' } });
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('refuses a member the default environment secrets before any upload is opened', async () => {
+      envs.assertSecretsLaunchable.mockRejectedValueOnce(new EnvironmentSecretsAdminOnlyException());
+      const err = await catchErr(start());
+      expect(err).toMatchObject({ status: 403, body: { code: 'environment_secrets_admin_only' } });
+      expect(envs.assertSecretsLaunchable).toHaveBeenCalledWith('u1', orgId, undefined);
+      expect(objects.startUpload).not.toHaveBeenCalled();
       expect(db.insert).not.toHaveBeenCalled();
     });
 
@@ -385,6 +397,27 @@ describe('DockTransfersService', () => {
       await service.completeImport('u1', importId, []);
       expect(objects.completeUpload).not.toHaveBeenCalled();
       expect(docks.create).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      ['capacity_exhausted', 'CapacityExhaustedException'],
+      ['dock_name_taken', 'DockNameTakenException'],
+    ])('keeps the assembled upload on %s', async (code, cls) => {
+      queueSelects([importRow()]);
+      const errors: Record<string, new (arg: string) => Error> = (await import('../docks/dock-errors')) as never;
+      docks.create.mockRejectedValueOnce(new errors[cls]('n'));
+      expect((await catchErr(service.completeImport('u1', importId, parts))).body.code).toBe(code);
+      expect(updated.at(-1)).toMatchObject({ status: 'uploaded' });
+      expect(objects.deleteGeneration).not.toHaveBeenCalled();
+    });
+
+    it('ends the import on an image refusal, which an imported dock only meets in its background boot', async () => {
+      queueSelects([importRow()]);
+      const { ImageUnavailableException } = await import('../docks/dock-errors');
+      docks.create.mockRejectedValueOnce(new ImageUnavailableException('ubuntu-24.04'));
+      expect((await catchErr(service.completeImport('u1', importId, parts))).body.code).toBe('image_unavailable');
+      expect(updated.at(-1)).toMatchObject({ status: 'failed', error: 'image_unavailable' });
+      expect(objects.deleteGeneration).toHaveBeenCalledWith('gen-1');
     });
 
     it('discards the upload when the dock cannot be created for another reason', async () => {
