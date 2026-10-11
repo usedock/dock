@@ -11,6 +11,7 @@ import { DockTunnelService, TunnelOpenException, type TunnelFailure } from './do
 import { DocksService } from './docks.service';
 import { API_KEY_PREFIX } from '../api-keys/api-keys.service';
 import { EDGE_PROOF_HEADER, edgeProofValid, PORT_COOKIE } from './port-access-token';
+import { PortAuthCache } from './port-auth-cache';
 
 export const MAX_PORTS_PER_DOCK = 10;
 /** The guest agent's own port is never reachable from outside. */
@@ -133,6 +134,7 @@ export class DockPortsService implements OnModuleDestroy {
     private readonly docks: DocksService,
     private readonly tunnels: DockTunnelService,
     private readonly config: ConfigService,
+    private readonly authCache: PortAuthCache,
   ) {}
 
   async list(callerId: string, dockId: string): Promise<DockPortView[]> {
@@ -154,6 +156,7 @@ export class DockPortsService implements OnModuleDestroy {
     if (existing && (!visibility || visibility === existing.visibility)) return this.view(existing);
     if (existing) {
       const [changed] = await this.db.update(dockPorts).set({ visibility }).where(eq(dockPorts.id, existing.id)).returning();
+      this.authCache.invalidateLabel(existing.label);
       return this.view(changed ?? existing);
     }
     const [{ total }] = await this.db.select({ total: count() }).from(dockPorts).where(eq(dockPorts.dockId, dock.id));
@@ -175,8 +178,9 @@ export class DockPortsService implements OnModuleDestroy {
     const rows = await this.db
       .delete(dockPorts)
       .where(and(eq(dockPorts.dockId, dock.id), eq(dockPorts.port, port)))
-      .returning({ id: dockPorts.id });
+      .returning({ id: dockPorts.id, label: dockPorts.label });
     if (!rows[0]) throw new NotFoundException({ code: 'port_not_found', message: `Port ${port} is not exposed` });
+    this.authCache.invalidateLabel(rows[0].label);
     return { deleted: true };
   }
 

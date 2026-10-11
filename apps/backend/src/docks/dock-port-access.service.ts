@@ -9,6 +9,7 @@ import { hashToken } from '../crypto/tokens';
 import { DB, Db } from '../database/database.module';
 import { apiKeys, dockPorts } from '../database/schema';
 import { DockPortsService } from './dock-ports.service';
+import { PortAuthCache } from './port-auth-cache';
 import { DocksService } from './docks.service';
 import { edgeProof, EXCHANGE_TTL_SECONDS, PORT_COOKIE, SESSION_TTL_SECONDS, signPortToken, verifyPortToken } from './port-access-token';
 
@@ -61,6 +62,7 @@ export class DockPortAccessService {
     private readonly betterAuth: BetterAuthService,
     private readonly config: ConfigService,
     @Inject(forwardRef(() => AccountClosureService)) private readonly closures: AccountClosureService,
+    private readonly cache: PortAuthCache,
   ) {}
 
   /** Edge forward-auth decision for one request to a port host. */
@@ -75,11 +77,11 @@ export class DockPortAccessService {
     if (url.pathname === PORT_AUTH_PATH) return this.startSession(label, port.dockId, url);
 
     const [type, bearer] = (input.authorization ?? '').split(' ');
-    if (type === 'Bearer' && bearer && (await this.dockKeyMatches(bearer, port.dockId))) return granted;
+    if (type === 'Bearer' && bearer && (await this.cached(label, `bearer:${bearer}`, port.dockId, () => this.dockKeyMatches(bearer, port.dockId)))) return granted;
 
     const session = cookieValue(input.cookie, PORT_COOKIE);
     const userId = session ? verifyPortToken(this.config, 'session', label, session) : null;
-    if (userId && (await this.isMember(userId, port.dockId))) return granted;
+    if (session && userId && (await this.cached(label, `cookie:${session}`, port.dockId, () => this.isMember(userId, port.dockId)))) return granted;
 
     if (!input.wantsHtml) return { status: 401 };
     const api = publicApiUrl(this.config);
@@ -104,6 +106,14 @@ export class DockPortAccessService {
     return { status: 302, location: `${this.ports.originFor(label)}${PORT_AUTH_PATH}?token=${encodeURIComponent(token)}&next=${encodeURIComponent(safe)}` };
   }
 
+  /** A fresh grant for this credential skips the checks; only grants are remembered, so a denial is always rechecked. */
+  private async cached(label: string, credential: string, dockId: string, check: () => Promise<boolean>): Promise<boolean> {
+    if (this.cache.has(label, credential, dockId)) return true;
+    const ok = await check();
+    if (ok) this.cache.grant(label, credential, dockId);
+    return ok;
+  }
+
   /** Trades an exchange token for the port host's session cookie. */
   private async startSession(label: string, dockId: string, url: URL): Promise<PortAuthResult> {
     const userId = verifyPortToken(this.config, 'exchange', label, url.searchParams.get('token') ?? '');
@@ -122,11 +132,11 @@ export class DockPortAccessService {
     return row ?? null;
   }
 
-  /** Open account and current org membership; a closed account loses port access like it loses the API. */
+  /** Open account and the same dock rule as its shell (connector docks and admins-only secrets exclude plain members); a closed account loses port access like it loses the API. */
   private async isMember(userId: string, dockId: string): Promise<boolean> {
     try {
       if ((await this.closures.guardCheck(userId)) !== 'ok') return false;
-      await this.docks.loadDock(userId, dockId);
+      await this.docks.loadReadableDock(userId, dockId);
       return true;
     } catch {
       return false;

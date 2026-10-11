@@ -6,6 +6,7 @@ import { WebSocket } from 'ws';
 import { CommandFailedException } from '../fleet/host-command-queue';
 import { DockPortsService, hostHeader, MAX_PORTS_PER_DOCK, forUpstream } from './dock-ports.service';
 import { EDGE_PROOF_HEADER, edgeProof } from './port-access-token';
+import { PortAuthCache } from './port-auth-cache';
 import { DockTunnelService } from './dock-tunnel.service';
 
 const dockId = '33333333-3333-4333-8333-333333333333';
@@ -60,7 +61,7 @@ describe('DockPortsService', () => {
 
   function service(results: unknown[][], env: Record<string, unknown> = enabled) {
     const { db, calls } = fakeDb(results);
-    return { ports: new DockPortsService(db, docks, tunnels, reader(env) as never), calls };
+    return { ports: new DockPortsService(db, docks, tunnels, reader(env) as never, new PortAuthCache()), calls };
   }
 
   it('lists exposed ports with their URLs after a membership check', async () => {
@@ -202,6 +203,16 @@ describe('DockPortsService', () => {
       expect(await raw(`GET / HTTP/1.1\r\nHost: ${label}.ports.x.dev\r\n${EDGE_PROOF_HEADER}: ${proof}\r\n\r\n`)).toMatch(/^HTTP\/1.1 502 /);
     });
 
+    it('refuses a stale, future-dated, or malformed proof', async () => {
+      const privateTarget = { ...target, visibility: 'private' };
+      await start([[privateTarget], [privateTarget], [privateTarget], [privateTarget]]);
+      const withProof = (value: string) => raw(`GET / HTTP/1.1\r\nHost: ${label}.ports.x.dev\r\n${EDGE_PROOF_HEADER}: ${value}\r\n\r\n`);
+      expect(await withProof(edgeProof(reader(enabled), label, Date.now() - 61_000))).toMatch(/^HTTP\/1.1 403 /);
+      expect(await withProof(edgeProof(reader(enabled), label, Date.now() + 120_000))).toMatch(/^HTTP\/1.1 403 /);
+      expect(await withProof(edgeProof(reader(enabled), label).replace(/^v1/, 'v0'))).toMatch(/^HTTP\/1.1 403 /);
+      expect(await withProof(edgeProof(reader(enabled), '8080-zzzzzzzzzzzzzzzz'))).toMatch(/^HTTP\/1.1 403 /);
+    });
+
     it('removes only the proof header from the buffered request', () => {
       const request = Buffer.from('POST /x HTTP/1.1\r\nHost: a\r\nX-Dock-Port-Auth: abc\r\nX-Other: 1\r\n\r\nbody');
       expect(forUpstream(request, false).toString()).toBe('POST /x HTTP/1.1\r\nHost: a\r\nX-Other: 1\r\n\r\nbody');
@@ -268,7 +279,7 @@ describe('DockPortsService', () => {
       realTunnels = new DockTunnelService(queue as never);
       api.on('upgrade', (req, socket, head) => realTunnels.acceptHost(req, socket, head, req.url!.split('/').pop()!));
       const { db } = fakeDb([[{ port: 3000, visibility: 'public', dockId, state: 'running', hostId: 'h1', billingPausedAt: null }]]);
-      ports = new DockPortsService(db, docks, realTunnels, reader(enabled) as never);
+      ports = new DockPortsService(db, docks, realTunnels, reader(enabled) as never, new PortAuthCache());
       const proxyPort = (await ports.listen('127.0.0.1')) as number;
 
       const body = await new Promise<string>((resolve, reject) => {

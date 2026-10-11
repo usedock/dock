@@ -55,10 +55,31 @@ export const PORT_COOKIE = 'dock_port_access';
 /** Header the edge sets after the access check passes; the proxy refuses private ports without it. */
 export const EDGE_PROOF_HEADER = 'x-dock-port-auth';
 
-export function edgeProof(config: ConfigReader, label: string): string {
-  return mac(key(config, 'dock-port-edge'), label).toString('hex');
+/** Proofs older than this are refused, and the edge mints a fresh one per request. */
+export const EDGE_PROOF_MAX_AGE_SECONDS = 60;
+const EDGE_PROOF_SKEW_SECONDS = 5;
+
+/** Dedicated key when DOCK_PORT_PROOF_SECRET is set, else a subkey of BETTER_AUTH_SECRET with its own label. */
+function proofKey(config: ConfigReader): Buffer {
+  const dedicated = config.get<string>('DOCK_PORT_PROOF_SECRET');
+  if (dedicated) return Buffer.from(hkdfSync('sha256', dedicated, Buffer.alloc(0), 'dock-port-proof-secret', 32));
+  return key(config, 'dock-port-proof-v1');
 }
 
-export function edgeProofValid(config: ConfigReader, label: string, presented: string | null): boolean {
-  return presented !== null && equal(Buffer.from(presented), Buffer.from(edgeProof(config, label)));
+function proofMac(config: ConfigReader, label: string, ts: string): Buffer {
+  return mac(proofKey(config), `${label}|${ts}`);
+}
+
+/** `v1.<unixSeconds>.<hmac(label|ts)>` for one port label. */
+export function edgeProof(config: ConfigReader, label: string, now = Date.now()): string {
+  const ts = String(Math.floor(now / 1000));
+  return `v1.${ts}.${proofMac(config, label, ts).toString('hex')}`;
+}
+
+export function edgeProofValid(config: ConfigReader, label: string, presented: string | null, now = Date.now()): boolean {
+  const [version, ts, signature, extra] = (presented ?? '').split('.');
+  if (version !== 'v1' || !ts || !signature || extra !== undefined || !/^\d{1,12}$/.test(ts)) return false;
+  const age = Math.floor(now / 1000) - Number(ts);
+  if (age > EDGE_PROOF_MAX_AGE_SECONDS || age < -EDGE_PROOF_SKEW_SECONDS) return false;
+  return equal(Buffer.from(signature, 'hex'), proofMac(config, label, ts));
 }

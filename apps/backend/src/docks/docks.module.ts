@@ -24,6 +24,7 @@ import { DockSshGatewayService } from './dock-ssh-gateway.service';
 import { DockTunnelService } from './dock-tunnel.service';
 import { DockPortsService } from './dock-ports.service';
 import { DockPortAccessService } from './dock-port-access.service';
+import { PortAuthCache } from './port-auth-cache';
 import { BetterAuthModule } from '../auth/better-auth/better-auth.module';
 import { SshKeysModule } from '../ssh-keys/ssh-keys.module';
 import { HostCommandQueueModule } from '../fleet/host-command-queue.module';
@@ -41,6 +42,7 @@ import { RateLimitService } from '../auth/rate-limit.service';
     DockTunnelService,
     DockPortsService,
     DockPortAccessService,
+    PortAuthCache,
     // Provided directly: importing AuthModule would cycle through AccountClosureModule.
     RateLimitService,
     {

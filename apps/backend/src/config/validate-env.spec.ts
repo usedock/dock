@@ -87,6 +87,12 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...validEnv(), PORTS_DOMAIN: 'Ports.Example.dev' })).toThrow(/PORTS_DOMAIN/);
   });
 
+  it('accepts an empty or long DOCK_PORT_PROOF_SECRET and refuses a short one', () => {
+    expect(validateEnv(validEnv()).DOCK_PORT_PROOF_SECRET).toBe('');
+    expect(validateEnv({ ...validEnv(), DOCK_PORT_PROOF_SECRET: 'p'.repeat(32) }).DOCK_PORT_PROOF_SECRET).toBe('p'.repeat(32));
+    expect(() => validateEnv({ ...validEnv(), DOCK_PORT_PROOF_SECRET: 'changeme' })).toThrow(/DOCK_PORT_PROOF_SECRET/);
+  });
+
   it('refuses a PORTS_DOMAIN that would receive auth cookies', () => {
     const split = { PUBLIC_API_URL: 'https://api.example.com', PUBLIC_APP_URL: 'https://dock.example.com' };
     expect(() => validateEnv({ ...validEnv(), ...split, PORTS_DOMAIN: 'ports.example.com' })).toThrow(/auth cookie domain \.example\.com/);
