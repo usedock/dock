@@ -59,7 +59,7 @@ Run per app from the repo root:
 | Install | `bun install` | `bun install` | `bun install` |
 | Dev | `cp .env.example .env` (set `SECRETS_ENCRYPTION_KEY`), `docker compose -f docker-compose.dev.yml up -d db redis mailpit`, `bun run db:migrate`, then `bun run start:dev` | `bun run dev` | `bun run dev` |
 | Build | `bun run build` | `bun run build` | `bun run build` |
-| Test / check | `bun run test` (single: `bunx vitest run <spec>`) | `bun run lint` | `bunx fumadocs-mdx && bun run typecheck` |
+| Test / check | `bun run test` (single: `bunx vitest run <spec>`) | `bun run lint`, `bun run test` | `bunx fumadocs-mdx && bun run typecheck` |
 
 Self-host: `cd deploy/self-host && ./setup.sh [--host] [--url https://dock.example.com]`. `--host` needs a `usedock/docklet` checkout at `../docklet` (or `DOCKLET_DIR`).
 
@@ -80,5 +80,5 @@ Self-host: `cd deploy/self-host && ./setup.sh [--host] [--url https://dock.examp
 ## Testing & QA
 
 - Backend: Vitest, colocated `src/**/*.spec.ts`.
-- CI (`.github/workflows/ci.yml`) runs the backend build and tests, the bench typecheck and tests, the dashboard lint and build, the docs typecheck and build, and a gitleaks scan.
+- CI (`.github/workflows/ci.yml`) runs the backend build and tests, the bench typecheck and tests, the dashboard lint, tests and build, the docs typecheck and build, and a gitleaks scan.
 - Known baseline: backend `env-apply-script.spec.ts` and the runner execution tests skip on Windows (bash there can be the WSL launcher); they run on Linux CI.

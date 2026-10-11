@@ -165,11 +165,11 @@ function EnvironmentDetail() {
         <div role="alert" className="rounded-md border border-destructive/40 px-4 py-3 text-sm">
           <p>
             {skipped.length} dock(s) were not moved because they are bound to an earlier environment with this name.
-            Resume each one onto this environment to rebind it, then upgrade again.
+            Resume each one onto this environment to rebind it; resuming also moves it to the latest version.
           </p>
           <ul className="mt-2 list-disc pl-5 font-mono text-xs">
-            {describeSkippedDocks(skipped).map((line) => (
-              <li key={line}>{line}</li>
+            {describeSkippedDocks(skipped).map((d) => (
+              <li key={d.id}>{d.text}</li>
             ))}
           </ul>
         </div>

@@ -60,6 +60,6 @@ export function messageOf(e: unknown, fallback: string): string {
 }
 
 /** One line per dock an upgrade skipped: the name (or id when unnamed) and why. */
-export function describeSkippedDocks(skipped: { id: string; name: string | null; reason: string }[]): string[] {
-  return skipped.map((d) => `${d.name ?? d.id}: ${d.reason}`);
+export function describeSkippedDocks(skipped: { id: string; name: string | null; reason: string }[]): { id: string; text: string }[] {
+  return skipped.map((d) => ({ id: d.id, text: `${d.name ? `${d.name} (${d.id})` : d.id}: ${d.reason}` }));
 }
