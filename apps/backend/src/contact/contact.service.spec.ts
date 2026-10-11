@@ -99,7 +99,7 @@ describe('ContactService waitlist confirmation', () => {
 
     await expect(service.submit(waitlist)).resolves.toEqual({ sent: true });
 
-    expect(mail.send).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(mail.send).toHaveBeenCalledTimes(2));
     const confirm = (mail.send as Mock).mock.calls[1][0];
     expect(confirm.template).toBe('waitlist-confirmation');
     expect(confirm.to).toBe(waitlist.email);
@@ -114,6 +114,7 @@ describe('ContactService waitlist confirmation', () => {
     const { service, limits } = makeService();
     await service.submit(waitlist);
     await service.submit({ ...waitlist, email: 'ada@acme.dev' });
+    await vi.waitFor(() => expect(limits.hit).toHaveBeenCalledTimes(4));
     const calls = (limits.hit as Mock).mock.calls;
     expect(calls[1][0]).toBe(calls[3][0]);
   });
@@ -125,6 +126,7 @@ describe('ContactService waitlist confirmation', () => {
       .mockResolvedValueOnce({ allowed: false, count: 2 });
 
     await expect(service.submit(waitlist)).resolves.toEqual({ sent: true });
+    await vi.waitFor(() => expect(limits.hit).toHaveBeenCalledTimes(2));
 
     expect(mail.send).toHaveBeenCalledTimes(1);
   });
@@ -145,6 +147,7 @@ describe('ContactService waitlist confirmation', () => {
       .mockRejectedValueOnce(new Error('redis down'));
 
     await expect(service.submit(waitlist)).resolves.toEqual({ sent: true });
+    await vi.waitFor(() => expect(limits.hit).toHaveBeenCalledTimes(2));
 
     expect(mail.send).toHaveBeenCalledTimes(1);
   });
@@ -156,6 +159,28 @@ describe('ContactService waitlist confirmation', () => {
       .mockRejectedValueOnce(new Error('smtp'));
 
     await expect(service.submit(waitlist)).resolves.toEqual({ sent: true });
+  });
+
+  it('returns without waiting for the confirmation send', async () => {
+    const { service, mail } = makeService();
+    let release!: () => void;
+    (mail.send as Mock)
+      .mockResolvedValueOnce({ messageId: 'm1' })
+      .mockReturnValueOnce(new Promise((resolve) => (release = () => resolve({ messageId: 'm2' }))));
+
+    await expect(service.submit(waitlist)).resolves.toEqual({ sent: true });
+    await vi.waitFor(() => expect(mail.send).toHaveBeenCalledTimes(2));
+    release();
+  });
+
+  it('logs a rejected background confirmation instead of leaking an unhandled rejection', async () => {
+    const { service, mail } = makeService();
+    const warn = vi.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+    (mail.send as Mock).mockResolvedValueOnce({ messageId: 'm1' }).mockRejectedValueOnce(new Error('smtp'));
+
+    await service.submit(waitlist);
+
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith(expect.stringContaining('smtp')));
   });
 });
 

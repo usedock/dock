@@ -39,6 +39,16 @@ describe('MailService without SMTP_HOST', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('http://dock.local/reset?token=t1'));
   });
 
+  it('masks the recipient in the log-only line', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const svc = new MailService({ get: (_k: string, d?: unknown) => d, getOrThrow: () => 'Dock <dock@localhost>' } as never);
+    await svc.send({ to: 'jane@example.com', subject: 'Hi', template: 'reset-password', context: { email: 'x@y.io', resetUrl: 'http://dock.local/r' } });
+    const line = warn.mock.calls.map((c) => String(c[0])).find((m) => m.includes('no SMTP_HOST'))!;
+    expect(line).toContain('to=j***@example.com');
+    expect(line).not.toContain('jane@example.com');
+  });
+
   it('delivers over SMTP silently when SMTP_HOST is set', () => {
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     new MailService({ get: (k: string, d?: unknown) => (k === 'SMTP_HOST' ? 'smtp.example.com' : d) } as never);

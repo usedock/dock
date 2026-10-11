@@ -86,11 +86,16 @@ export class ContactService {
         message: `Could not deliver your message. Write to ${inbox} directly.`,
       });
     }
-    if (input.topic === 'cloud-waitlist') await this.confirmWaitlist(input.email);
+    // Off the request path: a failing relay would add its whole retry schedule to the response.
+    if (input.topic === 'cloud-waitlist') {
+      void this.confirmWaitlist(input.email).catch((err) =>
+        this.logger.warn(`waitlist confirmation skipped: ${(err as Error).message}`),
+      );
+    }
     return { sent: true };
   }
 
-  /** One confirmation per address per 24 h. Never throws; a limiter error means no mail. */
+  /** One confirmation per address per 24 h, sent in the background. Never throws; a limiter error means no mail. */
   private async confirmWaitlist(email: string): Promise<void> {
     try {
       const digest = createHash('sha256').update(confirmationAddress(email)).digest('hex');
