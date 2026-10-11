@@ -22,8 +22,7 @@ irm https://usedock.io/install.ps1 | iex
 ```
 
 Local docks need QEMU and your machine's hardware accelerator (KVM on Linux,
-Windows Hypervisor Platform on Windows; macOS is built but not yet tested, and
-Dockyard has amd64 images only, so Apple silicon has none yet).
+Windows Hypervisor Platform on Windows; macOS is built but not yet tested; arm64 Linux needs `dock` v0.3.0 or later).
 `dock doctor` checks and tells you what to fix. On Windows, see
 [Windows](/local-docks/windows).
 
