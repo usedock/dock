@@ -316,7 +316,7 @@ describe('DocksService', () => {
     db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null, hostId: null })]));
     db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
     await service.create('u1', { workspaceId: wsId });
-    expect(hosts.placeForDock).toHaveBeenCalledWith({ cpuFamily: undefined, runtime: null, dockId: expect.any(String), cpus: 2, memoryMiB: 4096, excludeHostIds: [] });
+    expect(hosts.placeForDock).toHaveBeenCalledWith({ cpuFamily: undefined, runtime: null, dockId: expect.any(String), cpus: 2, memoryMiB: 4096, excludeHostIds: [], image: 'ubuntu-24.04' });
     expect(spy).toHaveBeenCalledWith(expect.anything(), { snapshotId: null, hostId: 'host-9' });
     spy.mockRestore();
   });
@@ -360,7 +360,7 @@ describe('DocksService', () => {
     const err = await catchErr(service.resume('u1', dockId));
     expect(err.status).toBe(503);
     expect(err.body).toMatchObject({ code: 'capacity_exhausted' });
-    expect(hosts.placeForDock).toHaveBeenCalledWith({ cpuFamily: 'aarch64', runtime: null, dockId, cpus: 2, memoryMiB: 4096, excludeHostIds: [] });
+    expect(hosts.placeForDock).toHaveBeenCalledWith({ cpuFamily: 'aarch64', runtime: null, dockId, cpus: 2, memoryMiB: 4096, excludeHostIds: [], image: 'ubuntu-24.04' });
   });
   it('routes restate resume at the placed host', async () => {
     config.get.mockReturnValue('restate');
@@ -635,7 +635,7 @@ describe('DocksService', () => {
     expect(err.status).toBe(400);
     expect(err.body).toMatchObject({ code: 'image_unavailable' });
     expect(err.body.message).toContain('node-22');
-    expect(hosts.placeForDock).toHaveBeenLastCalledWith(expect.objectContaining({ excludeHostIds: ['host-a', 'host-b'] }));
+    expect(hosts.placeForDock).toHaveBeenLastCalledWith(expect.objectContaining({ excludeHostIds: ['host-a', 'host-b'], image: 'node-22' }));
     spy.mockRestore();
   });
 
@@ -723,7 +723,7 @@ describe('DocksService', () => {
       .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1', cpuFamily: 'GenuineIntel:142:1', runtime: 'gvisor' }]));
     db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow({ runtime: 'gvisor' })]) }) }) });
     await expect(service.resume('u1', dockId)).resolves.toEqual({ id: dockId, state: 'ready' });
-    expect(hosts.placeForDock).toHaveBeenCalledWith({ cpuFamily: 'GenuineIntel:142:1', runtime: 'gvisor', dockId, cpus: 2, memoryMiB: 4096, excludeHostIds: [] });
+    expect(hosts.placeForDock).toHaveBeenCalledWith({ cpuFamily: 'GenuineIntel:142:1', runtime: 'gvisor', dockId, cpus: 2, memoryMiB: 4096, excludeHostIds: [], image: 'ubuntu-24.04' });
   });
 
   it('keeps a dock archived and resumable when resume placement refuses it', async () => {
@@ -886,7 +886,7 @@ describe('DocksService', () => {
       .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1', cpuFamily: 'x86_64-v4', baseFingerprint: fp }]));
     db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
     await service.resume('u1', dockId);
-    expect(hosts.placeForDock).toHaveBeenCalledWith({ cpuFamily: 'x86_64-v4', runtime: null, dockId, cpus: 2, memoryMiB: 4096, excludeHostIds: [], baseFingerprint: fp });
+    expect(hosts.placeForDock).toHaveBeenCalledWith({ cpuFamily: 'x86_64-v4', runtime: null, dockId, cpus: 2, memoryMiB: 4096, excludeHostIds: [], image: 'ubuntu-24.04', baseFingerprint: fp });
     spy.mockRestore();
   });
 

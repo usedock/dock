@@ -36,6 +36,8 @@ export const hosts = pgTable(
     baseFingerprints: jsonb('base_fingerprints').$type<string[]>(),
     /** Optional docklet behaviours reported at registration, such as egress-on-resume; empty for older docklets. */
     features: jsonb('features').notNull().$type<string[]>().default([]),
+    /** Image names the host serves, as it reported them; null until a docklet reports (older docklets and gVisor hosts never do). */
+    images: text('images').array(),
     /** SHA-256 of the per-host fleet credential; null until the host (re)registers with the enrollment token. */
     credentialHash: text('credential_hash'),
     state: text('state').notNull().$type<HostState>().default('online'),

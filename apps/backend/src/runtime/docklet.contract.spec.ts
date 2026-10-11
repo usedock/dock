@@ -105,6 +105,7 @@ const fleetDtos: Record<string, new () => object> = {
   'fleet-register-request.json': FleetRegisterDto,
   'fleet-heartbeat-request.json': FleetHeartbeatDto,
   'fleet-heartbeat-request-gvisor.json': FleetHeartbeatDto,
+  'fleet-heartbeat-request-images.json': FleetHeartbeatDto,
   'fleet-result-ok.json': HostCommandResultDto,
   'fleet-result-error.json': HostCommandResultDto,
 };

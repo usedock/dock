@@ -185,6 +185,14 @@ export class FleetHeartbeatDto {
   @ArrayMaxSize(256)
   @Matches(/^[0-9a-f]{64}$/, { each: true })
   baseFingerprints?: string[];
+
+  /** Image names the host serves (Dockyard images plus ubuntu-24.04); absent on gVisor hosts and older docklets, [] when none. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(64)
+  @IsString({ each: true })
+  @Matches(/^[a-z0-9][a-z0-9._-]{0,63}$/, { each: true })
+  images?: string[];
 }
 
 /** Result of one executed command; failure carries the docklet's own code. */

@@ -4,9 +4,10 @@ description: The official Dock images, how to list them, and how to create a Doc
 ---
 
 Dockyard is the catalog of official images a Dock can start from. The images are
-built from source in `usedock/docklet`. Control plane hosts serve only
-`ubuntu-24.04` today; the other images become usable as hosts learn to serve
-Dockyard images. The `dock` CLI's [local engine](/local-docks) boots any of them
+built from source in `usedock/docklet`. A control plane host serves
+`ubuntu-24.04` once its base exists, and any other image after an operator pulls
+it on that host (see [Self-hosting](/self-hosting#serve-dockyard-images-on-a-host)).
+The `dock` CLI's [local engine](/local-docks) boots any of them
 directly on an amd64 machine.
 
 ## Images
@@ -46,9 +47,11 @@ curl -sS "$DOCK_URL/v1/images" \
 }
 ```
 
-`available` is true when an online host serves the image. Hosts do not report
-which images they hold yet, so today only `ubuntu-24.04` shows as available, and
-only while at least one host is online.
+`available` is true when at least one online host serves the image. Each
+microVM host reports the images it serves in its heartbeat, so a pulled image
+shows as available within a heartbeat. A host that does not report images (a
+gVisor host or an older docklet) counts as serving `ubuntu-24.04` only. When
+you create a Dock, hosts that report the requested image are tried first.
 
 ## Create a Dock from an image
 
@@ -58,8 +61,8 @@ dock new --image ubuntu-24.04
 
 Over the API, send `image` in `POST /v1/docks`. An image that is not in the
 catalog is refused with 400 `image_unknown`; the message lists the valid names.
-A catalog image is accepted even when `available` is false. Each host that
-does not serve it is skipped, and when no host is left the call fails with 400
+A catalog image is accepted even when `available` is false. Hosts that report
+it are tried first; each host that does not serve it is skipped, and when no host is left the call fails with 400
 `image_unavailable` and the Dock is left in the `error` state.
 
 A branch (`POST /v1/docks/{id}/branch`) copies its source's disk, so it keeps the

@@ -118,6 +118,13 @@ describe('FleetService', () => {
     expect(hostsService.heartbeat).toHaveBeenCalledWith('h1', expect.objectContaining({ baseFingerprints: [fp] }));
   });
 
+  it('forwards the images a host reports, including an empty list', async () => {
+    await service.heartbeat({ hostId: 'h1', running: [], images: ['node-22'] });
+    expect(hostsService.heartbeat).toHaveBeenCalledWith('h1', expect.objectContaining({ images: ['node-22'] }));
+    await service.heartbeat({ hostId: 'h1', running: [], images: [] });
+    expect(hostsService.heartbeat).toHaveBeenLastCalledWith('h1', expect.objectContaining({ images: [] }));
+  });
+
   it('forwards the runtime a heartbeat reports', async () => {
     await service.heartbeat({ hostId: 'h1', runtime: 'gvisor', running: [] });
     expect(hostsService.heartbeat).toHaveBeenCalledWith('h1', expect.objectContaining({ runtime: 'gvisor' }));

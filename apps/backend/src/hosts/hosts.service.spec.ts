@@ -228,6 +228,26 @@ describe('HostsService', () => {
     expect(omitted.set).not.toHaveProperty('baseFingerprints');
   });
 
+  it('stores reported images, an empty list, and keeps them when a heartbeat omits them', async () => {
+    db.select.mockReturnValueOnce(selectQ([hostRow()]));
+    const reported: { set?: any } = {};
+    db.update.mockReturnValueOnce(updateQ([hostRow({ images: ['node-22'] })], reported));
+    await service.heartbeat('h1', { running: [], images: ['node-22'] });
+    expect(reported.set.images).toEqual(['node-22']);
+
+    db.select.mockReturnValueOnce(selectQ([hostRow({ images: ['node-22'] })]));
+    const empty: { set?: any } = {};
+    db.update.mockReturnValueOnce(updateQ([hostRow({ images: [] })], empty));
+    await service.heartbeat('h1', { running: [], images: [] });
+    expect(empty.set.images).toEqual([]);
+
+    db.select.mockReturnValueOnce(selectQ([hostRow({ images: ['node-22'] })]));
+    const omitted: { set?: any } = {};
+    db.update.mockReturnValueOnce(updateQ([hostRow({ images: ['node-22'] })], omitted));
+    await service.heartbeat('h1', { running: [] });
+    expect(omitted.set).not.toHaveProperty('images');
+  });
+
   it('rejects heartbeats from unknown hosts', async () => {
     db.select.mockReturnValueOnce(selectQ([]));
     const err = await catchErr(service.heartbeat('ghost', { usedDocks: 0 }));
@@ -313,6 +333,37 @@ describe('HostsService', () => {
       await expect(service.placeForDock({ cpuFamily: 'x86_64-v4', feature: 'egress-on-resume' })).resolves.toBeNull();
       useTx([hostRow({ id: 'old', features: [] })]);
       await expect(service.placeForDock({ cpuFamily: 'x86_64-v4' })).resolves.toMatchObject({ id: 'old' });
+    });
+  });
+
+  describe('placement for a Dockyard image', () => {
+    it('prefers a host that reports the image over a roomier one that does not', async () => {
+      useTx([hostRow({ id: 'roomy', usedDocks: 0, images: ['ubuntu-24.04'] }), hostRow({ id: 'serving', usedDocks: 6, images: ['ubuntu-24.04', 'node-22'] })]);
+      await expect(service.placeForDock({ image: 'node-22' })).resolves.toMatchObject({ id: 'serving' });
+    });
+
+    it('treats a host that never reported images as serving only the default image', async () => {
+      useTx([hostRow({ id: 'legacy', usedDocks: 0, images: null }), hostRow({ id: 'serving', usedDocks: 6, images: ['node-22'] })]);
+      await expect(service.placeForDock({ image: 'node-22' })).resolves.toMatchObject({ id: 'serving' });
+      useTx([hostRow({ id: 'legacy', usedDocks: 0, images: null }), hostRow({ id: 'empty', usedDocks: 6, images: [] })]);
+      await expect(service.placeForDock({ image: 'ubuntu-24.04' })).resolves.toMatchObject({ id: 'legacy' });
+    });
+
+    it('falls back to any eligible host when none reports the image', async () => {
+      useTx([hostRow({ id: 'a', usedDocks: 3, images: ['ubuntu-24.04'] }), hostRow({ id: 'b', usedDocks: 1, images: null })]);
+      await expect(service.placeForDock({ image: 'node-22' })).resolves.toMatchObject({ id: 'b' });
+    });
+
+    it('falls back when the serving host is full or excluded', async () => {
+      useTx([hostRow({ id: 'serving', usedDocks: 8, maxDocks: 8, images: ['node-22'] }), hostRow({ id: 'other', images: [] })]);
+      await expect(service.placeForDock({ image: 'node-22' })).resolves.toMatchObject({ id: 'other' });
+      useTx([hostRow({ id: 'serving', images: ['node-22'] }), hostRow({ id: 'other', images: [] })]);
+      await expect(service.placeForDock({ image: 'node-22', excludeHostIds: ['serving'] })).resolves.toMatchObject({ id: 'other' });
+    });
+
+    it('never prefers a serving host that lacks a required feature', async () => {
+      useTx([hostRow({ id: 'serving', usedDocks: 0, images: ['node-22'], features: [] }), hostRow({ id: 'confining', usedDocks: 6, images: [], features: ['egress-on-resume'] })]);
+      await expect(service.placeForDock({ image: 'node-22', feature: 'egress-on-resume' })).resolves.toMatchObject({ id: 'confining' });
     });
   });
 
