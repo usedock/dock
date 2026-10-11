@@ -1,0 +1,224 @@
+---
+title: Objects
+description: The fields of the Dock, operation, Environment, Snapshot, Template, Run, Installation, organization, workspace, and Host objects as the API returns them.
+---
+
+Each table lists the fields of the `data` value a route returns. Timestamps are
+ISO 8601 strings. Fields marked nullable are present with the value `null`
+when unset. Shared rules are in [Conventions](/api).
+
+## Dock
+
+Built field by field, so new columns are never exposed by default. Environment
+variable values and credential hashes are never returned. Returned by the
+[Docks](/api/docks) routes.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Dock id. |
+| `workspaceId` | uuid | Owning workspace. |
+| `name` | string, nullable | Name, unique per workspace. |
+| `image` | string | `ubuntu-24.04`. |
+| `cpus` | integer | vCPUs. |
+| `memoryMiB` | integer | Memory in MiB. |
+| `diskGiB` | integer | Disk in GiB. |
+| `runtime` | string | `microvm` or `gvisor`, chosen by the host; read-only. |
+| `persistentPaths` | array of strings | Paths the runtime keeps across stop and resume. |
+| `state` | string | `provisioning`, `provisioned`, `cloning`, `ready`, `idle`, `running`, `archiving`, `archived`, `error`, or `unreachable`. |
+| `ttlSeconds` | integer, nullable | Auto-stop timer; `null` means none. |
+| `environment` | string | Name of the Environment it started with. |
+| `fromTemplate` | string, nullable | Template it was created from. |
+| `ip` | string, nullable | Address on the host. |
+| `hostId` | string, nullable | Host it runs on. |
+| `billingPausedAt` | timestamp, nullable | Set when a stop was refused and billing is paused. |
+| `setupStatus` | string | `pending`, `running`, `done`, or `failed`. |
+| `setupError` | string, nullable | Why setup failed. |
+| `lastSnapshotAt` | timestamp, nullable | When the latest Snapshot was taken. |
+| `stateChangedAt` | timestamp | When `state` last changed. |
+| `createdAt` | timestamp | Creation time. |
+| `updatedAt` | timestamp | Last update. |
+
+## Operation
+
+A pollable receipt for accepted work. Returned by delete routes and
+`POST /v1/environments/:ref/upgrade` (inside `{ "operation": ... }`), and by
+[`GET /v1/operations/:id`](/api/docks#get-v1operationsid).
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Operation id, `op_` followed by 20 characters. |
+| `targetType` | string | `dock`, `snapshot`, `template`, or `environment`. |
+| `targetId` | string | Id of the thing the operation changes. |
+| `status` | string | `pending`, `processing`, `blocked`, or `completed`. |
+
+## Environment
+
+Secret values are never included; names and sizes are. Returned by the
+[Environments](/api/environments) routes.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Environment id. |
+| `organizationId` | uuid | Owning organization. |
+| `name` | string | Name, unique per organization. |
+| `isDefault` | boolean | Whether it is the organization default. |
+| `currentVersion` | integer | Latest version number. |
+| `secretsAccess` | string | `members` or `admins`. |
+| `safeForThirdParties` | boolean | Posture flag of the current version. |
+| `passGithub` | boolean | Posture flag of the current version. |
+| `passSecrets` | boolean | Posture flag of the current version. |
+| `passDockCredentials` | boolean | Posture flag of the current version. |
+| `passAgentsCredentials` | boolean | Posture flag of the current version. |
+| `connections` | object | `{ "github": { "connected": boolean }, "gitlab": { "connected": boolean } }`. |
+| `varNames` | array of strings | Names of the variables, sorted. |
+| `files` | array of objects | Secret files as `{ "path": string, "size": integer }`. |
+| `repos` | array of objects | Repos as `{ "id", "provider", "repositoryId", "fullName", "baseBranch" (nullable), "hasSetupScript" }`. |
+| `createdAt` | timestamp | Creation time. |
+| `updatedAt` | timestamp | Last update. |
+
+## Snapshot
+
+A Snapshot is returned as its stored record, so internal bookkeeping fields are
+present too. Returned by the [Snapshots](/api/snapshots) routes.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Snapshot id. |
+| `dockId` | uuid | Dock it was taken from. |
+| `status` | string | `saving`, `completed`, or `failed`. |
+| `sizeBytes` | integer | Size of the capture. |
+| `parentId` | uuid, nullable | The earlier Snapshot this one builds on. |
+| `manifest` | object | Internal file listing, `{ "files": [ { "path", "size", "content" } ] }`. Use the tree and files routes instead. |
+| `storeSnapshotId` | string, nullable | Internal storage id. |
+| `cpuFamily` | string, nullable | CPU family it must restore onto. |
+| `runtime` | string, nullable | Runtime that captured it. |
+| `kernelRelease` | string, nullable | Kernel release of the capturing host. |
+| `baseFingerprint` | string, nullable | Base image a delta restores onto. |
+| `createdAt` | timestamp | Creation time. |
+
+## Template
+
+A Template is returned as its stored record. Returned by the
+[Templates](/api/snapshots) routes.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Template id. |
+| `organizationId` | uuid | Owning organization. |
+| `name` | string | Name, unique per organization. |
+| `sourceDockId` | uuid, nullable | Dock it was saved from. |
+| `status` | string | `saving`, `ready`, or `failed`. |
+| `sizeBytes` | integer | Size of the capture. |
+| `snapshotRef` | string, nullable | Snapshot it references instead of owning a capture. |
+| `storeSnapshotId` | string, nullable | Internal storage id of a capture it owns. |
+| `cpuFamily` | string, nullable | CPU family it must restore onto. |
+| `runtime` | string, nullable | Runtime that captured it. |
+| `baseFingerprint` | string, nullable | Base image a delta restores onto. |
+| `savingSince` | timestamp, nullable | Set while a capture is in flight. |
+| `createdAt` | timestamp | Creation time. |
+| `updatedAt` | timestamp | Last update. |
+
+## Run
+
+Built field by field. Tokens, token hashes, and the run envelope are never
+returned. Returned by the [GitHub](/api/github) Run routes.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Run id. |
+| `installationId` | uuid | Installation that started it. |
+| `workspaceId` | uuid | Workspace it runs in. |
+| `organizationId` | uuid, nullable | Owning organization. |
+| `repo` | string | `owner/name` repository. |
+| `issueNumber` | integer | Issue that triggered it. |
+| `dockId` | uuid, nullable | Dock it runs in. |
+| `executionTarget` | string | `dock` or `fast`. |
+| `state` | string | `pending`, `provisioning`, `working`, `pr_opened`, `failed`, `stopped`, or `done`. |
+| `prNumber` | integer, nullable | Pull request number once opened. |
+| `prUrl` | string, nullable | Pull request URL once opened. |
+| `failureReason` | string, nullable | Why it failed. |
+| `agent` | string | Coding agent name. |
+| `branch` | string, nullable | Branch the work is pushed to. |
+| `baseBranch` | string | Branch the pull request targets. |
+| `promptVersion` | string, nullable | Version of the prompt used. |
+| `testCommand` | string, nullable | Command used to check the work. |
+| `completionStatus` | string, nullable | Outcome the Run reported. |
+| `events` | array of objects | Timeline entries `{ "t": string, "at": string }`. |
+| `createdAt` | timestamp | Creation time. |
+| `updatedAt` | timestamp | Last update. |
+
+## Installation
+
+A GitHub App installation linked to a workspace. Returned by the
+[GitHub](/api/github) installation routes.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Installation id in Dock. |
+| `installationId` | integer | GitHub's installation id. |
+| `workspaceId` | uuid | Workspace the installation provisions and bills in. |
+| `createdBy` | uuid | User who linked it. |
+| `repos` | array of strings | `owner/name` repositories the App may act on. |
+| `agent` | string | Coding agent name, default `opencode`. |
+| `testCommand` | string, nullable | Command Runs use to check their work. |
+| `createdAt` | timestamp | Creation time. |
+| `updatedAt` | timestamp | Last update. |
+
+## Organization
+
+Returned by the [Organizations](/api/organizations) routes.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Organization id. |
+| `name` | string | Display name. |
+| `slug` | string | Unique slug. |
+| `seats` | integer | Seat count. |
+| `createdAt` | timestamp | Creation time. |
+| `updatedAt` | timestamp | Last update. |
+| `role` | string | Your role: `owner`, `admin`, or `member`. Present on create, list, and read, not on update. |
+
+## Workspace
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Workspace id. |
+| `organizationId` | uuid | Owning organization. |
+| `name` | string | Display name. |
+| `slug` | string | Slug, unique per organization. |
+| `createdAt` | timestamp | Creation time. |
+| `updatedAt` | timestamp | Last update. |
+
+## Host summary
+
+Built field by field. The fleet credential is never returned. Returned by
+[`GET /v1/hosts`](/api/hosts).
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Host id. |
+| `address` | string | Last address the host connected from; informational. |
+| `cpuFamily` | string | CPU family. |
+| `kernel` | string | Kernel the host runs. |
+| `runtime` | string | `microvm` or `gvisor`. |
+| `kernelRelease` | string, nullable | Kernel release. |
+| `vcpuTotal` | integer | Total vCPUs. |
+| `memTotalBytes` | integer | Total memory in bytes. |
+| `diskTotalBytes` | integer | Total disk in bytes. |
+| `maxDocks` | integer | Most Docks the host accepts. |
+| `usedDocks` | integer | Docks placed on it. |
+| `runningDocks` | integer | Runtimes the host last reported running. |
+| `state` | string | `online` or `offline`. |
+| `lastHeartbeatAt` | timestamp, nullable | Last heartbeat. |
+| `createdAt` | timestamp | Registration time. |
+
+## Host detail
+
+Everything in the [Host summary](#host-summary), plus the workload on the host.
+Returned by `GET /v1/hosts/:id`.
+
+| Field | Type | Description |
+|---|---|---|
+| `docks` | array of objects | Non-archived Docks placed on it, as `{ "id", "name", "state", "cpus", "memoryMiB", "diskGiB", "runtime", "ip", "stateChangedAt", "workspaceName", "organizationId", "organizationName" }`. |
+| `runs` | array of objects | Ephemeral Run runtimes, as `{ "dockId", "state", "kind" }`; `kind` may be absent. |
+| `orphans` | array of objects | Reported runtimes that match no Dock; the reconciler fences these. Same shape as `runs`. |

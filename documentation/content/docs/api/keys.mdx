@@ -1,0 +1,190 @@
+---
+title: Keys
+description: API keys, SSH keys, organization provider keys, and the ChatGPT connection.
+---
+
+All routes here need an API key or session unless stated. Secrets are never
+returned after creation, except by the reveal route. Shared rules are in
+[Conventions](/api).
+
+## API keys
+
+API keys belong to you and act as you. See
+[Authentication](/api#authentication). Routes return an API key object:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Key id. |
+| `name` | string | Label. |
+| `keyPrefix` | string | First characters of the raw key, to tell keys apart. |
+| `expiresAt` | timestamp, nullable | When the key stops working; `null` means never. |
+| `revokedAt` | timestamp, nullable | When the key was revoked. |
+| `lastUsedAt` | timestamp, nullable | Last successful use. |
+| `createdAt` | timestamp | Creation time. |
+
+### `POST /v1/api-keys`
+
+Create an API key (201). The raw `dock_...` value is returned only in this
+response. Limited to 10 per hour and 20 active keys per user.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `name` | string | yes | 1 to 100 | Label. |
+| `expiresAt` | string | no | ISO 8601, in the future | When the key stops working; no expiry when omitted. |
+
+Response: a key object plus `apiKey`, the raw value. Errors: `validation_error`,
+`rate_limited`, `api_key_limit_reached`.
+
+### `GET /v1/api-keys`
+
+List your keys, newest first, including revoked ones. Raw values are never
+returned.
+
+Response: an array of key objects.
+
+### `DELETE /v1/api-keys/:id`
+
+Revoke a key.
+
+Response: `{ "revoked": true }`. Errors: `api_key_not_found`.
+
+## SSH keys
+
+Public keys the SSH gateway accepts for you. Routes return an SSH key object:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Key id. |
+| `name` | string | Label. |
+| `publicKey` | string | The public key in OpenSSH format. |
+| `fingerprint` | string | `SHA256:` fingerprint. |
+| `lastUsedAt` | timestamp, nullable | Last sign-in with the key. |
+| `createdAt` | timestamp | Creation time. |
+
+### `POST /v1/ssh-keys`
+
+Add an SSH key (201). Limited to 10 per hour and 20 keys per user.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `name` | string | yes | 1 to 100 | Label. |
+| `publicKey` | string | yes | 1 to 16384 | One OpenSSH public key line, such as the contents of `~/.ssh/id_ed25519.pub`. |
+
+Response: an SSH key object. Errors: `validation_error`, `rate_limited`,
+`ssh_key_exists`, `ssh_key_limit_reached`.
+
+### `GET /v1/ssh-keys`
+
+List your SSH keys, newest first.
+
+Response: an array of SSH key objects.
+
+### `DELETE /v1/ssh-keys/:id`
+
+Remove an SSH key.
+
+Response: `{ "deleted": true }`. Errors: `ssh_key_not_found`.
+
+## Provider keys
+
+Provider keys are organization-wide model-provider keys, sealed at rest. The
+`provider` is one of `anthropic`, `openai`, `openrouter`, `opencode`. A provider
+key status is `{ "provider": "anthropic", "configured": true, "updatedAt": "..." }`.
+All routes take the organization in `organizationId`.
+
+### `GET /v1/agent-credentials`
+
+Show which providers have a key set. Role: `member`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` (query) | uuid | yes | | Organization. |
+
+Response: an array with one status per provider, `configured: false` and
+`updatedAt: null` for the ones without a key. Errors: `validation_error`,
+`provider_keys_not_found` (not a member).
+
+### `PUT /v1/agent-credentials`
+
+Set or replace a provider key. Role: `admin`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` | uuid | yes | | Organization. |
+| `provider` | string | yes | `anthropic`, `openai`, `openrouter`, `opencode` | Provider. |
+| `key` | string | yes | 1 to 512 | The key. |
+
+Response: the provider key status. Errors: `validation_error`,
+`provider_keys_not_found` (not a member).
+
+### `GET /v1/agent-credentials/:provider/reveal`
+
+Return the stored key in plaintext. Role: `admin`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` (query) | uuid | yes | | Organization. |
+
+Response: `{ "provider": "anthropic", "key": "..." }`. Errors: `validation_error`,
+`provider_keys_not_found`.
+
+### `DELETE /v1/agent-credentials/:provider`
+
+Remove a provider key. Role: `admin`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` (query) | uuid | yes | | Organization. |
+
+Response: the provider key status, `configured: false`. Errors: `validation_error`,
+`provider_keys_not_found`.
+
+## ChatGPT connection
+
+Your own ChatGPT subscription sign-in, never visible to other members. It is off
+unless the instance enables it (`chatgptSignIn` in `GET /v1/config`). A
+connection is:
+
+| Field | Type | Description |
+|---|---|---|
+| `connected` | boolean | Whether a subscription is connected. |
+| `status` | string, nullable | `active`, or `expired` when you must sign in again. |
+| `email` | string, nullable | The ChatGPT account email. |
+| `planType` | string, nullable | The ChatGPT plan. |
+| `updatedAt` | timestamp, nullable | Last change. |
+
+When nothing is connected, `connected` is `false` and the other fields are `null`.
+
+### `GET /v1/chatgpt/connection`
+
+Read the connection status.
+
+Response: the connection.
+
+### `POST /v1/chatgpt/connection/device`
+
+Start the device sign-in flow. Limited to 10 per hour per user.
+
+Response:
+
+```json
+{ "userCode": "ABCD-1234", "verificationUrl": "https://...", "intervalSeconds": 5, "expiresAt": "..." }
+```
+
+Send the user to `verificationUrl` to enter `userCode`, then poll. Errors:
+`chatgpt_signin_disabled`, `rate_limited`, `chatgpt_unavailable`.
+
+### `POST /v1/chatgpt/connection/device/poll`
+
+Poll the device flow. It stores the sign-in once the user approves.
+
+Response: `{ "state": "pending" }` while waiting, or `{ "state": "connected" }`
+plus the connection fields once approved. Errors: `chatgpt_signin_disabled`,
+`device_code_expired`, `chatgpt_unavailable`.
+
+### `DELETE /v1/chatgpt/connection`
+
+Disconnect.
+
+Response: the connection with `connected: false`. Errors:
+`chatgpt_not_connected`.

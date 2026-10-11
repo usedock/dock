@@ -1,0 +1,221 @@
+---
+title: Conventions
+description: Base URL, authentication, envelopes, errors, idempotency, confirmation, operations, and rate limits for the Dock API.
+---
+
+These conventions apply to every route in the API reference. The resource pages
+([Docks](/api/docks), [Snapshots and templates](/api/snapshots),
+[Environments](/api/environments), [Organizations](/api/organizations),
+[Keys](/api/keys), [Webhooks](/api/webhooks), [GitHub](/api/github),
+[Hosts](/api/hosts), [Account](/api/account)) list each route, and
+[Objects](/api/objects) describes what the routes return.
+
+## Base URL
+
+The API lives under `<DOCK_PUBLIC_URL>/v1` on your [self-hosted](/self-hosting)
+control plane. The running API serves its OpenAPI contract at
+`GET /openapi.json` (outside `/v1`, no credentials).
+
+## Authentication
+
+| Credential | How to send it | Used for |
+|---|---|---|
+| API key | `Authorization: Bearer dock_...` | Automation. A key acts as the user who created it. |
+| Browser session | The cookie set by the dashboard sign-in (`/api/auth`) | The dashboard. Used only when no `Authorization` header is sent. |
+
+Create and revoke API keys in the dashboard under Developers > API keys, or with
+[`POST /v1/api-keys`](/api/keys#post-v1api-keys). The raw value is shown once and
+only its hash is stored.
+
+Three kinds of route differ:
+
+- Public routes need no credentials: `GET /v1/config`, `POST /v1/contact`,
+  and the machine-only routes that are not part of the public API.
+- Session-only routes refuse API keys with `session_required` (403). Each
+  page marks them with "Session only".
+- Dock-bound keys (issued to a single Dock) may call only `GET /v1/docks/:id`,
+  the three port routes, and `GET /v1/docks/:id/stats`, and only for their own
+  Dock. Anything else fails with `dock_key_forbidden` (403).
+
+Organization roles are `member`, `admin`, and `owner`, in increasing order. A
+route's "Role" line is the lowest role allowed. A caller who is not a member of
+the owning organization gets `404`, not `403`, so ids never leak across
+organizations. A member whose role is below the route's Role gets `forbidden`
+(403).
+
+A closed account can only call `POST /v1/account/reopen` and
+`POST /v1/account/erase`; every other route
+fails with `account_closed` (403), or 410 once the data is erased.
+
+## Envelope
+
+Every successful response is wrapped:
+
+```json
+{ "ok": true, "data": { "...route payload..." } }
+```
+
+Every failure has the same shape with a stable machine-readable code:
+
+```json
+{ "ok": false, "code": "dock_not_found", "message": "Dock not found" }
+```
+
+Examples on the resource pages show the `data` value only. Two things are not
+enveloped: `GET /v1/snapshots/:id/files` returns raw bytes, and the terminal
+WebSocket is a stream.
+
+Request bodies are JSON. Unknown body fields are rejected with
+`validation_error` (400).
+
+## Errors
+
+Codes are `snake_case`. Generic codes follow the HTTP status; the rest are
+specific to an operation.
+
+| Code | HTTP status | Meaning |
+|---|---|---|
+| `validation_error` | 400 | A body field, query parameter, or header failed validation. |
+| `unauthorized` | 401 | Missing, invalid, expired, or revoked credentials. |
+| `forbidden` | 403 | Authenticated, but not allowed. |
+| `not_found` | 404 | The resource does not exist or is not visible to you. |
+| `conflict` | 409 | The state does not allow the request, for example resuming a Dock that is not archived. |
+| `rate_limited` | 429 | A [rate limit](#rate-limits) was hit. |
+| `internal_error` | 500 | Unexpected failure. |
+| `bad_gateway` | 502 | An upstream answered badly. |
+| `service_unavailable` | 503 | A dependency is unavailable; the rate limiter fails closed. |
+| `session_required` | 403 | The route needs a signed-in browser session, not an API key. |
+| `dock_key_forbidden` | 403 | A Dock-bound key called a route it may not use. |
+| `account_closed` | 403 (410 once erased) | The account is closed or erased. |
+| `confirm_required` | 400 | A destructive call lacked its exact confirmation. |
+| `idempotency_key_reused` | 409 | An `idempotency-key` was reused with a different body. |
+| `idempotency_in_progress` | 409 | The first request with this key is still running. |
+| `dock_not_found` | 404 | No such Dock, or it is not yours. |
+| `dock_name_taken` | 409 | The name is in use in that workspace. |
+| `dock_busy` | 409 | The Dock is busy with another operation; retry shortly. |
+| `dock_not_running` | 409 | The call needs a ready Dock. |
+| `dock_delete_forbidden` | 403 | Only the Dock's creator or an organization admin can delete it. |
+| `capacity_exhausted` | 503 | No host has room for the requested `cpus` and `memoryMiB`. |
+| `no_host_capacity` | 503 | No online host can place the Dock. |
+| `base_image_unavailable` | 503 | The host lacks the base image the snapshot needs. |
+| `exec_unavailable` | 409 | The Dock has no exec agent, or a Run drives it. |
+| `exec_timeout` | 504 | The command exceeded `timeoutSeconds` and was killed. |
+| `exec_busy` | 503 | The host could not take the command; retry later. |
+| `exec_failed` | 503 | The host failed the command; retry later. |
+| `exec_result_expired` | 409 | A replayed command already ran but its result was not kept; it is not run again. |
+| `port_not_found` | 404 | The port is not exposed. |
+| `port_limit_reached` | 409 | A Dock exposes at most 10 ports. |
+| `ports_unavailable` | 503 | Hosted ports are not configured on this deployment. |
+| `snapshot_not_found` | 404 | No such Snapshot, or no such path in it. |
+| `snapshot_in_use` | 409 | A newer Snapshot or a Template still depends on it. |
+| `not_a_regular_file` | 422 | The requested path in a Snapshot is not a regular file. |
+| `file_too_large` | 413 | The file is too large to return. |
+| `template_not_found` | 404 | No such ready Template. |
+| `template_limit_reached` | 409 | An organization keeps at most 10 Templates. |
+| `template_source_missing` | 409 | The Template points at a Snapshot that no longer exists. |
+| `zdr_blocks_templates` | 403 | Templates are disabled while retention is enabled. |
+| `operation_not_found` | 404 | No such operation, or it is not yours. |
+| `environment_not_found` | 404 | No such Environment. |
+| `environment_name_taken` | 409 | The Environment name is in use. |
+| `environment_secrets_admin_only` | 403 | The Environment passes secrets into Docks and only admins may launch such Docks. |
+| `organization_not_found` | 404 | No such organization, or you are not a member. |
+| `workspace_not_found` | 404 | No such workspace. |
+| `workspace_not_empty` | 409 | Delete the Docks in the workspace first. |
+| `member_not_found` | 404 | No such member. |
+| `user_not_found` | 404 | No user with that id. |
+| `invitation_not_found` | 404 | The invitation is unknown, expired, revoked, used, or not addressed to you. |
+| `slug_taken` | 409 | The slug is in use. |
+| `seats_exceeded` | 409 | The organization has no free seat. |
+| `cannot_remove_owner` | 400 | An organization must keep at least one owner. |
+| `sole_owner_of_shared_org` | 409 | You are the only owner of an organization that has other members. |
+| `api_key_not_found` | 404 | No such API key. |
+| `api_key_limit_reached` | 409 | At most 20 active API keys per user. |
+| `ssh_key_not_found` | 404 | No such SSH key. |
+| `ssh_key_exists` | 409 | The key is already added. |
+| `ssh_key_limit_reached` | 409 | At most 20 SSH keys per user. |
+| `provider_keys_not_found` | 404 | No key stored for that provider. |
+| `webhook_endpoint_not_found` | 404 | No such webhook endpoint. |
+| `endpoints_exceeded` | 409 | At most 10 webhook endpoints per organization. |
+| `notification_not_found` | 404 | No such notification. |
+| `last_login_method` | 409 | You cannot remove your only way to sign in. |
+| `chatgpt_not_connected` | 404 | No ChatGPT subscription is connected. |
+| `chatgpt_signin_disabled` | 403 | ChatGPT sign-in is off on this instance. |
+| `chatgpt_unavailable` | 502 | OpenAI answered badly or was unreachable. |
+| `device_code_expired` | 400 | The ChatGPT device sign-in expired; start again. |
+| `installation_not_found` | 404 | No such GitHub installation, or, on GitHub routes, no such workspace. |
+| `installation_not_accessible` | 403 | The installation cannot be linked by you. |
+| `run_not_found` | 404 | No such Run. |
+| `run_not_promotable` | 409 | The Run cannot be promoted. |
+| `fast_run_disabled` | 503 | Fast Run is off on this deployment. |
+| `fast_run_concurrency_exceeded` | 409 | The plan's concurrent Fast Run limit is reached. |
+| `invalid_state` | 400 | The GitHub link or manifest state is unknown, expired, or not yours. |
+| `invalid_code` | 400 | GitHub rejected the manifest code. |
+| `github_unavailable` | 502 | GitHub was unreachable or answered badly. |
+| `github_app_oauth_not_configured` | 503 | `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET` are not set. |
+| `unavailable` | 503 | The link state store is unavailable. |
+| `instance_admin_required` | 403 | Only instance admins may call this. |
+| `email_verification_required` | 403 | Verify your email to use instance admin features. |
+| `host_not_found` | 404 | No such host. |
+| `mail_unavailable` | 503 | The contact message could not be delivered. |
+| `subscription_required` | 402 | An active subscription is required to start compute. |
+| `concurrency_exceeded` | 409 | The plan's concurrent Dock limit is reached. |
+| `budget_exceeded` | 403 | The monthly budget is exhausted. |
+
+## Idempotency
+
+`POST /v1/docks`, `POST /v1/docks/:id/branch`, and `POST /v1/docks/:id/exec`
+accept an optional `idempotency-key` header. A retry with the same key returns
+the original result instead of repeating the work.
+
+For `POST /v1/docks` and `POST /v1/docks/:id/branch`, keys are scoped to the
+organization and kept for 24 hours. Reusing a key with a different body fails
+with `idempotency_key_reused` (409), and retrying while the first request still
+runs fails with `idempotency_in_progress` (409).
+
+On `POST /v1/docks/:id/exec` the key is 1 to 255 characters and scoped to the
+Dock; a reused key replays the first command's result whatever the body.
+
+## Delete confirmation
+
+`DELETE /v1/docks/:id` and `DELETE /v1/snapshots/:id` need an `x-confirm-delete`
+header whose value is exactly the id being deleted. Without it they fail with
+`confirm_required` (400). Two other destructive calls confirm with a phrase in
+the body instead: `POST /v1/account/erase` and `PATCH /v1/account/retention`.
+
+## Operations
+
+Calls that delete a Dock, Snapshot, or Template, and
+`POST /v1/environments/:ref/upgrade`, return an
+[operation](/api/objects#operation). Poll it with
+[`GET /v1/operations/:id`](/api/docks#get-v1operationsid) until `status` is
+`completed`. An operation with status `blocked` could not finish; retrying the
+same action reuses it.
+
+## Rate limits
+
+Limits are fixed windows counted in Redis. Past the limit the call fails with
+`rate_limited` (429). If the counter store is down the call fails with
+`service_unavailable` (503) rather than running unthrottled.
+
+| Scope | Limit |
+|---|---|
+| `POST /v1/docks/:id/exec`, per Dock | 120 per minute, and 4 in flight |
+| `POST /v1/docks/:id/exec`, per caller | 600 per minute |
+| `POST /v1/docks/:id/terminal`, per caller | 30 per minute; at most 4 open terminals per Dock and 8 per user |
+| `POST /v1/api-keys`, per user | 10 per hour |
+| `POST /v1/ssh-keys`, per user | 10 per hour |
+| `POST /v1/chatgpt/connection/device`, per user | 10 per hour |
+| `POST /v1/contact`, per client address | 3 per hour |
+| GitHub Runs started from mentions, per installation and repository | 10 per hour |
+| Outbound webhook deliveries, per endpoint | 60 per minute |
+
+## Pagination and filtering
+
+Two listings page with an opaque cursor: Snapshots (`GET /v1/snapshots`,
+`GET /v1/docks/:id/snapshots`) and `GET /v1/notifications`. Send `limit`
+(1 to 100) and the `cursor` from the previous response's `nextCursor`; a `null`
+`nextCursor` ends the list. `GET /v1/docks` filters by state group with
+`filter` and `all`. Every other list returns everything in one response.
+
+Routes that act inside an organization take `organizationId` in the query string
+(or in the body for writes that say so), and GitHub routes take `workspaceId`.

@@ -1,0 +1,116 @@
+---
+title: Webhooks
+description: Outbound Dock lifecycle webhooks, with endpoints, events, deliveries, and signatures.
+---
+
+Webhooks send an HTTPS `POST` to your URL when a Dock changes state. Endpoints
+belong to an organization. Creating and deleting an endpoint need org role
+`admin` and a signed-in browser session (Session only); reads need `member` and
+accept API keys. Every route takes `organizationId`. Shared rules are in
+[Conventions](/api).
+
+Event types:
+
+| Event | Sent when |
+|---|---|
+| `dock.ready` | A Dock becomes ready. |
+| `dock.error` | A Dock fails to start. |
+| `dock.archived` | A Dock stops and is archived. |
+| `dock.hydrated` | An archived Dock is resumed and ready again. |
+
+Each delivery is a JSON body:
+
+```json
+{
+  "id": "event uuid",
+  "type": "dock.ready",
+  "occurredAt": "2026-01-01T12:00:00.000Z",
+  "dock": { "id": "dock uuid", "state": "ready" },
+  "organizationId": "org uuid",
+  "workspaceId": "workspace uuid"
+}
+```
+
+The `dock-signature` header is `t=<unix seconds>,v1=<hex>`, where `v1` is the
+HMAC-SHA256 of `<t>.<raw body>` keyed with the endpoint's secret. Reject
+signatures more than 300 seconds old. A `2xx` answer marks the delivery sent;
+`408`, `429`, `5xx`, and network failures are retried with a backoff from 30
+seconds doubling to one hour, up to 25 attempts; a `410` disables the endpoint,
+and disabled endpoints receive nothing; any other `4xx` is not retried. Deliveries to one
+endpoint are limited to 60 per minute, and the receiver has 10 seconds to answer.
+
+Endpoint routes return an endpoint object:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Endpoint id. |
+| `organizationId` | uuid | Owning organization. |
+| `name` | string | Label. |
+| `url` | string | Where deliveries are sent. |
+| `events` | array of strings | Event types it receives. |
+| `secretPrefix` | string | First 8 characters of the signing secret. |
+| `disabled` | boolean | `true` after a receiver answered `410`. |
+| `createdAt` | timestamp | Creation time. |
+| `updatedAt` | timestamp | Last update. |
+
+### `POST /v1/webhooks/endpoints`
+
+Create an endpoint (201). Session only. Role: `admin`. An organization has at
+most 10 endpoints, and the URL may not resolve to a private address.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` | uuid | yes | | Owning organization. |
+| `name` | string | yes | 1 to 100 | Label. |
+| `url` | string | yes | `https` on port 443, max 2000, must not resolve to a private address | Where deliveries are sent. |
+| `events` | array of strings | yes | at least one of the event types above | Events to receive. |
+
+Response: an endpoint object plus `secret`, the signing secret, shown only in
+this response. Errors: `validation_error`, `session_required`,
+`organization_not_found`, `endpoints_exceeded`.
+
+### `GET /v1/webhooks/endpoints`
+
+List an organization's endpoints, newest first. Role: `member`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` (query) | uuid | yes | | Organization. |
+
+Response: an array of endpoint objects. Errors: `validation_error`,
+`organization_not_found`.
+
+### `GET /v1/webhooks/endpoints/:id`
+
+Read one endpoint. Role: `member`. Takes `organizationId` in the query as above.
+
+Response: an endpoint object. Errors: `validation_error`,
+`webhook_endpoint_not_found`.
+
+### `DELETE /v1/webhooks/endpoints/:id`
+
+Delete an endpoint. Session only. Role: `admin`. Takes `organizationId` in the
+query as above.
+
+Response: `{ "removed": true }`. Errors: `session_required`,
+`webhook_endpoint_not_found`.
+
+### `GET /v1/webhooks/endpoints/:id/deliveries`
+
+List the endpoint's 100 most recent delivery attempts, newest first. Role:
+`member`. Takes `organizationId` in the query as above.
+
+Response: an array of delivery attempts:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Attempt id. |
+| `eventId` | uuid | Event delivered. |
+| `endpointId` | uuid | Endpoint it was sent to. |
+| `event` | string | Event type. |
+| `status` | integer, nullable | HTTP status the receiver answered with; `null` when it did not answer. |
+| `error` | string, nullable | Failure text. |
+| `createdAt` | timestamp | When the attempt was made. |
+
+Errors:
+`validation_error`, `webhook_endpoint_not_found`.

@@ -1,0 +1,256 @@
+---
+title: Docks
+description: Create, list, update, stop, resume, branch, delete, and run commands in Docks, plus ports, terminal, stats, and operations.
+---
+
+A Dock is an isolated Linux machine; see [Docks](/concepts/docks) and
+[Runtimes and images](/concepts/runtimes). Routes return the [Dock object](/api/objects#dock).
+All routes need an API key or session and org role `member` unless stated.
+Shared rules (envelope, errors, idempotency) are in [Conventions](/api).
+
+Size fields share the same limits wherever they appear:
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `cpus` | integer | no | 1 to 64, default 2 | vCPUs. |
+| `memoryMiB` | integer | no | 512 to 262144, default 4096 | Memory in MiB. |
+| `diskGiB` | integer | no | 1 to 2048, default 20 | Disk in GiB. |
+
+The upper bounds are validation limits; placement also needs a host with room,
+or the call fails with `capacity_exhausted` (503).
+
+Lifecycle calls (stop, resume, branch, delete) can also fail with `dock_busy`
+(409) while the host is busy with another operation on the same Dock; retry
+shortly.
+
+### `POST /v1/docks`
+
+Create a Dock (201) and return it once the host has made it ready.
+
+Auth: API key or session. Role: `member` of the workspace's organization.
+Accepts `idempotency-key`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `workspaceId` | uuid | yes | | Workspace that owns the Dock. |
+| `name` | string | no | max 100, unique per workspace | Generated when omitted. |
+| `image` | string | no | default `ubuntu-24.04` | The only image today. |
+| `cpus`, `memoryMiB`, `diskGiB` | integer | no | see above | Size. |
+| `ttlSeconds` | integer or null | no | 60 to 2592000, default `null` | Seconds after the Dock becomes ready before it stops automatically; `null` disables auto-stop. |
+| `environment` | string | no | max 100 | Environment name; the organization default when omitted. |
+| `noEnv` | boolean | no | default `false` | Skip the Environment's variables and files. |
+| `env` | object of strings | no | at most 100 variables, 64 KB total; names starting with `DOCK_` and platform-reserved names are refused | Extra environment variables for this Dock. |
+| `from` | string | no | max 64 | Template name to start from. |
+| `setupScript` | string | no | max 65536 | Script run once after the Dock is ready. |
+
+Response: the [Dock object](/api/objects#dock).
+
+Errors: `validation_error` (including an unknown `image`, or a size larger than
+every online host), `dock_not_found` (unknown workspace),
+`environment_not_found`, `environment_secrets_admin_only`, `template_not_found`,
+`template_source_missing`, `dock_name_taken`, `capacity_exhausted`,
+`no_host_capacity`, `base_image_unavailable`, `subscription_required`,
+`concurrency_exceeded`, `budget_exceeded`, `idempotency_key_reused`,
+`idempotency_in_progress`.
+
+### `GET /v1/docks`
+
+List Docks across your organizations.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `filter` (query) | string | no | letters from `r s p t e`, default `r` | State groups: `r` ready, cloning, idle, running; `s` archived; `p` provisioning, provisioned; `t` archiving; `e` error, unreachable. |
+| `all` (query) | boolean | no | `true` or `false` | `true` includes every state and ignores `filter`. |
+
+Response: an array of [Dock objects](/api/objects#dock). Errors: `validation_error`.
+
+### `GET /v1/docks/:id`
+
+Read one Dock. Dock-bound keys may call this for their own Dock.
+
+Response: the [Dock object](/api/objects#dock). Errors: `dock_not_found`.
+
+### `PATCH /v1/docks/:id`
+
+Update a Dock. Every field is optional.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `name` | string | no | max 100 | New name, unique per workspace. |
+| `ttlSeconds` | integer or null | no | 60 to 2592000 | Auto-stop timer; `null` clears it. |
+| `cpus`, `memoryMiB`, `diskGiB` | integer | no | see above | New size. |
+
+A new size can only be set while the Dock is archived; it applies on the next
+resume.
+
+Response: the [Dock object](/api/objects#dock). Errors: `validation_error`,
+`dock_not_found`, `dock_name_taken`, `conflict` (size changed while the Dock is
+not archived, or `diskGiB` below the data it holds).
+
+### `DELETE /v1/docks/:id`
+
+Delete a Dock and its Snapshots (202).
+
+Role: the Dock's creator, or `admin`. Needs `x-confirm-delete: <dock id>`.
+
+Response: `{ "operation": { ... } }`, an [operation](/api/objects#operation).
+Errors: `confirm_required`, `dock_not_found`, `dock_delete_forbidden`,
+`snapshot_in_use` (a Template boots from one of its Snapshots), `conflict`,
+`dock_busy`.
+
+### `POST /v1/docks/:id/stop`
+
+Stop a Dock and save its state as a Snapshot (202). Stopping an archived or
+archiving Dock returns its current state.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `force` | boolean | no | | Archive the Dock without capturing a Snapshot; the machine is destroyed and the Dock keeps only its earlier Snapshots. |
+
+In an organization with retention enabled, a stop without `force` deletes the
+Dock's data, so it needs the Dock's creator or `admin`.
+
+Response: `{ "id": "...", "state": "archived" }`, or `"archiving"` when a stop is
+already under way. Errors: `dock_not_found`, `dock_delete_forbidden`, `conflict`
+(the Dock's state cannot stop), `dock_busy`, `service_unavailable` (the final
+Snapshot failed; the Dock keeps running and its billing is paused).
+
+### `POST /v1/docks/:id/resume`
+
+Boot an archived Dock from its latest Snapshot (202).
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `ttlSeconds` | integer or null | no | 60 to 2592000 | Auto-stop timer. |
+| `cpus`, `memoryMiB`, `diskGiB` | integer | no | see above | Size for this boot. |
+| `environment` | string | no | max 100 | Environment to bind. |
+| `noEnv` | boolean | no | | Skip the Environment. |
+
+Response: `{ "id": "...", "state": "..." }`. Errors: `validation_error`,
+`dock_not_found`, `environment_not_found`, `conflict` (the Dock is not archived,
+or has no completed Snapshot), `environment_secrets_admin_only`,
+`capacity_exhausted`, `no_host_capacity`, `base_image_unavailable`, `dock_busy`,
+`subscription_required`, `concurrency_exceeded`, `budget_exceeded`.
+
+### `POST /v1/docks/:id/branch`
+
+Copy a Dock into a new one (201): the source is captured and the copy starts
+from that Snapshot.
+
+Accepts `idempotency-key`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `name` | string | no | max 100 | Generated when omitted. |
+| `image` | string | no | default the source's image | `ubuntu-24.04`. |
+| `cpus`, `memoryMiB`, `diskGiB` | integer | no | see above | Size; defaults to the source's. |
+| `ttlSeconds` | integer or null | no | 60 to 2592000, default `null` | Auto-stop timer. |
+| `environment` | string | no | max 100 | Environment; defaults to the source's. |
+| `noEnv` | boolean | no | defaults to the source's | Skip the Environment. |
+| `env` | object of strings | no | as for `POST /v1/docks` | Merged over the source's variables. |
+
+Response: the [Dock object](/api/objects#dock). Errors: as for
+`POST /v1/docks`, plus `dock_not_found` and `dock_busy`.
+
+### `POST /v1/docks/:id/exec`
+
+Run one command in a ready Dock and return its bounded output.
+
+Accepts `idempotency-key` (1 to 255 characters); a replay with the same key
+returns the first command's result, whatever the body, and never runs it twice. The command runs as the Dock user under `bash -lc`. Not available
+on Docks driven by a Run. Rate limits are in [Conventions](/api#rate-limits).
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `command` | string | yes | 1 to 65536 bytes | Shell command. |
+| `timeoutSeconds` | integer | no | 1 to 600, default 60; also capped by the deployment | Seconds before the command is killed. |
+| `env` | object of strings | no | at most 64 variables, 32 KB total; names match `[A-Za-z_][A-Za-z0-9_]*`, max 128, not reserved | Extra environment for this call only; never stored. |
+| `cwd` | string | no | absolute path, max 1024, default `/home/user/work` | Working directory. |
+
+Response:
+
+```json
+{ "exitCode": 0, "stdout": "hello\n", "stderr": "", "durationMs": 214, "truncated": false }
+```
+
+`stdout` and `stderr` are UTF-8, each clipped to its first 1 MiB, and `truncated`
+is `true` when either was clipped. Errors: `validation_error`, `dock_not_found`,
+`environment_secrets_admin_only`, `dock_not_running`, `exec_unavailable`,
+`exec_timeout`, `exec_busy`, `exec_failed`, `exec_result_expired`,
+`rate_limited`.
+
+### `POST /v1/docks/:id/terminal`
+
+Issue a single-use terminal ticket (201). Open the terminal WebSocket at
+`GET /v1/docks/:id/terminal?ticket=<ticket>` before it expires.
+
+No body. Response:
+
+```json
+{ "ticket": "...", "expiresAt": "2026-01-01T12:00:30.000Z" }
+```
+
+The ticket is valid for 30 seconds. A terminal closes after 30 idle minutes or 12
+hours. Errors: `dock_not_found`, `environment_secrets_admin_only`,
+`dock_not_running`, `exec_unavailable`, `rate_limited`.
+
+### `GET /v1/docks/:id/ports`
+
+List exposed ports. Dock-bound keys may call this for their own Dock.
+
+Response: an array of `{ "port": 3000, "url": "https://...", "createdAt": "..." }`.
+`url` is `null` while hosted ports are off. Errors: `dock_not_found`,
+`environment_secrets_admin_only`.
+
+### `POST /v1/docks/:id/ports`
+
+Expose a Dock port at a public URL (201). Exposing a port again returns the same
+URL. Dock-bound keys may call this for their own Dock. A Dock exposes at most 10
+ports.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `port` | integer | yes | 1 to 65535; 2222 is reserved | TCP port inside the Dock; services bound to localhost are reachable. |
+
+Response: `{ "port": 3000, "url": "https://...", "createdAt": "..." }`. Errors:
+`validation_error`, `dock_not_found`, `environment_secrets_admin_only`,
+`port_limit_reached`, `ports_unavailable`.
+
+### `DELETE /v1/docks/:id/ports/:port`
+
+Stop exposing a port. Dock-bound keys may call this for their own Dock.
+
+Response: `{ "deleted": true }`. Errors: `dock_not_found`,
+`environment_secrets_admin_only`, `port_not_found`.
+
+### `GET /v1/docks/:id/stats`
+
+Read the Dock's current resource sample and an optional aggregate. Dock-bound
+keys may call this for their own Dock.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `window` (query) | string | no | `1h` or `24h` | Adds a `window` aggregate over that period. |
+
+Response:
+
+```json
+{
+  "dockId": "...",
+  "state": "ready",
+  "sample": { "dockId": "...", "at": "...", "cpuPercent": 3.2, "memBytes": 0, "memLimit": 0, "diskBytes": 0, "rxBytes": 0, "txBytes": 0, "source": "..." },
+  "window": { "window": "1h", "samples": 60, "avg": { "cpuPercent": 2.1, "memBytes": 0, "memLimit": 0, "diskBytes": 0, "rxBytes": 0, "txBytes": 0 }, "peak": { "cpuPercent": 9.8, "memBytes": 0, "memLimit": 0, "diskBytes": 0, "rxBytes": 0, "txBytes": 0 } }
+}
+```
+
+`sample` is `null` when no sample has arrived yet, and carries a `containers`
+array when the Dock reports per-container usage; `window` is present only when
+requested. Errors: `validation_error`, `dock_not_found`.
+
+### `GET /v1/operations/:id`
+
+Poll an [operation](/api/objects#operation). Operations belong to the
+organization of the thing they changed; ones you cannot see read as not found.
+
+Response: the [operation object](/api/objects#operation). Errors:
+`operation_not_found`.
