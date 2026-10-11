@@ -2,11 +2,36 @@
 
 Isolated Linux machines for agents. On your laptop, your servers, or our cloud.
 
-A dock is a Linux machine with a persistent disk, a stable ID and an optional name. You create it, run commands in it, stop it (the disk stays, compute is released), resume it with the same files, and branch it into copies. Each dock runs in a Firecracker microVM or a gVisor sandbox, chosen by the host it lands on.
+A dock is a Linux machine with a persistent disk, a stable ID and an optional name. You create it, run commands in it, stop it (the disk stays, compute is released), resume it with the same files, and branch it into copies.
 
-This repo is the open core: the control plane API, the dashboard, the self-host deploy and the documentation. Dock Cloud is coming soon; self-hosting is free.
+```sh
+curl -fsSL https://usedock.io/install | sh     # Linux, macOS
+irm https://usedock.io/install.ps1 | iex       # Windows (PowerShell)
+```
 
-> **Status:** pre-release. Interfaces may change until the first public release; from then on `/v1` only grows. The `dock` CLI and the TypeScript, Python and Go SDKs are early.
+Both installers verify the release checksums and cosign signatures before installing the `dock` CLI.
+
+## Quickstart
+
+With no account, `dock` runs docks on your own machine (the built-in `local` context). You need QEMU and KVM on Linux x86_64, or QEMU and Windows Hypervisor Platform on Windows x86_64; `dock doctor` tells you what is missing.
+
+```sh
+curl -fsSL https://usedock.io/install | sh
+dock new demo
+dock exec demo -- uname -a
+```
+
+The first `dock new` downloads the default `ubuntu-24.04` Dockyard image once. On Windows, install with the PowerShell line above.
+
+<!-- recording: owner adds a 30-second quickstart recording here -->
+
+Docs: [quickstart](https://docs.usedock.io/quickstart), [CLI](https://docs.usedock.io/cli), [local docks](https://docs.usedock.io/local-docks), [self-hosting](https://docs.usedock.io/self-hosting), [Dockyard images](https://docs.usedock.io/dockyard), [connectors](https://docs.usedock.io/connectors), [SDKs](https://docs.usedock.io/sdks), [API](https://docs.usedock.io/api).
+
+Questions and ideas: [GitHub Discussions](https://github.com/usedock/dock/discussions).
+
+> **Status:** pre-release. Interfaces may change until the first public release; from then on `/v1` only grows. The `dock` CLI ships as signed release binaries. Local docks work on Linux x86_64 with KVM and Windows x86_64 with Windows Hypervisor Platform; macOS builds but is untested. Dock Cloud is coming soon; self-hosting is free. The TypeScript, Python and Go SDKs are early and not published to registries yet.
+
+This repo is the open core: the control plane API, the dashboard, the self-host deploy and the documentation. Each dock runs in QEMU on your own machine, or in a Firecracker microVM or gVisor sandbox on a host enrolled with a control plane.
 
 ## Layout
 
@@ -30,7 +55,7 @@ Docks run on hosts driven by the [docklet](https://github.com/usedock/docklet), 
 | Snapshot, Branch | A saved disk, and new docks started from it |
 | Connector | An integration that lets agents in a dock work in another tool (GitHub first), with credentials kept outside the dock |
 | Host | A machine that runs docks and dials out to the control plane |
-| Context | Where CLI commands go: Dock Cloud or a self-hosted control plane URL |
+| Context | Where CLI commands go: the built-in `local` engine (the default with no account), Dock Cloud, or a self-hosted control plane URL |
 
 ## Self-host
 
@@ -48,10 +73,9 @@ cd dock/deploy/self-host
 
 ## CLI and SDKs
 
-The `dock` CLI and the SDKs talk to a control plane: your own, or Dock Cloud (coming soon). Running docks on your machine without a control plane is planned, not built.
+Beyond the quickstart, the `dock` CLI and the SDKs talk to a control plane: your own, or Dock Cloud (coming soon). Point the CLI at one with a context:
 
 ```sh
-curl -fsSL https://usedock.io/install | sh     # macOS, Linux; Windows: irm https://usedock.io/install.ps1 | iex
 dock context add home --url https://dock.example.com
 dock context use home
 dock login                                     # paste an API key from Developers > API keys
