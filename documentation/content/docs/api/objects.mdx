@@ -1,6 +1,6 @@
 ---
 title: Objects
-description: The fields of the Dock, Run, operation, Environment, Snapshot, Template, Host, organization, and workspace objects as the API returns them.
+description: The fields of the Dock, operation, Environment, Snapshot, Template, Run, Installation, organization, workspace, and Host objects as the API returns them.
 ---
 
 Each table lists the fields of the `data` value a route returns. Timestamps are
@@ -147,6 +147,23 @@ returned. Returned by the [GitHub](/api/github) Run routes.
 | `createdAt` | timestamp | Creation time. |
 | `updatedAt` | timestamp | Last update. |
 
+## Installation
+
+A GitHub App installation linked to a workspace. Returned by the
+[GitHub](/api/github) installation routes.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Installation id in Dock. |
+| `installationId` | integer | GitHub's installation id. |
+| `workspaceId` | uuid | Workspace the installation provisions and bills in. |
+| `createdBy` | uuid | User who linked it. |
+| `repos` | array of strings | `owner/name` repositories the App may act on. |
+| `agent` | string | Coding agent name, default `opencode`. |
+| `testCommand` | string, nullable | Command Runs use to check their work. |
+| `createdAt` | timestamp | Creation time. |
+| `updatedAt` | timestamp | Last update. |
+
 ## Organization
 
 Returned by the [Organizations](/api/organizations) routes.
@@ -203,5 +220,5 @@ Returned by `GET /v1/hosts/:id`.
 | Field | Type | Description |
 |---|---|---|
 | `docks` | array of objects | Non-archived Docks placed on it, as `{ "id", "name", "state", "cpus", "memoryMiB", "diskGiB", "runtime", "ip", "stateChangedAt", "workspaceName", "organizationId", "organizationName" }`. |
-| `runs` | array of objects | Ephemeral Run runtimes, as `{ "dockId", "state", "kind" }`. |
+| `runs` | array of objects | Ephemeral Run runtimes, as `{ "dockId", "state", "kind" }`; `kind` may be absent. |
 | `orphans` | array of objects | Reported runtimes that match no Dock; the reconciler fences these. Same shape as `runs`. |

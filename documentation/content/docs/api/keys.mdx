@@ -10,8 +10,17 @@ returned after creation, except by the reveal route. Shared rules are in
 ## API keys
 
 API keys belong to you and act as you. See
-[Authentication](/api#authentication). A key object is
-`{ "id", "name", "keyPrefix", "expiresAt", "revokedAt", "lastUsedAt", "createdAt" }`.
+[Authentication](/api#authentication). Routes return an API key object:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Key id. |
+| `name` | string | Label. |
+| `keyPrefix` | string | First characters of the raw key, to tell keys apart. |
+| `expiresAt` | timestamp, nullable | When the key stops working; `null` means never. |
+| `revokedAt` | timestamp, nullable | When the key was revoked. |
+| `lastUsedAt` | timestamp, nullable | Last successful use. |
+| `createdAt` | timestamp | Creation time. |
 
 ### `POST /v1/api-keys`
 
@@ -41,8 +50,16 @@ Response: `{ "revoked": true }`. Errors: `api_key_not_found`.
 
 ## SSH keys
 
-Public keys the SSH gateway accepts for you. An SSH key object is
-`{ "id", "name", "publicKey", "fingerprint", "lastUsedAt", "createdAt" }`.
+Public keys the SSH gateway accepts for you. Routes return an SSH key object:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Key id. |
+| `name` | string | Label. |
+| `publicKey` | string | The public key in OpenSSH format. |
+| `fingerprint` | string | `SHA256:` fingerprint. |
+| `lastUsedAt` | timestamp, nullable | Last sign-in with the key. |
+| `createdAt` | timestamp | Creation time. |
 
 ### `POST /v1/ssh-keys`
 
@@ -126,8 +143,17 @@ Response: the provider key status, `configured: false`. Errors: `validation_erro
 
 Your own ChatGPT subscription sign-in, never visible to other members. It is off
 unless the instance enables it (`chatgptSignIn` in `GET /v1/config`). A
-connection is `{ "connected": true, "status": "active", "email": "...", "planType": "...", "updatedAt": "..." }`;
-when nothing is connected, `connected` is `false` and the other fields are `null`.
+connection is:
+
+| Field | Type | Description |
+|---|---|---|
+| `connected` | boolean | Whether a subscription is connected. |
+| `status` | string, nullable | `active`, or `expired` when you must sign in again. |
+| `email` | string, nullable | The ChatGPT account email. |
+| `planType` | string, nullable | The ChatGPT plan. |
+| `updatedAt` | timestamp, nullable | Last change. |
+
+When nothing is connected, `connected` is `false` and the other fields are `null`.
 
 ### `GET /v1/chatgpt/connection`
 

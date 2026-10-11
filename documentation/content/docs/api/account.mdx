@@ -3,8 +3,9 @@ title: Account
 description: Your identity, profile, login methods, account closure, notifications, retention, instance config, and the contact form.
 ---
 
-Routes about you and about instance-wide facts. Account responses are sent with
-`Cache-Control: no-store`. Shared rules are in [Conventions](/api).
+Routes about you and about instance-wide facts. The account closure and
+retention routes are sent with `Cache-Control: no-store`. Shared rules are in
+[Conventions](/api).
 
 ## Instance
 
@@ -80,8 +81,18 @@ Response: the profile. Errors: `validation_error`, `not_found`.
 
 List your linked login methods.
 
-Response: an array of `{ "id", "provider", "identifier", "primary", "linkedAt" }`.
-`id` is `provider:identifier`, and `primary` is `true` for the password login.
+Response:
+
+```json
+{
+  "connections": [
+    { "id": "credential:...", "provider": "credential", "identifier": "...", "primary": true, "linkedAt": "..." }
+  ]
+}
+```
+
+`id` is `provider:identifier`, and `primary` is `true` for the email and password
+login (`credential`).
 
 ### `DELETE /v1/me/connections/:id`
 
@@ -98,7 +109,9 @@ except `POST /v1/account/reopen` and `POST /v1/account/erase` fails with
 
 ### `POST /v1/account/close`
 
-Close your account (202). Session only. Running Docks in organizations only you belong to stop, your API keys are revoked, and your SSH keys and sessions are removed.
+Close your account (202). Session only. Running Docks you created, and every
+running Dock in organizations only you belong to, are stopped; your API keys are
+revoked, and your SSH keys and sessions are removed.
 
 Response: `{ "closed": true, "purgeAt": "..." }`, the date the data is purged
 unless you reopen. Errors: `session_required`, `account_closed` (410, already
@@ -135,7 +148,7 @@ Read your inbox, newest first.
 
 | Field | Type | Required | Limits / default | Description |
 |---|---|---|---|---|
-| `limit` (query) | integer | no | 1 to 100 | Page size. |
+| `limit` (query) | integer | no | 1 to 100, default 50 | Page size. |
 | `cursor` (query) | string | no | opaque | The `nextCursor` of the previous page. |
 
 Response:
@@ -188,7 +201,8 @@ Turn an alert on or off for the organization. Session only. Role: `admin`.
 | `enabled` | boolean | yes | | Whether the organization receives it. |
 
 Response: `{ "organizationId": "...", "type": "...", "enabled": true }`. Errors:
-`validation_error`, `session_required`, `organization_not_found`.
+`validation_error`, `session_required`, `organization_not_found`, `forbidden`
+(not an admin).
 
 ### `PUT /v1/notifications/preferences/personal`
 
@@ -229,4 +243,4 @@ organization's archived Docks and Templates.
 | `confirmation` | string | when turning on | exactly `delete archived dock data` | Confirmation phrase. |
 
 Response: `{ "enabled": true }`. Errors: `validation_error`, `session_required`,
-`organization_not_found`, `confirm_required`.
+`organization_not_found`, `forbidden` (not an owner), `confirm_required`.

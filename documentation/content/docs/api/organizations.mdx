@@ -9,7 +9,8 @@ that owns Docks. Roles are `member`, `admin`, and `owner`; see
 [Conventions](/api#authentication). A caller who is not a member of an
 organization reads it as not found.
 
-Slugs are 3 to 63 lowercase letters, digits, and hyphens. Every route below
+Slugs are 3 to 63 lowercase letters, digits, and hyphens, starting and ending
+with a letter or digit. Every route below
 needs an API key or session unless stated. Dock-bound keys cannot reach the
 invitation routes.
 
@@ -53,7 +54,8 @@ Update an organization. Role: `admin`. Every field is optional.
 | `seats` | integer | no | at least 1, not below members plus pending invitations | Seat count. |
 
 Response: the [Organization object](/api/objects#organization) without `role`.
-Errors: `validation_error`, `organization_not_found`, `slug_taken`, `seats_exceeded`.
+Errors: `validation_error` (including `seats` below members plus pending
+invitations), `organization_not_found`, `forbidden`, `slug_taken`.
 
 ### `DELETE /v1/organizations/:id`
 
@@ -106,13 +108,23 @@ Response: `{ "removed": true }`. Errors: `organization_not_found`,
 
 ## Invitations
 
-An invitation object is `{ "id", "email", "role", "expiresAt", "createdAt" }`.
+Organization invitation routes return an invitation object:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Invitation id. |
+| `email` | string | Address invited. |
+| `role` | string | Role granted on acceptance: `member`, `admin`, or `owner`. |
+| `expiresAt` | timestamp | When the invitation stops working. |
+| `createdAt` | timestamp | Creation time. |
+
 Invitations addressed to you can be used only with a verified email; otherwise
 they read as `invitation_not_found`.
 
 ### `GET /v1/organizations/:id/invitations`
 
-List the organization's pending invitations, newest first. Role: `admin`.
+List the organization's invitations that are not accepted or revoked, newest
+first, including expired ones (compare `expiresAt`). Role: `admin`.
 
 Response: an array of invitation objects. Errors: `organization_not_found`.
 

@@ -31,15 +31,27 @@ Each delivery is a JSON body:
 }
 ```
 
-The `dock-signature` header carries a `t,v1` signature of the body made with the
-endpoint's secret. A `2xx` answer marks the delivery sent; `408`, `429`, `5xx`, and
-network failures are retried with a backoff from 30 seconds doubling to one hour;
-a `410` disables the endpoint; any other `4xx` is not retried. Deliveries to one
+The `dock-signature` header is `t=<unix seconds>,v1=<hex>`, where `v1` is the
+HMAC-SHA256 of `<t>.<raw body>` keyed with the endpoint's secret. Reject
+signatures more than 300 seconds old. A `2xx` answer marks the delivery sent;
+`408`, `429`, `5xx`, and network failures are retried with a backoff from 30
+seconds doubling to one hour, up to 25 attempts; a `410` disables the endpoint,
+and disabled endpoints receive nothing; any other `4xx` is not retried. Deliveries to one
 endpoint are limited to 60 per minute, and the receiver has 10 seconds to answer.
 
-An endpoint object is `{ "id", "organizationId", "name", "url", "events",
-"secretPrefix", "disabled", "createdAt", "updatedAt" }`. The `secretPrefix` is the
-first 8 characters of the signing secret.
+Endpoint routes return an endpoint object:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Endpoint id. |
+| `organizationId` | uuid | Owning organization. |
+| `name` | string | Label. |
+| `url` | string | Where deliveries are sent. |
+| `events` | array of strings | Event types it receives. |
+| `secretPrefix` | string | First 8 characters of the signing secret. |
+| `disabled` | boolean | `true` after a receiver answered `410`. |
+| `createdAt` | timestamp | Creation time. |
+| `updatedAt` | timestamp | Last update. |
 
 ### `POST /v1/webhooks/endpoints`
 
@@ -50,7 +62,7 @@ most 10 endpoints, and the URL may not resolve to a private address.
 |---|---|---|---|---|
 | `organizationId` | uuid | yes | | Owning organization. |
 | `name` | string | yes | 1 to 100 | Label. |
-| `url` | string | yes | `https`, max 2000 | Where deliveries are sent. |
+| `url` | string | yes | `https` on port 443, max 2000, must not resolve to a private address | Where deliveries are sent. |
 | `events` | array of strings | yes | at least one of the event types above | Events to receive. |
 
 Response: an endpoint object plus `secret`, the signing secret, shown only in
@@ -88,7 +100,17 @@ Response: `{ "removed": true }`. Errors: `session_required`,
 List the endpoint's 100 most recent delivery attempts, newest first. Role:
 `member`. Takes `organizationId` in the query as above.
 
-Response: an array of `{ "id", "eventId", "endpointId", "event", "status",
-"error", "createdAt" }`, where `event` is the event type, `status` is the HTTP status the receiver
-answered with (`null` when it did not answer), and `error` is `null` or the failure text. Errors:
+Response: an array of delivery attempts:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uuid | Attempt id. |
+| `eventId` | uuid | Event delivered. |
+| `endpointId` | uuid | Endpoint it was sent to. |
+| `event` | string | Event type. |
+| `status` | integer, nullable | HTTP status the receiver answered with; `null` when it did not answer. |
+| `error` | string, nullable | Failure text. |
+| `createdAt` | timestamp | When the attempt was made. |
+
+Errors:
 `validation_error`, `webhook_endpoint_not_found`.

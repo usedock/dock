@@ -40,9 +40,11 @@ Three kinds of route differ:
 Organization roles are `member`, `admin`, and `owner`, in increasing order. A
 route's "Role" line is the lowest role allowed. A caller who is not a member of
 the owning organization gets `404`, not `403`, so ids never leak across
-organizations.
+organizations. A member whose role is below the route's Role gets `forbidden`
+(403).
 
-A closed account can only call `POST /v1/account/reopen`; every other route
+A closed account can only call `POST /v1/account/reopen` and
+`POST /v1/account/erase`; every other route
 fails with `account_closed` (403), or 410 once the data is erased.
 
 ## Envelope
@@ -86,7 +88,6 @@ specific to an operation.
 | `dock_key_forbidden` | 403 | A Dock-bound key called a route it may not use. |
 | `account_closed` | 403 (410 once erased) | The account is closed or erased. |
 | `confirm_required` | 400 | A destructive call lacked its exact confirmation. |
-| `image_unavailable` | 400 | The host cannot serve the requested image. |
 | `idempotency_key_reused` | 409 | An `idempotency-key` was reused with a different body. |
 | `idempotency_in_progress` | 409 | The first request with this key is still running. |
 | `dock_not_found` | 404 | No such Dock, or it is not yours. |
@@ -141,7 +142,7 @@ specific to an operation.
 | `chatgpt_signin_disabled` | 403 | ChatGPT sign-in is off on this instance. |
 | `chatgpt_unavailable` | 502 | OpenAI answered badly or was unreachable. |
 | `device_code_expired` | 400 | The ChatGPT device sign-in expired; start again. |
-| `installation_not_found` | 404 | No such GitHub installation. |
+| `installation_not_found` | 404 | No such GitHub installation, or, on GitHub routes, no such workspace. |
 | `installation_not_accessible` | 403 | The installation cannot be linked by you. |
 | `run_not_found` | 404 | No such Run. |
 | `run_not_promotable` | 409 | The Run cannot be promoted. |
@@ -163,11 +164,16 @@ specific to an operation.
 ## Idempotency
 
 `POST /v1/docks`, `POST /v1/docks/:id/branch`, and `POST /v1/docks/:id/exec`
-accept an optional `idempotency-key` header (1 to 255 characters on exec). A
-retry with the same key returns the original result instead of repeating the
-work. Reusing a key with a different body fails with `idempotency_key_reused`
-(409); retrying while the first request still runs fails with
-`idempotency_in_progress` (409).
+accept an optional `idempotency-key` header. A retry with the same key returns
+the original result instead of repeating the work.
+
+For `POST /v1/docks` and `POST /v1/docks/:id/branch`, keys are scoped to the
+organization and kept for 24 hours. Reusing a key with a different body fails
+with `idempotency_key_reused` (409), and retrying while the first request still
+runs fails with `idempotency_in_progress` (409).
+
+On `POST /v1/docks/:id/exec` the key is 1 to 255 characters and scoped to the
+Dock; a reused key replays the first command's result whatever the body.
 
 ## Delete confirmation
 

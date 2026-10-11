@@ -15,7 +15,7 @@ Both Snapshot lists take the same paging query:
 
 | Field | Type | Required | Limits / default | Description |
 |---|---|---|---|---|
-| `limit` (query) | integer | no | 1 to 100 | Page size. |
+| `limit` (query) | integer | no | 1 to 100, default 50 | Page size. |
 | `cursor` (query) | string | no | opaque | The `nextCursor` of the previous page. |
 
 ### `GET /v1/snapshots`
@@ -42,7 +42,7 @@ has none. Errors: `dock_not_found`.
 List the files in a completed Snapshot.
 
 Response: `{ "snapshotId": "...", "files": [ { "path": "work/app.js", "size": 120 } ] }`.
-Errors: `snapshot_not_found`.
+Errors: `snapshot_not_found`, `environment_secrets_admin_only`.
 
 ### `GET /v1/snapshots/:id/files`
 
@@ -53,8 +53,9 @@ Read the bytes of one file in a completed Snapshot. The response is
 |---|---|---|---|---|
 | `path` (query) | string | yes | a path from the tree | File to read. |
 
-Errors: `snapshot_not_found` (also for an unknown path), `not_a_regular_file`
-(422), `file_too_large` (413).
+Errors: `snapshot_not_found` (also for an unknown path),
+`environment_secrets_admin_only`, `not_a_regular_file` (422), `file_too_large`
+(413).
 
 ### `GET /v1/snapshots/:id/download`
 
@@ -67,7 +68,7 @@ Response:
 ```
 
 Each `url` is a relative link to `GET /v1/snapshots/:id/files`. Errors:
-`snapshot_not_found`.
+`snapshot_not_found`, `environment_secrets_admin_only`.
 
 ### `DELETE /v1/snapshots/:id`
 
@@ -76,30 +77,33 @@ Delete a Snapshot (202).
 Role: `admin`. Needs `x-confirm-delete: <snapshot id>`.
 
 Response: `{ "operation": { ... } }`, an [operation](/api/objects#operation).
-Errors: `confirm_required`, `snapshot_not_found`, `snapshot_in_use` (a newer
-Snapshot or a Template depends on it).
+Errors: `confirm_required`, `snapshot_not_found`, `forbidden` (not an admin),
+`snapshot_in_use` (a newer Snapshot or a Template depends on it).
 
 ### `POST /v1/templates`
 
-Freeze a Dock as a named Template (202). A running Dock is captured first.
-Saving over an existing name replaces that Template.
+Freeze a Dock as a named Template (202). A running Dock is captured first and
+the call returns once the capture finishes; an archived Dock's latest completed
+Snapshot is referenced without a new capture. Saving over an existing name
+replaces that Template.
 
 Role: `admin`.
 
 | Field | Type | Required | Limits / default | Description |
 |---|---|---|---|---|
 | `dockId` | string | yes | | Dock to freeze. |
-| `name` | string | yes | max 64; 2 to 64 lowercase letters, digits, dash, underscore, starting and ending with a letter or digit | Template name, unique per organization. |
+| `name` | string | yes | 3 to 64 lowercase letters, digits, dash, underscore, starting and ending with a letter or digit; trimmed | Template name, unique per organization. |
 
-Response: the [Template object](/api/objects#template), `status: "saving"` until
-the capture finishes. Errors: `validation_error`, `dock_not_found`,
+Response: the [Template object](/api/objects#template) with `status: "ready"`.
+Errors: `validation_error`, `forbidden` (not an admin), `dock_not_found`,
 `dock_not_running` (the Dock is in error or unreachable), `template_limit_reached`,
-`zdr_blocks_templates`, `conflict` (the same name is
-being saved).
+`zdr_blocks_templates`, `conflict` (the same name is being saved, or an archived
+Dock has no completed Snapshot), `service_unavailable` (the capture failed).
 
 ### `GET /v1/templates`
 
-List Templates in all your organizations, newest first.
+List Templates in all your organizations, newest first, including ones still
+`saving` or `failed`.
 
 Response: an array of [Template objects](/api/objects#template).
 
@@ -112,7 +116,7 @@ Read one ready Template.
 | `organizationId` (query) | uuid | yes | | Organization the name is resolved in. |
 
 Response: the [Template object](/api/objects#template). Errors: `validation_error`,
-`template_not_found`.
+`organization_not_found`, `template_not_found`.
 
 ### `DELETE /v1/templates/:name`
 
@@ -125,7 +129,8 @@ Role: `admin`.
 | `organizationId` (query) | uuid | yes | | Organization the name is resolved in. |
 
 Response: `{ "operation": { ... } }`, an [operation](/api/objects#operation).
-Errors: `validation_error`, `template_not_found`.
+Errors: `validation_error`, `organization_not_found`, `forbidden` (not an
+admin), `template_not_found`.
 
 To start a Dock from a Template, pass its name as `from` to
 [`POST /v1/docks`](/api/docks#post-v1docks).

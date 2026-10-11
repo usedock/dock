@@ -18,8 +18,9 @@ name, and `organizationId` as a query parameter:
 Reads need org role `member`; every write and `secrets:reveal` need `admin`.
 Secret values are never returned except by `secrets:reveal`.
 
-Variable names match `[A-Za-z_][A-Za-z0-9_]*`, at most 128 characters, and may
-not start with `DOCK_`. An Environment holds at most 100 variables (64 KB) and 20
+Variable names match `[A-Za-z_][A-Za-z0-9_]*`, at most 128 characters, may not
+start with `DOCK_`, and may not be one of a few platform-reserved names. Two
+writes that race for the same new version fail with `conflict` (409); retry. An Environment holds at most 100 variables (64 KB) and 20
 secret files (256 KB each, 1 MB total).
 
 ### `GET /v1/environments`
@@ -77,8 +78,8 @@ Response: the [Environment object](/api/objects#environment). Errors:
 Delete an Environment. Role: `admin`. The last remaining Environment cannot be
 deleted; if the default is deleted, the oldest remaining one becomes the default.
 
-Response: `{ "deleted": true }`. Errors: `validation_error`,
-`environment_not_found`.
+Response: `{ "deleted": true }`. Errors: `validation_error` (the only
+Environment), `environment_not_found`.
 
 ### `GET /v1/environments/:ref/versions`
 
@@ -128,7 +129,7 @@ added, or another repo clones into the same folder).
 Remove a repo. Role: `admin`.
 
 Response: the [Environment object](/api/objects#environment). Errors:
-`environment_not_found`.
+`environment_not_found`, `not_found` (no such repo).
 
 ### `PUT /v1/environments/:ref/secrets`
 
@@ -160,7 +161,7 @@ Response: the [Environment object](/api/objects#environment). Errors:
 Remove a variable. Role: `admin`.
 
 Response: the [Environment object](/api/objects#environment). Errors:
-`environment_not_found`.
+`environment_not_found`, `not_found` (no such variable).
 
 ### `POST /v1/environments/:ref/files`
 
@@ -179,7 +180,7 @@ Response: the [Environment object](/api/objects#environment). Errors:
 Remove a secret file. Role: `admin`.
 
 Response: the [Environment object](/api/objects#environment). Errors:
-`environment_not_found`.
+`environment_not_found`, `not_found` (no such secret file).
 
 ### `POST /v1/environments/:ref/secrets:reveal`
 
