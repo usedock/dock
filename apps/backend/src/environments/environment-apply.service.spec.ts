@@ -140,6 +140,14 @@ describe('EnvironmentApplyService', () => {
     expect(decodeEnvFile(provider.exec.mock.calls[0][1].script)).not.toContain('DOCK_CONNECTOR_TOKEN');
   });
 
+  it('deletes a stale connector config when the dock has no connectors, and keeps it when it does', async () => {
+    await service.apply(dock() as never, orgId);
+    expect(provider.exec.mock.calls[0][1].script).toContain("rm -f -- \"$HOME\"/'.config/dock/mcp.json'");
+    provider.exec.mockClear();
+    await service.apply(dock({ connectors: ['linear'] }) as never, orgId);
+    expect(provider.exec.mock.calls[0][1].script).not.toContain("rm -f -- \"$HOME\"/'.config/dock/mcp.json'");
+  });
+
   it('withholds the key and deletes any previous one when the posture says so', async () => {
     envs.resolveBundle.mockResolvedValueOnce(bundle({ passDockCredentials: false }));
     await service.apply(dock() as never, orgId);

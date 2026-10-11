@@ -16,6 +16,8 @@ export interface ApplyBundle {
   vars: Record<string, string>;
   files: { path: string; contents: string }[];
   repos: EnvRepo[];
+  /** Home-relative files deleted unless the bundle writes them, e.g. a connector config left by a template or branch. */
+  removeFiles?: string[];
   /** Per-dock setup script from create; runs after the repo clones. */
   setupScript?: string | null;
 }
@@ -117,6 +119,7 @@ export function buildApplyScripts(bundle: ApplyBundle): { scripts: string[]; bac
     `for rc in "$HOME/.bashrc" "$HOME/.profile"; do grep -qxF ${shellQuote(RC_HOOK)} "$rc" 2>/dev/null || printf '%s\\n' ${shellQuote(RC_HOOK)} >> "$rc"; done`,
     `if [ -f ${homePath(MANIFEST_FILE)} ]; then printf '%s\\n' ${paths.map(shellQuote).join(' ')} | grep -vxF -f - ${homePath(MANIFEST_FILE)} | while IFS= read -r p; do rm -f -- "$HOME/$p"; done; fi`,
   ];
+  for (const path of bundle.removeFiles ?? []) if (!paths.includes(path)) lines.push(`rm -f -- ${homePath(path)}`);
   for (const file of bundle.files) lines.push(...writeFileLines(file.path, file.contents, '600'));
   lines.push(...writeFileLines(MANIFEST_FILE, paths.map((p) => `${p}\n`).join(''), '600'));
 

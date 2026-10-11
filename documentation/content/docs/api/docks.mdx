@@ -51,7 +51,7 @@ pick an available image from `GET /v1/images`.
 
 Errors: `validation_error` (including a size larger than every online host),
 `image_unknown`, `image_unavailable`, `dock_not_found` (unknown workspace),
-`environment_not_found`, `environment_secrets_admin_only`, `template_not_found`,
+`environment_not_found`, `environment_secrets_admin_only`, `connector_admin_only` (members, when the Dock has connectors or `from` names a Template saved from a Dock with connectors), `template_not_found`,
 `template_source_missing`, `dock_name_taken`, `capacity_exhausted`,
 `no_host_capacity`, `base_image_unavailable`, `subscription_required`,
 `concurrency_exceeded`, `budget_exceeded`, `idempotency_key_reused`,

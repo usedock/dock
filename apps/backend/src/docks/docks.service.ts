@@ -251,6 +251,11 @@ export class DocksService {
     return loaded;
   }
 
+  /** Re-applies the dock's bundle, replacing its connector gateway token. */
+  async reapply(dock: Dock, orgId: string): Promise<void> {
+    await this.applier.apply(dock, orgId);
+  }
+
   private async refuseConnectorMembers(orgId: string, callerId: string): Promise<void> {
     if ((await this.orgs.requireMembership(orgId, callerId)).role === 'member') throw new ConnectorAdminOnlyException();
   }
@@ -371,6 +376,8 @@ export class DocksService {
     if (input.from !== undefined) {
       const resolved = await this.resolveTemplate(orgId, input.from);
       fromTemplate = resolved.name;
+      // The disk may hold the source dock's connector gateway token, so it needs the role a connector dock needs.
+      if (resolved.hadConnectors) await this.refuseConnectorMembers(orgId, callerId);
       // The template's disk carries the bundle of the dock it was saved from.
       if (resolved.sourceDockId) {
         const [sourceDock] = await this.db.select().from(docks).where(eq(docks.id, resolved.sourceDockId)).limit(1);

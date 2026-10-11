@@ -99,7 +99,7 @@ describe('TemplatesService', () => {
   beforeEach(() => {
     db = { select: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn(), transaction: vi.fn() };
     vi.clearAllMocks();
-    docks = { loadDock: vi.fn().mockResolvedValue({ dock: dockRow(), orgId }) };
+    docks = { loadDock: vi.fn().mockResolvedValue({ dock: dockRow(), orgId }), reapply: vi.fn().mockResolvedValue(undefined) };
     orgs = { requireMembership: vi.fn().mockResolvedValue({ role: 'admin' }) };
     retention = { policyOn: vi.fn().mockResolvedValue(false) };
     ops = {
@@ -213,6 +213,36 @@ describe('TemplatesService', () => {
     await service.save('u1', dockId, 'web-stack');
     expect(openDuringCapture).toBe(0);
     expect(transactions).toBe(2);
+  });
+
+  describe('connector docks', () => {
+    const save = async (dock: Record<string, unknown>) => {
+      docks.loadDock.mockResolvedValue({ dock, orgId });
+      const persisted: Record<string, unknown> = {};
+      const tx = txWith([[], [], []], [[tplRow({ status: 'saving' })]], persisted);
+      db.transaction.mockImplementation(async (fn: any) => fn(tx));
+      await service.save('u1', dockId, 'web-stack');
+      return persisted;
+    };
+
+    it('records that the source had connectors and re-applies it so the captured token dies', async () => {
+      const dock = dockRow({ connectors: ['linear'] });
+      const persisted = await save(dock);
+      expect(persisted.hadConnectors).toBe(true);
+      expect(docks.reapply).toHaveBeenCalledWith(dock, orgId);
+    });
+
+    it('records false and leaves the source alone without connectors', async () => {
+      const persisted = await save(dockRow({ connectors: [] }));
+      expect(persisted.hadConnectors).toBe(false);
+      expect(docks.reapply).not.toHaveBeenCalled();
+    });
+
+    it('still saves when the re-apply fails', async () => {
+      docks.reapply.mockRejectedValueOnce(new Error('exec down'));
+      const persisted = await save(dockRow({ connectors: ['linear'] }));
+      expect(persisted.status).toBe('ready');
+    });
   });
 
   it('fails fast without capturing when the name is already being saved', async () => {

@@ -1,4 +1,4 @@
-import { bigint, index, pgTable, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core';
+import { bigint, boolean, index, pgTable, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core';
 import { organizations } from './organizations';
 import type { Runtime } from './docks';
 
@@ -27,6 +27,8 @@ export const templates = pgTable(
     cpuFamily: text('cpu_family'),
     runtime: text('runtime').$type<Runtime>(),
     baseFingerprint: text('base_fingerprint'),
+    /** The source dock held connectors when saved, so its disk may carry a gateway token. Unknown rows default to true. */
+    hadConnectors: boolean('had_connectors').notNull().default(true),
     /** Set while a capture is in flight; a stale value marks an abandoned save. */
     savingSince: timestamp('saving_since', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
