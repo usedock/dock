@@ -26,6 +26,8 @@ http:
     path: /v1/docks/{dockId}/exec
     status: 200
     body: [command, timeoutSeconds, env, cwd]
+    # Optional; a replay with the same key returns the first result.
+    optionalHeaders: [idempotency-key]
   docks.stop:
     method: POST
     path: /v1/docks/{dockId}/stop
@@ -62,7 +64,7 @@ composite:
   docks.files.write:
     via: docks.exec
     args: [dockId, path, content]
-    command: "mkdir -p -- \"$(dirname -- {path})\" && printf '%s' '{contentBase64}' | base64 -d > {path}"
+    command: "d=$(dirname -- {path}; echo x) && mkdir -p -- \"${d%??}\" && printf '%s' '{contentBase64}' | base64 -d > {path}"
     data:
       path: "{path}"
   docks.files.read:
@@ -75,7 +77,11 @@ composite:
   docks.files.list:
     via: docks.exec
     args: [dockId, path]
-    command: "ls -1A -- {path}"
-    # data.entries is stdout split on newlines, empty lines dropped, in ls order.
+    command: "p={path} && case $p in /*) ;; *) p=./$p ;; esac && test -d \"$p\" && find -H \"$p\" -mindepth 1 -maxdepth 1 -exec sh -c 'for f; do printf \"%s\" \"${f##*/}\" | base64 -w0; echo; done' sh {} +"
+    # A relative path gets ./ so find never reads it as an expression; -H follows
+    # a symlinked directory. stdout is one base64-encoded entry name per line, in
+    # no fixed order.
+    # data.entries is each non-empty line base64-decoded to UTF-8, so names
+    # holding newlines or other odd bytes survive.
     data:
-      entries: "lines(stdout)"
+      entries: "lines(stdout).map(base64decode)"

@@ -62,7 +62,10 @@ Messages are never asserted.
   parameters; `body` lists the args sent as the JSON body (absent args are
   omitted, never sent as null); `query` lists query-string args; `headers`
   values are templates over args (`docks.delete` sends
-  `x-confirm-delete: <dockId>`). `status` is the status of a success.
+  `x-confirm-delete: <dockId>`); `optionalHeaders` lists headers the route
+  reads that a caller may add (`docks.exec` takes `idempotency-key`: a replay
+  with the same key returns the first result). `status` is the status of a
+  success.
 - `composite`: SDK helpers with no route of their own. The API has no file
   routes, so `docks.files.write`, `docks.files.read` and `docks.files.list` are
   one `docks.exec` call with the exact `command` template in `ops.yaml`
@@ -70,12 +73,32 @@ Messages are never asserted.
   reshaped into the `data` described there (`path`, `content`, `entries`). A
   non-zero exit code from the command is an SDK error for these helpers, not a
   scenario failure to hide.
+- `docks.files.list` prints one base64-encoded entry name per line (the names
+  are raw bytes, so a name may hold newlines); `data.entries` is each non-empty
+  line decoded as base64, then as UTF-8. Order is not fixed. Hidden entries are
+  included, `.` and `..` are not, a symlink to a directory lists the target's
+  entries, and a path that is not a directory exits non-zero.
 - File helpers are shell commands, so the SDK must quote the path: `{path}`
   becomes one single-quoted word with each `'` written as `'\''`
   (`it's.txt` -> `'it'\''s.txt'`), and `--` stops option parsing. Content is
   never placed in the command as text, only as base64. Never substitute a raw
   path: a name like `x'; rm -rf ~; '` would run as a command. The exec command
-  limit (64 KB) caps one write at about 48 KB of content.
+  limit (64 KB) caps one write at about 48 KB of content. A path may end in a
+  newline; the commands handle it.
+
+### File helper errors
+
+A file helper that cannot return its `data` raises an SDK error with one of
+these codes (not an API envelope code):
+
+| Code | When |
+|---|---|
+| `output_truncated` | the exec result has `truncated: true`, so the output is incomplete |
+| `file_command_failed` | the command exits non-zero |
+| `file_too_large` | the rendered command exceeds the exec limit (64 KB UTF-8); raised client-side before anything is sent |
+
+Every SDK must use these codes. `usedock/dock-js` uses `file_error` today and
+must change to match.
 
 The validation spec checks every `http` op against the route decorators in
 `apps/backend/src/**/*.controller.ts`, so a renamed or removed route fails CI
@@ -94,7 +117,9 @@ A runner in an SDK repo must:
    envelope `{ status, ok, code?, data? }`. A failed call surfaces as
    `ok: false` with the API error code, so SDK error types must expose the
    HTTP status and `code`.
-3. Apply `capture`, then assert `expect`. The first failed assertion stops the
+3. Apply `capture`, then assert `expect`. On a success step the response
+   status must equal `expect.status` when given, else the op's `status` in
+   `ops.yaml`. The first failed assertion stops the
    steps, and the runner reports the scenario, step id and the diff.
 4. Always run `cleanup`, in order, after the steps whether or not they
    passed. A cleanup step is skipped when it references a variable that was

@@ -45,7 +45,7 @@
         "method": "POST",
         "path": "/v1/docks/33333333-3333-4333-8333-333333333333/exec",
         "body": {
-          "command": "mkdir -p -- \"$(dirname -- '/home/user/work/persist.txt')\" && printf '%s' 'c3RpbGwgaGVyZQo=' | base64 -d > '/home/user/work/persist.txt'"
+          "command": "d=$(dirname -- '/home/user/work/persist.txt'; echo x) && mkdir -p -- \"${d%??}\" && printf '%s' 'c3RpbGwgaGVyZQo=' | base64 -d > '/home/user/work/persist.txt'"
         }
       },
       "response": {

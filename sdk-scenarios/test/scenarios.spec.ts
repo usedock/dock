@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const backendSrc = join(root, '..', 'apps', 'backend', 'src');
 
-interface HttpOp { method: string; path: string; status: number; body?: string[]; query?: string[]; headers?: Record<string, string> }
+interface HttpOp { method: string; path: string; status: number; body?: string[]; query?: string[]; headers?: Record<string, string>; optionalHeaders?: string[] }
 interface CompositeOp { via: string; args: string[]; command: string; data: Record<string, string> }
 interface Ops { http: Record<string, HttpOp>; composite: Record<string, CompositeOp> }
 interface Step { id: string; op: string; args?: Record<string, unknown>; capture?: Record<string, string> }
@@ -70,6 +70,12 @@ describe('ops.yaml', () => {
   it.each(Object.entries(ops.composite))('%s is built on an http op', (name, op) => {
     expect(ops.http[op.via], name).toBeDefined();
     expect(op.args).toContain('dockId');
+  });
+
+  it('lists the optional headers the controller reads', () => {
+    const src = readFileSync(join(backendSrc, 'docks', 'docks.controller.ts'), 'utf8');
+    expect(src).toContain("@Headers('idempotency-key')");
+    expect(ops.http['docks.exec'].optionalHeaders).toEqual(['idempotency-key']);
   });
 
   it('keeps http and composite names apart', () => {
@@ -146,6 +152,7 @@ describe('scenarios', () => {
 });
 
 // POSIX single-quote escaping, the same as the backend's shellQuote.
+const b64decode = (value: string) => Buffer.from(value, 'base64').toString('utf8');
 const shellWord = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
 
 function renderCommand(op: CompositeOp, args: Record<string, string>): string {
@@ -198,7 +205,7 @@ describe('fixture replay', () => {
         expect(res.data.exitCode, `${opName} exit code`).toBe(0);
         const out = res.data.stdout as string;
         res.data = opName.endsWith('.write') ? { path: args.path } : opName.endsWith('.read')
-          ? { content: Buffer.from(out, 'base64').toString('utf8') } : { entries: out.split('\n').filter(Boolean) };
+          ? { content: b64decode(out) } : { entries: out.split('\n').filter(Boolean).map(b64decode) };
       }
       return { status, body: res, miss: undefined };
     };
@@ -207,7 +214,7 @@ describe('fixture replay', () => {
       expect(res.miss, `${step.id}: no exchange matches`).toBeUndefined();
       for (const [name, p] of Object.entries(step.capture ?? {})) vars[name] = p.split('.').reduce<any>((o, k) => o?.[k], res.body);
       const want = substitute(step.expect, vars) as Record<string, any>;
-      expect([res.status, res.body.ok], step.id).toEqual([want.status, want.ok]);
+      expect([res.status, res.body.ok], step.id).toEqual([want.status ?? ops.http[ops.composite[step.op]?.via ?? step.op].status, want.ok]);
       if (want.code) expect(res.body.code, step.id).toBe(want.code);
       if (want.data !== undefined) expect(subsetMatch(want.data, res.body.data), `${step.id}: ${JSON.stringify(res.body.data)}`).toBe(true);
     }
@@ -218,24 +225,71 @@ describe('fixture replay', () => {
 
 // The file templates run in bash with GNU coreutils, as in the dock image.
 const bash = spawnSync('bash', ['-c', 'base64 -w0 </dev/null'], { encoding: 'utf8' });
+// Some filesystems (NTFS) cannot hold newlines in names; the newline cases skip there.
+const nl = spawnSync('bash', ['-c', 'd=$(mktemp -d) && touch "$d/a"$\'\\n\'"b" && rm -r "$d"'], { encoding: 'utf8' });
+const canNewline = bash.status === 0 && nl.status === 0;
+const hostileNames = ["it's.txt", '-n.txt', 'dir with space/$(touch pwned).txt', "x'; touch pwned; echo '", 'a\nb.txt', 'trail\n', '\nlead.txt', 'a\n\nb'];
+const names = hostileNames.filter((n) => canNewline || !n.includes('\n'));
+const flat = (name: string) => name.replace(/\//g, '_');
 
 describe.skipIf(bash.status !== 0)('composite file commands', () => {
   const run = (cwd: string, command: string) => spawnSync('bash', ['-c', command], { cwd, encoding: 'utf8' });
-
-  it.each(["it's.txt", '-n.txt', 'dir with space/$(touch pwned).txt', "x'; touch pwned; echo '"])('round-trips %j without running it', (name) => {
+  const inTempDir = (fn: (cwd: string) => void) => {
     const cwd = mkdtempSync(join(tmpdir(), 'sdk-scenarios-'));
     try {
+      fn(cwd);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  };
+
+  it.each(names)('round-trips %j without running it', (name) => {
+    inTempDir((cwd) => {
       const content = "line 1\n'quoted' $HOME `x`\n";
       const write = run(cwd, renderCommand(ops.composite['docks.files.write'], { path: name, content }));
       expect(write.status, write.stderr).toBe(0);
       const read = run(cwd, renderCommand(ops.composite['docks.files.read'], { path: name }));
       expect(read.status, read.stderr).toBe(0);
-      expect(Buffer.from(read.stdout, 'base64').toString('utf8')).toBe(content);
-      const list = run(cwd, renderCommand(ops.composite['docks.files.list'], { path: name }));
-      expect(list.status, list.stderr).toBe(0);
+      expect(b64decode(read.stdout)).toBe(content);
       expect(existsSync(join(cwd, 'pwned'))).toBe(false);
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
+    });
+  });
+
+  it.each(names)('lists a directory holding %j and a directory named %j', (name) => {
+    inTempDir((cwd) => {
+      const entry = flat(name);
+      for (const dir of [`d/${entry}`, `e/${entry}/`]) {
+        const write = (path: string) => run(cwd, renderCommand(ops.composite['docks.files.write'], { path, content: 'x' }));
+        expect(write(`${dir.replace(/\/$/, '')}/${entry}`).status).toBe(0);
+        expect(write(`${dir.replace(/\/$/, '')}/plain.txt`).status).toBe(0);
+        const list = run(cwd, renderCommand(ops.composite['docks.files.list'], { path: dir }));
+        expect(list.status, list.stderr).toBe(0);
+        expect(list.stdout.split('\n').filter(Boolean).map(b64decode).sort()).toEqual([entry, 'plain.txt'].sort());
+      }
+      expect(existsSync(join(cwd, 'pwned'))).toBe(false);
+    });
+  });
+
+  // find skips a symlinked start point and reads a leading -, ! or ( as an expression.
+  it.each(['link', '-n.txt', '!', '(', 'link/'])('lists the entries of directory %j', (path) => {
+    inTempDir((cwd) => {
+      for (const dir of ['real', '-n.txt', '!', '(']) {
+        mkdirSync(join(cwd, dir));
+        writeFileSync(join(cwd, dir, 'a.txt'), 'x');
+      }
+      symlinkSync(join(cwd, 'real'), join(cwd, 'link'), 'junction');
+      const list = run(cwd, renderCommand(ops.composite['docks.files.list'], { path }));
+      expect(list.status, list.stderr).toBe(0);
+      expect(list.stdout.split('\n').filter(Boolean).map(b64decode)).toEqual(['a.txt']);
+    });
+  });
+
+  it('lists an empty directory and fails on a missing one', () => {
+    inTempDir((cwd) => {
+      run(cwd, 'mkdir empty');
+      const empty = run(cwd, renderCommand(ops.composite['docks.files.list'], { path: 'empty' }));
+      expect([empty.status, empty.stdout]).toEqual([0, '']);
+      expect(run(cwd, renderCommand(ops.composite['docks.files.list'], { path: 'nope' })).status).not.toBe(0);
+    });
   });
 });
