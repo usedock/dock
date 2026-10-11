@@ -202,7 +202,7 @@ in `.env`):
 ```sh
 sudo bash scripts/bootstrap-host.sh \
   --fleet-url https://dock.example.com \
-  --fleet-token "$FLEET_TOKEN" \
+  --fleet-token "$(sed -n 's/^FLEET_TOKEN=//p' /path/to/dock/deploy/self-host/.env)" \
   --runtime microvm
 ```
 

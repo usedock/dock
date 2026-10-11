@@ -57,6 +57,35 @@ Environment: DOCKLET_DIR is the docklet checkout holding scripts/bootstrap-host.
 USAGE
 }
 
+# The fleet token is never printed (terminal scrollback, CI logs, shared
+# sessions); the suggested command reads it from .env when it is run.
+print_next_steps() {
+  cat <<DONE
+
+Dock is running: ${PUBLIC_URL}
+  Sign up there. Mail (sign-in codes, reset links) goes to the API log:
+    docker compose -f ${SELF_DIR}/docker-compose.yml logs backend | grep -A2 "mail not delivered"
+DONE
+  if [ "$WITH_HOST" != "1" ]; then
+    local script="scripts/bootstrap-host.sh"
+    if [ -f "${DOCKLET_DIR}/scripts/bootstrap-host.sh" ]; then
+      script="\"${DOCKLET_DIR}/scripts/bootstrap-host.sh\""
+      printf '  To run docks, enroll a Linux machine (this one: ./setup.sh --host), from a checkout:\n'
+    else
+      printf '  To run docks, enroll a Linux machine: from a usedock/docklet checkout on that machine, run\n'
+    fi
+    printf '    sudo bash %s --fleet-url %s --runtime gvisor \\n' "$script" "$PUBLIC_URL"
+    # shellcheck disable=SC2016
+    printf '      --fleet-token "$(sed -n '"'"'s/^FLEET_TOKEN=//p'"'"' "%s")"\n' "$ENV_FILE"
+    printf '  The fleet token is in %s (FLEET_TOKEN); it is not shown here.\n' "$ENV_FILE"
+  fi
+}
+
+# check-setup-output.sh sets DOCK_SETUP_SOURCE_ONLY=1 to load the functions above only.
+if [ "${DOCK_SETUP_SOURCE_ONLY:-}" = "1" ]; then
+  return 0
+fi
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --url)
@@ -293,22 +322,4 @@ if [ "$WITH_HOST" = "1" ]; then
   fi
 fi
 
-cat <<DONE
-
-Dock is running: ${PUBLIC_URL}
-  Sign up there. Mail (sign-in codes, reset links) goes to the API log:
-    docker compose -f ${SELF_DIR}/docker-compose.yml logs backend | grep -A2 "mail not delivered"
-DONE
-if [ "$WITH_HOST" != "1" ]; then
-  if [ -f "${DOCKLET_DIR}/scripts/bootstrap-host.sh" ]; then
-    cat <<DONE
-  To run docks, enroll a Linux machine (this one: ./setup.sh --host), from a checkout:
-    sudo bash "${DOCKLET_DIR}/scripts/bootstrap-host.sh" --fleet-url ${PUBLIC_URL} --fleet-token ${FLEET_TOKEN} --runtime gvisor
-DONE
-  else
-    cat <<DONE
-  To run docks, enroll a Linux machine: from a usedock/docklet checkout on that machine, run
-    sudo bash scripts/bootstrap-host.sh --fleet-url ${PUBLIC_URL} --fleet-token ${FLEET_TOKEN} --runtime gvisor
-DONE
-  fi
-fi
+print_next_steps

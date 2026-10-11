@@ -7,6 +7,7 @@
 set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+bash "${SELF_DIR}/check-setup-output.sh"
 PROJECT="dock-compose-check"
 WORK="$(mktemp -d)"
 KMS_KEY="dock-snapshots:$(openssl rand -base64 32)"
