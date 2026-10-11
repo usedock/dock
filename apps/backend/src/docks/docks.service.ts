@@ -167,11 +167,11 @@ export function checkedSize(input: DockSizeInput, base: DockSize = { cpus: DEFAU
   };
 }
 
-/** Only the default image exists; anything else is refused. */
+/** Catalog images only. Availability is not checked here: hosts do not report images yet, so the host refuses one it lacks. */
 function checkedImage(image: unknown): string {
   if (image === undefined) return DEFAULT_IMAGE;
   if (typeof image === 'string' && DOCK_IMAGES.includes(image)) return image;
-  throw validationError(`image must be one of: ${DOCK_IMAGES.join(', ')}`);
+  throw new BadRequestException({ code: 'image_unknown', message: `Unknown image. Valid images: ${DOCK_IMAGES.join(', ')}`, images: [...DOCK_IMAGES] });
 }
 
 function checkedName(name: unknown): string {

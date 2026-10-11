@@ -1,5 +1,6 @@
 import { bigint, boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import { DOCKYARD_IMAGE_NAMES } from '../../images/catalog';
 import { users } from './users';
 import { workspaces } from './workspaces';
 
@@ -10,7 +11,7 @@ export const DEFAULT_CPUS = 2;
 export const DEFAULT_MEMORY_MIB = 4096;
 export const DEFAULT_DISK_GIB = 20;
 export const DEFAULT_IMAGE = 'ubuntu-24.04';
-export const DOCK_IMAGES: readonly string[] = [DEFAULT_IMAGE];
+export const DOCK_IMAGES: readonly string[] = DOCKYARD_IMAGE_NAMES;
 
 /** Paths that survive stop and resume: the whole disk on a microVM, only the work dir on gVisor. */
 export const PERSISTENT_PATHS: Record<Runtime, string[]> = { microvm: ['/'], gvisor: ['/home/user/work'] };

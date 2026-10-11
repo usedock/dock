@@ -94,6 +94,7 @@ describe('scenarios', () => {
       'create-exec-delete.yaml',
       'files-roundtrip.yaml',
       'list-connectors.yaml',
+      'list-images.yaml',
       'not-found-errors.yaml',
       'size-validation-errors.yaml',
       'stop-resume-keeps-files.yaml',

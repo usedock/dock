@@ -50,6 +50,10 @@ http:
     # The value is the dock id being deleted; the API refuses the call without it.
     headers:
       x-confirm-delete: "{dockId}"
+  images.list:
+    method: GET
+    path: /v1/images
+    status: 200
   connectors.list:
     method: GET
     path: /v1/workspaces/{workspaceId}/connectors

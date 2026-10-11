@@ -367,14 +367,21 @@ describe('DocksService', () => {
     expect(inserted[0].name).toMatch(/^dock-[0-9a-f]{8}$/);
   });
 
-  it('rejects images other than ubuntu-24.04 before creating anything', async () => {
+  it('rejects images outside the Dockyard catalog with image_unknown before creating anything', async () => {
     const err = await catchErr(service.create('u1', { workspaceId: wsId, image: 'debian-12' }));
     expect(err.status).toBe(400);
-    expect(err.body).toMatchObject({ code: 'validation_error' });
+    expect(err.body).toMatchObject({ code: 'image_unknown', images: ['ubuntu-24.04', 'node-22', 'python-3.12', 'browser'] });
     expect(db.insert).not.toHaveBeenCalled();
     db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null })]));
     db.update.mockReturnValueOnce(updateQ([dockRow()]));
     await expect(service.create('u1', { workspaceId: wsId, image: 'ubuntu-24.04' })).resolves.toMatchObject({ state: 'ready' });
+  });
+
+  it('accepts a non-default catalog image', async () => {
+    db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null, image: 'node-22' })]));
+    db.update.mockReturnValueOnce(updateQ([dockRow({ image: 'node-22' })]));
+    await expect(service.create('u1', { workspaceId: wsId, image: 'node-22' })).resolves.toMatchObject({ image: 'node-22' });
+    expect(db.insert.mock.calls[0]).toBeDefined();
   });
 
   it('refuses a name already used in the workspace with 409 dock_name_taken', async () => {
