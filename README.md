@@ -25,6 +25,7 @@ The first `dock new` downloads the default `ubuntu-24.04` Dockyard image once. O
 
 ![dock quickstart: install, dock doctor, dock new api, dock exec, dock branch, dock ls](https://raw.githubusercontent.com/usedock/docklet/main/docs/assets/quickstart.gif)
 
+
 The first `dock new` downloads the image; the recording skips that wait.
 
 Docs: [quickstart](https://docs.usedock.io/quickstart), [CLI](https://docs.usedock.io/cli), [local docks](https://docs.usedock.io/local-docks), [self-hosting](https://docs.usedock.io/self-hosting), [Dockyard images](https://docs.usedock.io/dockyard), [connectors](https://docs.usedock.io/connectors), [SDKs](https://docs.usedock.io/sdks), [API](https://docs.usedock.io/api).
