@@ -33,7 +33,7 @@ check fails closed, so an event it cannot verify is ignored silently.
 |---|---|
 | Slack | Full members of the connected Slack workspace. Guests (`is_restricted`, `is_ultra_restricted`), bots, deactivated users and Slack Connect users from other teams are refused. Dock asks Slack (`users.info`) with the stored token, so the token needs `users:read`. |
 | Linear | Active, non-guest members of the connected organization, checked with the stored token. Events caused by integrations or OAuth apps are ignored. |
-| Figma | Figma users on the connector's allowlist (`allowedUsers`). By default the list holds only the Figma user of the token that was connected. Add colleagues with `allowedUsers` in the webhook configuration. |
+| Figma | Figma users on the connector's allowlist (`allowedUsers`). By default the list holds only the Figma user of the token that was connected. Add colleagues with `allowedUsers` in the webhook configuration. When a different Figma user reconnects, the list is reset to that new user; the same user reconnecting keeps the list. |
 | Sentry | Nobody until an admin sets `triggersEnabled: true` in the webhook configuration. Event text can contain text from end users of the monitored app (exception messages, breadcrumbs), so Sentry triggers are opt-in. |
 
 ## Security model

@@ -31,9 +31,11 @@ function fakeDb(selects: unknown[][], updates: unknown[][] = []) {
   const chain = (rows: unknown[]) => Object.assign(Promise.resolve(rows), { limit: vi.fn().mockResolvedValue(rows), returning: vi.fn().mockResolvedValue(rows) });
   const insertValues = vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([runRow()]) });
   const updateSet = vi.fn();
-  return {
+  const self: Record<string, unknown> = {
     select: vi.fn().mockImplementation(() => ({ from: () => ({ where: () => chain(selectQueue.shift() ?? []) }) })),
     insert: vi.fn().mockReturnValue({ values: insertValues }),
+    execute: vi.fn().mockResolvedValue([]),
+    transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(self)),
     update: vi.fn().mockImplementation(() => ({
       set: (patch: unknown) => {
         updateSet(patch);
@@ -43,6 +45,7 @@ function fakeDb(selects: unknown[][], updates: unknown[][] = []) {
     insertValues,
     updateSet,
   };
+  return self as typeof self & { select: Mock; insert: Mock; update: Mock; execute: Mock; insertValues: Mock; updateSet: Mock };
 }
 
 describe('ConnectorRunsService', () => {
@@ -74,7 +77,7 @@ describe('ConnectorRunsService', () => {
 
   describe('start', () => {
     it('creates a connector dock without the environment, for the connecting admin, and launches with run-scoped tokens only', async () => {
-      const db = fakeDb([[], [{ organizationId: 'o1' }]]);
+      const db = fakeDb([[{ organizationId: 'o1' }], []]);
       const service = build(db);
       expect(await service.start(connector as never, trigger)).toEqual({ status: 'started', id: RUN_ID });
       await service.settled();
@@ -92,7 +95,7 @@ describe('ConnectorRunsService', () => {
 
     it('passes the operator setup script to the dock and nothing else of the environment', async () => {
       config.CONNECTOR_RUN_SETUP_SCRIPT = 'npm i -g opencode-ai';
-      const service = build(fakeDb([[], [{ organizationId: 'o1' }]]));
+      const service = build(fakeDb([[{ organizationId: 'o1' }], []]));
       await service.start(connector as never, trigger);
       await service.settled();
       expect(docks.create.mock.calls[0][1]).toMatchObject({ setupScript: 'npm i -g opencode-ai', noEnv: true });
@@ -100,14 +103,14 @@ describe('ConnectorRunsService', () => {
     });
 
     it('does not start a second run for a subject that has one in flight', async () => {
-      const db = fakeDb([[{ kind: 'slack', triggerKey: trigger.key }]]);
+      const db = fakeDb([[{ organizationId: 'o1' }], [{ kind: 'slack', triggerKey: trigger.key }]]);
       expect(await build(db).start(connector as never, trigger)).toEqual({ status: 'duplicate' });
       expect(db.insert).not.toHaveBeenCalled();
     });
 
     it('answers busy at the per-workspace cap and starts no dock', async () => {
       config.CONNECTOR_RUN_MAX_CONCURRENT = '2';
-      const db = fakeDb([[{ kind: 'slack', triggerKey: 'a' }, { kind: 'linear', triggerKey: 'b' }]]);
+      const db = fakeDb([[{ organizationId: 'o1' }], [{ kind: 'slack', triggerKey: 'a' }, { kind: 'linear', triggerKey: 'b' }]]);
       expect(await build(db).start(connector as never, trigger)).toEqual({ status: 'busy' });
       expect(db.insert).not.toHaveBeenCalled();
       expect(docks.create).not.toHaveBeenCalled();
@@ -115,12 +118,56 @@ describe('ConnectorRunsService', () => {
 
     it('defaults the cap to five', async () => {
       const five = Array.from({ length: 5 }, (_, i) => ({ kind: 'linear', triggerKey: `k${i}` }));
-      expect(await build(fakeDb([five])).start(connector as never, trigger)).toEqual({ status: 'busy' });
-      expect(await build(fakeDb([five.slice(0, 4), [{ organizationId: 'o1' }]])).start(connector as never, trigger)).toMatchObject({ status: 'started' });
+      expect(await build(fakeDb([[{ organizationId: 'o1' }], five])).start(connector as never, trigger)).toEqual({ status: 'busy' });
+      expect(await build(fakeDb([[{ organizationId: 'o1' }], five.slice(0, 4)])).start(connector as never, trigger)).toMatchObject({ status: 'started' });
+    });
+
+    it('takes a workspace advisory lock before reading the open runs, and treats a unique-index conflict as a duplicate', async () => {
+      const db = fakeDb([[{ organizationId: 'o1' }], []]);
+      db.insertValues.mockReturnValue({ returning: vi.fn().mockRejectedValue({ code: '23505' }) });
+      expect(await build(db).start(connector as never, trigger)).toEqual({ status: 'duplicate' });
+      expect(db.execute).toHaveBeenCalledTimes(1);
+      expect(docks.create).not.toHaveBeenCalled();
+    });
+
+    it('holds the cap and the dedupe under parallel starts', async () => {
+      config.CONNECTOR_RUN_MAX_CONCURRENT = '2';
+      // In-memory table with a per-workspace lock held for a whole transaction, like pg_advisory_xact_lock.
+      const rows: { kind: string; triggerKey: string }[] = [];
+      let tail: Promise<void> = Promise.resolve();
+      const tick = () => new Promise((r) => setTimeout(r, 2));
+      const db = {
+        select: () => ({ from: () => ({ where: () => Object.assign(Promise.resolve([{ organizationId: 'o1' }]), { limit: async () => [{ organizationId: 'o1' }] }) }) }),
+        transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+          const prev = tail;
+          let release!: () => void;
+          tail = new Promise<void>((r) => (release = r));
+          await prev;
+          try {
+            return await fn({
+              execute: async () => undefined,
+              select: () => ({ from: () => ({ where: async () => { await tick(); return [...rows]; } }) }),
+              insert: () => ({ values: (v: { kind: string; triggerKey: string }) => ({ returning: async () => { await tick(); rows.push(v); return [runRow({ triggerKey: v.triggerKey })]; } }) }),
+            });
+          } finally {
+            release();
+          }
+        },
+        update: fakeDb([]).update,
+      };
+      const service = build(db as never);
+      const starts = await Promise.all([
+        ...['a', 'b', 'c', 'd'].map((k) => service.start(connector as never, { ...trigger, key: k })),
+        ...[1, 2, 3].map(() => service.start(connector as never, { ...trigger, key: 'same' })),
+      ]);
+      await service.settled();
+      expect(starts.filter((s) => s.status === 'started')).toHaveLength(2);
+      expect(rows).toHaveLength(2);
+      expect(new Set(rows.map((r) => r.triggerKey)).size).toBe(rows.length);
     });
 
     it('fails the run with a reply when the connecting admin is gone', async () => {
-      const service = build(fakeDb([[], [{ organizationId: 'o1' }]], [[runRow({ state: 'failed', reason: 'no_owner' })]]));
+      const service = build(fakeDb([[{ organizationId: 'o1' }], []], [[runRow({ state: 'failed', reason: 'no_owner' })]]));
       await service.start({ ...connector, createdBy: null } as never, trigger);
       await service.settled();
       expect(docks.create).not.toHaveBeenCalled();
@@ -129,7 +176,7 @@ describe('ConnectorRunsService', () => {
 
     it('fails the run when no model key is configured for the organization', async () => {
       envs.resolveBundle.mockResolvedValue({ vars: {} });
-      const service = build(fakeDb([[], [{ organizationId: 'o1' }]], [[runRow({ state: 'failed', reason: 'provider_not_configured' })]]));
+      const service = build(fakeDb([[{ organizationId: 'o1' }], []], [[runRow({ state: 'failed', reason: 'provider_not_configured' })]]));
       await service.start(connector as never, trigger);
       await service.settled();
       expect(docks.create).not.toHaveBeenCalled();
@@ -138,7 +185,7 @@ describe('ConnectorRunsService', () => {
 
     it('honors a model override only when its provider has a key', async () => {
       config.CONNECTOR_RUN_MODEL = 'openai/gpt-5';
-      const service = build(fakeDb([[], [{ organizationId: 'o1' }]], [[runRow({ state: 'failed', reason: 'provider_not_configured' })]]));
+      const service = build(fakeDb([[{ organizationId: 'o1' }], []], [[runRow({ state: 'failed', reason: 'provider_not_configured' })]]));
       await service.start(connector as never, trigger);
       await service.settled();
       expect(docks.create).not.toHaveBeenCalled();
@@ -146,7 +193,7 @@ describe('ConnectorRunsService', () => {
 
     it('fails the run when the dock cannot be created, for example the admin lost their role', async () => {
       docks.create.mockRejectedValue(new Error('403'));
-      const service = build(fakeDb([[], [{ organizationId: 'o1' }]], [[runRow({ model: 'm' })], [runRow({ state: 'failed', reason: 'dock_provision_failed' })]]));
+      const service = build(fakeDb([[{ organizationId: 'o1' }], []], [[runRow({ model: 'm' })], [runRow({ state: 'failed', reason: 'dock_provision_failed' })]]));
       await service.start(connector as never, trigger);
       await service.settled();
       expect(provider.exec).not.toHaveBeenCalled();

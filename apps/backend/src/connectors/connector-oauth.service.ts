@@ -5,6 +5,7 @@ import { randomBytes } from 'crypto';
 import { BetterAuthService } from '../auth/better-auth/better-auth.service';
 import { publicApiUrl, publicAppUrl } from '../config/instance';
 import { REDIS } from '../redis/redis.module';
+import { createConnectorFetch } from './connector-fetch';
 import { CONNECTOR_SPECS, type ConnectorKind } from './connector-kinds';
 import { authorizeUrl, exchangeCode, newPkce, oauthClient, signState, STATE_TTL_SECONDS, verifyState } from './connector-oauth';
 import { verifyCredential } from './connector-verify';
@@ -24,7 +25,7 @@ export class ConnectorOauthService {
     @Optional() options: { fetchFn?: typeof fetch } = {},
   ) {
     this.secret = Buffer.from(config.getOrThrow<string>('SECRETS_ENCRYPTION_KEY'), 'hex');
-    this.fetchFn = options?.fetchFn ?? fetch;
+    this.fetchFn = options?.fetchFn ?? createConnectorFetch();
   }
 
   async start(callerId: string, kind: string, workspaceId: string): Promise<{ url: string }> {

@@ -1,7 +1,8 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Optional, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, eq, gt, inArray, lt } from 'drizzle-orm';
+import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { timingSafeEqual } from 'crypto';
+import { isUniqueViolation } from '../organizations/organizations.service';
 import { publicApiUrl } from '../config/instance';
 import { hashToken, newToken } from '../crypto/tokens';
 import { DB, Db } from '../database/database.module';
@@ -10,6 +11,7 @@ import { COMPUTE_PROVIDER, type ComputeProvider } from '../docks/compute.provide
 import { DocksService } from '../docks/docks.service';
 import { EnvironmentsService } from '../environments/environments.service';
 import { providerOf, selectRunModel } from '../github/runner';
+import { createConnectorFetch } from './connector-fetch';
 import { redactSecrets } from './connector-redact';
 import { linearSetState, postReply } from './connector-replies';
 import { buildConnectorRunScript, CONNECTOR_RUN_AGENTS, renderConnectorRequest, renderConnectorSystem } from './connector-run-script';
@@ -61,7 +63,7 @@ export class ConnectorRunsService implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService,
     @Optional() options: { fetchFn?: typeof fetch; tokenFn?: () => string } = {},
   ) {
-    this.fetchFn = options?.fetchFn ?? fetch;
+    this.fetchFn = options?.fetchFn ?? createConnectorFetch();
     this.tokenFn = options?.tokenFn ?? newToken;
   }
 
@@ -91,33 +93,45 @@ export class ConnectorRunsService implements OnModuleInit, OnModuleDestroy {
     return this.config.get<string>('CONNECTOR_RUN_AGENT') || 'opencode';
   }
 
-  /** Admits a run unless the subject already has one in flight or the workspace is at its cap. */
+  /** Admits a run unless the subject already has one in flight or the workspace is at its cap; checks and insert are atomic per workspace. */
   async start(connector: Connector, trigger: ConnectorTrigger): Promise<StartOutcome> {
-    const horizon = new Date(Date.now() - (this.timeoutMinutes() + DOCK_SLACK_MINUTES) * 60_000);
-    const active = await this.db
-      .select({ kind: connectorRuns.kind, triggerKey: connectorRuns.triggerKey })
-      .from(connectorRuns)
-      .where(and(eq(connectorRuns.workspaceId, connector.workspaceId), inArray(connectorRuns.state, [...ACTIVE]), gt(connectorRuns.createdAt, horizon)));
-    if (active.some((r) => r.kind === trigger.kind && r.triggerKey === trigger.key)) return { status: 'duplicate' };
-    if (active.length >= this.maxConcurrent()) return { status: 'busy' };
     const [ws] = await this.db.select({ organizationId: workspaces.organizationId }).from(workspaces).where(eq(workspaces.id, connector.workspaceId)).limit(1);
     const completion = this.tokenFn();
     const gateway = this.tokenFn();
-    const [run] = await this.db
-      .insert(connectorRuns)
-      .values({
-        workspaceId: connector.workspaceId,
-        organizationId: ws?.organizationId ?? null,
-        kind: trigger.kind,
-        triggerKey: trigger.key,
-        agent: this.agent(),
-        reply: trigger.reply,
-        completionTokenHash: hashToken(completion),
-        gatewayTokenHash: hashToken(gateway),
-      })
-      .returning();
-    this.background(this.execute(run, connector, trigger, completion, gateway));
-    return { status: 'started', id: run.id };
+    let outcome: { run: ConnectorRun } | { status: 'duplicate' | 'busy' };
+    try {
+      outcome = await this.db.transaction(async (tx) => {
+        // Concurrent webhooks for one workspace queue here, so the cap and the dedupe read what the last insert wrote.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext('connector_runs'), hashtext(${connector.workspaceId}))`);
+        const active = await tx
+          .select({ kind: connectorRuns.kind, triggerKey: connectorRuns.triggerKey })
+          .from(connectorRuns)
+          .where(and(eq(connectorRuns.workspaceId, connector.workspaceId), inArray(connectorRuns.state, [...ACTIVE])));
+        if (active.some((r) => r.kind === trigger.kind && r.triggerKey === trigger.key)) return { status: 'duplicate' as const };
+        if (active.length >= this.maxConcurrent()) return { status: 'busy' as const };
+        const [row] = await tx
+          .insert(connectorRuns)
+          .values({
+            workspaceId: connector.workspaceId,
+            organizationId: ws?.organizationId ?? null,
+            kind: trigger.kind,
+            triggerKey: trigger.key,
+            agent: this.agent(),
+            reply: trigger.reply,
+            completionTokenHash: hashToken(completion),
+            gatewayTokenHash: hashToken(gateway),
+          })
+          .returning();
+        return { run: row };
+      });
+    } catch (err) {
+      // Backstop: the unique open-run index refuses a second run for one subject.
+      if (isUniqueViolation(err)) return { status: 'duplicate' };
+      throw err;
+    }
+    if (!('run' in outcome)) return outcome;
+    this.background(this.execute(outcome.run, connector, trigger, completion, gateway));
+    return { status: 'started', id: outcome.run.id };
   }
 
   /** Posts a short notice (refusal, busy) in the background; replies are scrubbed like any other. */

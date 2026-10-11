@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { DB, Db } from '../database/database.module';
 import { connectorDeliveries, type Connector, type ConnectorKind } from '../database/schema';
 import { isUniqueViolation } from '../organizations/organizations.service';
+import { createConnectorFetch } from './connector-fetch';
 import { admitFigma, admitLinear, admitSentry, admitSlack, type Admission } from './connector-gate';
 import { ConnectorRunsService } from './connector-runs.service';
 import { figmaTrigger, linearTrigger, sentryTrigger, slackTrigger, type ConnectorTrigger } from './connector-triggers';
@@ -46,7 +47,7 @@ export class ConnectorWebhooksService {
     private readonly runs: ConnectorRunsService,
     @Optional() options: { fetchFn?: typeof fetch } = {},
   ) {
-    this.fetchFn = options?.fetchFn ?? fetch;
+    this.fetchFn = options?.fetchFn ?? createConnectorFetch();
   }
 
   async handle(kind: ConnectorKind, req: ConnectorWebhookRequest, nowMs = Date.now()): Promise<WebhookOutcome> {

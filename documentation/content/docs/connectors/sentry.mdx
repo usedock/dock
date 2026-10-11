@@ -39,7 +39,8 @@ curl -X PUT $DOCK_API/v1/workspaces/$WORKSPACE_ID/connectors/sentry \
 a self-hosted instance (no path, no credentials). The gateway, the connect check
 and replies all use it. A self-hosted name must resolve to public addresses, so
 an instance on a private network cannot be reached; the check runs when you
-connect and again before each call. The Sentry MCP server (`mcp.sentry.dev`) is
+connect and again before each call, and the connection itself is pinned to the
+address that passed the check, so a name that changes its answer in between is refused. The Sentry MCP server (`mcp.sentry.dev`) is
 the hosted one and reaches sentry.io organizations.
 
 ## Triggers

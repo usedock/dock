@@ -107,6 +107,10 @@ export const connectorRuns = pgTable(
     index('connector_runs_state_idx').on(table.state),
     // The LLM gateway looks up every non-GitHub-run token here, ChatGPT dock calls included.
     index('connector_runs_gateway_token_idx').on(table.gatewayTokenHash),
+    // One open run per subject; start() checks first, this is the backstop.
+    uniqueIndex('connector_runs_open_subject_unique')
+      .on(table.workspaceId, table.kind, table.triggerKey)
+      .where(sql`${table.state} in ('pending', 'working')`),
   ],
 );
 
