@@ -1,0 +1,1 @@
+ALTER TABLE "dock_exports" ADD COLUMN "data_bytes" bigint;

@@ -53,7 +53,7 @@ export class RestateComputeProvider implements ComputeProvider {
   async captureDisk(dock: Dock): Promise<DiskExport> {
     const client = await this.docklets(dock.hostId ?? null);
     const res = await client.snapshotCreate(dock.id, null, 'full', true, false, randomUUID(), true);
-    return { snapshotId: res.snapshotId, sizeBytes: res.sizeBytes, sha256: res.sha256 ?? '', baseImage: res.baseImage ?? '' };
+    return { snapshotId: res.snapshotId, sizeBytes: res.sizeBytes, sha256: res.sha256 ?? '', dataBytes: res.dataBytes && res.dataBytes > 0 ? res.dataBytes : null, baseImage: res.baseImage ?? '' };
   }
 
   async resume(dock: Dock, opts: { snapshotId: string | null; hostId?: string | null; egressAllow?: string[] }): Promise<MachineHandle> {

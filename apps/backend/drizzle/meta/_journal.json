@@ -92,6 +92,13 @@
       "when": 1791707671913,
       "tag": "0012_fancy_white_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791727153017,
+      "tag": "0013_spotty_skin",
+      "breakpoints": true
     }
   ]
 }

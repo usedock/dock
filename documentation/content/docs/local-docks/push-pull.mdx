@@ -130,6 +130,7 @@ exports at once (`export_limit_reached`, HTTP 429), and a dock one in progress.
   "diskGiB": 20,
   "sizeBytes": 812646400,
   "sha256": "9f86d0...",
+  "dataBytes": 2147483648,
   "baseImage": "ubuntu-24.04",
   "url": "https://store.example.com/...",
   "expiresAt": "2026-10-12T08:00:00.000Z",
@@ -138,14 +139,17 @@ exports at once (`export_limit_reached`, HTTP 429), and a dock one in progress.
 ```
 
 `state` is `pending`, `ready` or `failed`. While pending, `sizeBytes`, `sha256`,
-`baseImage` and `url` are `null`. A failed export carries `error`:
+`dataBytes`, `baseImage` and `url` are `null`. A failed export carries `error`:
 `export_base_unsupported` (the dock's disk was not built from a Dockyard image),
 `export_failed` or `export_interrupted`.
 
 `url` is a fresh presigned download for `rootfs.ext4.zst` on every call, valid
 until `urlExpiresAt` (15 minutes by default; self-hosters set
 `SNAPSHOT_STORE_PRESIGN_TTL_SECONDS`); it supports `Range` requests, so a download
-resumes. Check the downloaded file against `sha256`. `baseImage` names the
+resumes. Check the downloaded file against `sha256`. `dataBytes` is the disk's data
+once decompressed, which `dock pull` uses to check free space before it
+downloads; it is `null` when the host that captured the export did not report it,
+and a client should then estimate. `baseImage` names the
 Dockyard image whose kernel boots the disk. The export itself, and its object,
 are removed at `expiresAt`, 24 hours after the export starts.
 

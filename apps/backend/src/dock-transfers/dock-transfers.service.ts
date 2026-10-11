@@ -82,6 +82,8 @@ export interface ExportView {
   diskGiB: number;
   sizeBytes: number | null;
   sha256: string | null;
+  /** Data size once decompressed; null when the host did not report it (pull then estimates). */
+  dataBytes: number | null;
   baseImage: string | null;
   url: string | null;
   /** When the export and its object are removed. */
@@ -500,7 +502,7 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
     }
     const [ready] = await this.db
       .update(dockExports)
-      .set({ state: 'ready', sizeBytes: capture.sizeBytes, sha256: capture.sha256, baseImage: capture.baseImage, storeSnapshotId: capture.snapshotId })
+      .set({ state: 'ready', sizeBytes: capture.sizeBytes, sha256: capture.sha256, dataBytes: capture.dataBytes, baseImage: capture.baseImage, storeSnapshotId: capture.snapshotId })
       .where(and(eq(dockExports.id, row.id), eq(dockExports.state, 'pending')))
       .returning({ id: dockExports.id });
     // The sweeper gave up on this export while it ran, so its object has no owner.
@@ -548,6 +550,7 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
       diskGiB: row.diskGiB,
       sizeBytes: row.sizeBytes,
       sha256: row.sha256,
+      dataBytes: row.dataBytes,
       baseImage: row.baseImage,
       url: null,
       expiresAt: row.expiresAt,

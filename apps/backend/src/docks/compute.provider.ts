@@ -19,6 +19,8 @@ export interface DiskExport {
   snapshotId: string;
   sizeBytes: number;
   sha256: string;
+  /** Allocated bytes of the flattened disk before compression; null when the host did not report it. */
+  dataBytes: number | null;
   /** Dockyard image the disk was built from; empty when the base was built on the host. */
   baseImage: string;
 }
@@ -109,7 +111,7 @@ export class FakeComputeProvider implements ComputeProvider {
   async captureDisk(dock: Dock): Promise<DiskExport> {
     this.maybeFail('captureDisk');
     this.captures += 1;
-    return { snapshotId: `fake-export-${this.captures}`, sizeBytes: 6000, sha256: 'f'.repeat(64), baseImage: dock.image };
+    return { snapshotId: `fake-export-${this.captures}`, sizeBytes: 6000, sha256: 'f'.repeat(64), dataBytes: 24000, baseImage: dock.image };
   }
 
   async resume(dock: Dock): Promise<MachineHandle> {

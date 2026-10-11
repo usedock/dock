@@ -53,7 +53,7 @@ const typed: Record<string, string[]> = {
   'snapshot-load-response.json': table<Result<'snapshotLoad'>>({ ip: true, hostId: true }),
   // A delta answers baseFingerprint; a full capture answers sha256 and baseImage instead.
   'snapshot-create-response.json': ['snapshotId', 'sizeBytes', 'cpuFamily', 'baseFingerprint'],
-  'snapshot-create-response-full.json': ['snapshotId', 'sizeBytes', 'cpuFamily', 'sha256', 'baseImage'],
+  'snapshot-create-response-full.json': ['snapshotId', 'sizeBytes', 'cpuFamily', 'sha256', 'dataBytes', 'baseImage'],
   'fast-run-create-request.json': table<DockletFastRunCreate>({
     runtimeId: true,
     resources: true,
@@ -137,7 +137,7 @@ describe('docklet api/v1 fixtures vs client types', () => {
   });
 
   it('covers every snapshot answer key between the delta and full fixtures', () => {
-    const client = table<Result<'snapshotCreate'>>({ snapshotId: true, sizeBytes: true, cpuFamily: true, baseFingerprint: true, sha256: true, baseImage: true });
+    const client = table<Result<'snapshotCreate'>>({ snapshotId: true, sizeBytes: true, cpuFamily: true, baseFingerprint: true, sha256: true, dataBytes: true, baseImage: true });
     const answered = new Set([...typed['snapshot-create-response.json'], ...typed['snapshot-create-response-full.json']]);
     expect([...answered].sort()).toEqual(client.sort());
   });
