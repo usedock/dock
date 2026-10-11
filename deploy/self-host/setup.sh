@@ -58,7 +58,7 @@ USAGE
 }
 
 # The fleet token is never printed (terminal scrollback, CI logs, shared
-# sessions); the suggested command reads it from .env when it is run.
+# sessions). Commands pass it as DOCKLET_FLEET_TOKEN, not argv, which ps shows.
 print_next_steps() {
   cat <<DONE
 
@@ -66,19 +66,19 @@ Dock is running: ${PUBLIC_URL}
   Sign up there. Mail (sign-in codes, reset links) goes to the API log:
     docker compose -f ${SELF_DIR}/docker-compose.yml logs backend | grep -A2 "mail not delivered"
 DONE
-  if [ "$WITH_HOST" != "1" ]; then
-    local script="scripts/bootstrap-host.sh"
-    if [ -f "${DOCKLET_DIR}/scripts/bootstrap-host.sh" ]; then
-      script="\"${DOCKLET_DIR}/scripts/bootstrap-host.sh\""
-      printf '  To run docks, enroll a Linux machine (this one: ./setup.sh --host), from a checkout:\n'
-    else
-      printf '  To run docks, enroll a Linux machine: from a usedock/docklet checkout on that machine, run\n'
-    fi
-    printf '    sudo bash %s --fleet-url %s --runtime gvisor \\n' "$script" "$PUBLIC_URL"
+  [ "$WITH_HOST" != "1" ] || return 0
+  printf '  To run docks, enroll a Linux machine. The fleet token is FLEET_TOKEN in %s; it is not shown here.\n' "$ENV_FILE"
+  if [ -f "${DOCKLET_DIR}/scripts/bootstrap-host.sh" ]; then
+    printf '  This machine: ./setup.sh --host, or by hand:\n'
     # shellcheck disable=SC2016
-    printf '      --fleet-token "$(sed -n '"'"'s/^FLEET_TOKEN=//p'"'"' "%s")"\n' "$ENV_FILE"
-    printf '  The fleet token is in %s (FLEET_TOKEN); it is not shown here.\n' "$ENV_FILE"
+    printf '    DOCKLET_FLEET_TOKEN="$(sed -n '"'"'s/^FLEET_TOKEN=//p'"'"' "%s")" %s\n' "$ENV_FILE" '\'
+    printf '      sudo --preserve-env=DOCKLET_FLEET_TOKEN bash "%s" --fleet-url %s --runtime gvisor\n' \
+      "${DOCKLET_DIR}/scripts/bootstrap-host.sh" "$PUBLIC_URL"
   fi
+  printf '  Another machine: print the token here with  grep ^FLEET_TOKEN= "%s"\n' "$ENV_FILE"
+  printf '  then, from a usedock/docklet checkout on that machine, paste it at the silent prompt:\n'
+  printf '    read -rs DOCKLET_FLEET_TOKEN && export DOCKLET_FLEET_TOKEN\n'
+  printf '    sudo --preserve-env=DOCKLET_FLEET_TOKEN bash scripts/bootstrap-host.sh --fleet-url %s --runtime gvisor\n' "$PUBLIC_URL"
 }
 
 # check-setup-output.sh sets DOCK_SETUP_SOURCE_ONLY=1 to load the functions above only.
