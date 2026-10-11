@@ -1,9 +1,9 @@
 # Source
 
 Copied verbatim from `usedock/docklet` `api/v1/testdata/` at commit
-`8dd49f6f822e811c0415a59bee4620a98ce0428a` (branch `feat/egress-allowlist-any-dock`,
-usedock/docklet#47, which adds `egressAllow` to `snapshot-load-request.json` and `features` to `fleet-register-request.json`).
-Re-point this to the merged commit on `main` once that PR lands.
+`607f302a268131494491b9c01b72618a8b24f61c` (main after usedock/docklet#47),
+except `fleet-heartbeat-request-images.json`: the control plane does not accept
+the heartbeat `images` field yet, so that file is left out until it does.
 
 Refresh by copying the folder again and updating this commit. The docklet repo
 owns the files; `docklet.contract.spec.ts` checks the client types and fleet
