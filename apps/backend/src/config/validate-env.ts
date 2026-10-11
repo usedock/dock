@@ -129,7 +129,11 @@ const envSchema = z
     /** Plain-TCP listener the edge proxy forwards port hostnames to, with upstream keep-alive off. */
     PORTS_PROXY_PORT: optionalPort(),
     /** Key for the edge-to-proxy port proof; unset derives a subkey of BETTER_AUTH_SECRET. */
-    DOCK_PORT_PROOF_SECRET: z.string().optional().default(''),
+    DOCK_PORT_PROOF_SECRET: z
+      .string()
+      .optional()
+      .default('')
+      .refine((v) => v === '' || v.length >= 32, 'DOCK_PORT_PROOF_SECRET must be empty or at least 32 characters'),
     SENTRY_DSN: z
       .union([z.string().url('SENTRY_DSN must be a URL'), z.literal('')])
       .optional()
