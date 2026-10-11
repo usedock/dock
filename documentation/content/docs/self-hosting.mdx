@@ -249,7 +249,7 @@ stay in the logs.
 3. Edit `deploy/self-host/ports-tls/1.caddy` for your provider. The `dns`
    subdirective takes the provider name and that module's own parameters:
 
-   ```caddyfile
+   ```text
    tls {
    	dns cloudflare {env.CLOUDFLARE_API_TOKEN}
    }
