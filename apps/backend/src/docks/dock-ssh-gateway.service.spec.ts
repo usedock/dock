@@ -1,4 +1,5 @@
-import { utils, Client, type ClientChannel } from 'ssh2';
+import { Client, type ClientChannel } from 'ssh2';
+import { ed25519KeyPair } from '../ssh-keys/__fixtures__/ed25519-key-pair';
 import { vi } from 'vitest';
 import { DockNotFoundException, DockNotRunningException } from './dock-errors';
 import { EnvironmentSecretsAdminOnlyException } from '../environments/environments.service';
@@ -6,8 +7,8 @@ import { DockSshGatewayService } from './dock-ssh-gateway.service';
 import { TERMINAL_CLOSE, TERMINAL_DATA, TERMINAL_EXIT, TERMINAL_RESIZE, type TerminalClient } from './dock-terminal.service';
 
 const dockId = '33333333-3333-4333-8333-333333333333';
-const userKey = utils.generateKeyPairSync('ed25519');
-const strangerKey = utils.generateKeyPairSync('ed25519');
+const userKey = ed25519KeyPair(1);
+const strangerKey = ed25519KeyPair(2);
 
 function canonical(pub: string): string {
   return pub.split(' ').slice(0, 2).join(' ');
