@@ -1,0 +1,13 @@
+---
+title: Model keys
+description: Organization provider keys show up in the connector list as a read-only entry.
+---
+
+Model provider keys (Anthropic, OpenAI, OpenRouter, OpenCode) are managed
+separately and encrypted at rest. `GET /v1/workspaces/:workspaceId/connectors`
+reports them as the `model-keys` entry: `connected` when the organization has at
+least one key, with the provider names in `scopes` and `readOnly: true`. Values
+are never returned. `PUT` and `DELETE` do not accept `model-keys`.
+
+Provider keys reach a dock as environment variables through its
+[Environment](/docs/concepts/environments).

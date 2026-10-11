@@ -41,6 +41,7 @@ import { OperationsService, type OperationView } from '../retention/operations.s
 import { WorkspaceNotFoundException, WorkspacesService } from '../workspaces/workspaces.service';
 import { assertNotReserved } from '../environments/env-validation';
 import { EnvironmentNotFoundException, EnvironmentSecretsAdminOnlyException, EnvironmentsService } from '../environments/environments.service';
+import { ConnectorsService } from '../connectors/connectors.service';
 import { EnvironmentApplyService } from '../environments/environment-apply.service';
 import { ConfirmRequiredException, DockDeleteForbiddenException, DockNotFoundException, NoHostCapacityException, SnapshotInUseException, TEMPLATE_RE, TemplateSourceMissingException, TemplateNotFoundException, CapacityExhaustedException, DockNameTakenException } from './dock-errors';
 import { COMPUTE_PROVIDER, ComputeProvider } from './compute.provider';
@@ -73,6 +74,8 @@ export interface CreateDockInput extends DockSizeInput {
   noEnv?: boolean;
   from?: string;
   setupScript?: string;
+  /** Connector kinds to wire into the dock; each must be connected in the workspace. */
+  connectors?: string[];
   /** Internal only: confines the dock to these HTTPS hosts (GitHub runs). */
   egressAllow?: string[];
 }
@@ -212,6 +215,7 @@ export class DocksService {
     private readonly webhooks: WebhooksService,
     private readonly notifications: NotificationsService,
     private readonly applier: EnvironmentApplyService,
+    private readonly connectors: ConnectorsService,
   ) {}
 
   /** Dock plus owning org, membership-checked. Shared with snapshots/templates. */
@@ -370,6 +374,7 @@ export class DocksService {
       // A template's disk restores only onto the runtime that captured it.
       templateRuntime = source.runtime;
     }
+    const connectorKinds = input.connectors?.length ? await this.connectors.assertConnected(input.workspaceId, input.connectors) : [];
     await this.spendGate.requireSpend(orgId);
     if (idempotencyKey) {
       const existing = await this.claimKey(orgId, idempotencyKey, input);
@@ -390,6 +395,7 @@ export class DocksService {
         noEnv,
         envBoundAt: new Date(),
         env,
+        connectors: connectorKinds,
         fromTemplate,
         createdBy: callerId,
         setupStatus: input.egressAllow?.length ? 'done' : 'pending',
@@ -784,6 +790,7 @@ export class DocksService {
         noEnv,
         envBoundAt: new Date(),
         env,
+        connectors: dock.connectors,
         fromTemplate: dock.fromTemplate,
         createdBy: callerId,
         setupStatus: 'pending',

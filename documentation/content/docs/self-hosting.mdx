@@ -143,6 +143,14 @@ Each instance registers its own GitHub App:
 
 Mention `@dock` in an issue comment to start a run.
 
+## Connectors
+
+Figma, Linear, Slack and Sentry work with pasted tokens out of the box. To offer
+OAuth sign-in for a tool, create an OAuth app with it, register
+`<DOCK_PUBLIC_URL>/v1/connectors/<kind>/oauth/callback` as the redirect URL and
+set `<KIND>_CLIENT_ID` and `<KIND>_CLIENT_SECRET` (for example `LINEAR_CLIENT_ID`)
+in `.env`. See [Connectors](/docs/connectors).
+
 ## Network notes
 
 - GitHub webhooks go to `<DOCK_PUBLIC_URL>/v1/github/webhooks`, so the API must

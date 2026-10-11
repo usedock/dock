@@ -67,6 +67,15 @@ const envSchema = z
     GITHUB_RUN_MODEL: z.string().optional().default(''),
     /** Comma-separated HTTPS hosts confined runs may reach besides the control plane; `*` leaves egress open. */
     RUN_EGRESS_ALLOW: z.string().optional().default(''),
+    // Connector OAuth: each tool is enabled only when both its id and secret are set.
+    FIGMA_CLIENT_ID: z.string().optional().default(''),
+    FIGMA_CLIENT_SECRET: z.string().optional().default(''),
+    LINEAR_CLIENT_ID: z.string().optional().default(''),
+    LINEAR_CLIENT_SECRET: z.string().optional().default(''),
+    SLACK_CLIENT_ID: z.string().optional().default(''),
+    SLACK_CLIENT_SECRET: z.string().optional().default(''),
+    SENTRY_CLIENT_ID: z.string().optional().default(''),
+    SENTRY_CLIENT_SECRET: z.string().optional().default(''),
     /** Personal ChatGPT subscription sign-in for runs; unofficial (Codex client), so off unless opted in. */
     CHATGPT_SIGNIN_ENABLED: z.enum(['true', 'false']).default('false'),
     RESTATE_INGRESS_URL: z.string().url('RESTATE_INGRESS_URL must be a URL').optional(),

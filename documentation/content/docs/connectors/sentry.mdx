@@ -1,0 +1,20 @@
+---
+title: Sentry
+description: Read Sentry issues and events from a dock through the API or MCP.
+---
+
+Connect with an auth token (`PUT /v1/workspaces/:workspaceId/connectors/sentry` with
+`{ "token": "sntrys_..." }`) or with OAuth when `SENTRY_CLIENT_ID` and
+`SENTRY_CLIENT_SECRET` are set. See [Connectors](/docs/connectors) for the routes.
+
+| | |
+|---|---|
+| OAuth scopes requested | `org:read`, `project:read`, `event:read` |
+| REST API in a dock | `$DOCK_SENTRY_API_URL/0/...` |
+| MCP in a dock | `$DOCK_SENTRY_MCP_URL`, listed in `~/.config/dock/mcp.json` |
+
+The REST path must start with `0/`, the API version.
+
+```bash
+curl -H "Authorization: Bearer $DOCK_CONNECTOR_TOKEN" $DOCK_SENTRY_API_URL/0/organizations/
+```

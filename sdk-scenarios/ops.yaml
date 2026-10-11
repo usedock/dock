@@ -6,7 +6,7 @@ http:
     method: POST
     path: /v1/docks
     status: 201
-    body: [workspaceId, name, image, cpus, memoryMiB, diskGiB, ttlSeconds, env]
+    body: [workspaceId, name, image, cpus, memoryMiB, diskGiB, ttlSeconds, env, connectors]
   docks.list:
     method: GET
     path: /v1/docks
@@ -50,6 +50,24 @@ http:
     # The value is the dock id being deleted; the API refuses the call without it.
     headers:
       x-confirm-delete: "{dockId}"
+  connectors.list:
+    method: GET
+    path: /v1/workspaces/{workspaceId}/connectors
+    status: 200
+  connectors.connect:
+    method: PUT
+    path: /v1/workspaces/{workspaceId}/connectors/{kind}
+    status: 200
+    body: [token]
+  connectors.disconnect:
+    method: DELETE
+    path: /v1/workspaces/{workspaceId}/connectors/{kind}
+    status: 200
+  connectors.oauthStart:
+    method: GET
+    path: /v1/connectors/{kind}/oauth/start
+    status: 200
+    query: [workspaceId]
   operations.get:
     method: GET
     path: /v1/operations/{operationId}

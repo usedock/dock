@@ -1,0 +1,22 @@
+---
+title: Slack
+description: Call the Slack Web API from a dock with a bot token.
+---
+
+Connect with a bot token (`PUT /v1/workspaces/:workspaceId/connectors/slack` with
+`{ "token": "xoxb-..." }`) or with OAuth when `SLACK_CLIENT_ID` and
+`SLACK_CLIENT_SECRET` are set. See [Connectors](/docs/connectors) for the routes.
+The account label is the Slack team name.
+
+| | |
+|---|---|
+| OAuth bot scopes requested | `channels:read`, `channels:history`, `chat:write`, `users:read` |
+| Web API in a dock | `$DOCK_SLACK_API_URL/<method>`, for example `chat.postMessage` |
+| MCP in a dock | not available |
+
+Only Web API method names are accepted as the path (letters, digits and dots).
+
+```bash
+curl -H "Authorization: Bearer $DOCK_CONNECTOR_TOKEN" -H "content-type: application/json" \
+  -d '{"channel":"C123","text":"build finished"}' $DOCK_SLACK_API_URL/chat.postMessage
+```

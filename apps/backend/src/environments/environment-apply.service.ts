@@ -9,6 +9,8 @@ import { apiKeys, docks, githubInstallations, workspaces, type Dock, type EnvRep
 import { API_KEY_PREFIX } from '../api-keys/api-keys.service';
 import { CHATGPT_DOCK_AGENTS, chatgptDockBundle } from '../chatgpt/chatgpt-dock';
 import { DEFAULT_DOCK_AGENTS } from '../github/run-agents';
+import { connectorDockBundle } from '../connectors/connector-dock';
+import { isConnectorKind } from '../connectors/connector-kinds';
 import { ChatgptService } from '../chatgpt/chatgpt.service';
 import { publicApiUrl } from '../config/instance';
 import { COMPUTE_PROVIDER, type ComputeProvider } from '../docks/compute.provider';
@@ -163,10 +165,11 @@ export class EnvironmentApplyService implements OnModuleInit, OnModuleDestroy {
     }
     const credential = await this.rotateCredential(dock, resolved.passDockCredentials);
     const chatgpt = await this.rotateLlmToken(dock, resolved.passAgentsCredentials);
+    const connectors = await this.rotateConnectorToken(dock);
     return {
-      // Environment and per-dock vars win over the ChatGPT wiring, as they do over platform keys.
-      vars: { ...chatgpt.vars, ...resolved.vars, ...neutral, ...(credential ? { DOCK_API_KEY: credential } : {}) },
-      files: [...resolved.files, ...chatgpt.files],
+      // Environment and per-dock vars win over the ChatGPT and connector wiring, as they do over platform keys.
+      vars: { ...connectors.vars, ...chatgpt.vars, ...resolved.vars, ...neutral, ...(credential ? { DOCK_API_KEY: credential } : {}) },
+      files: [...resolved.files, ...chatgpt.files, ...connectors.files],
       repos: resolved.repos,
       execEnv: await this.cloneTokens(orgId, resolved.repos),
     };
@@ -200,6 +203,15 @@ export class EnvironmentApplyService implements OnModuleInit, OnModuleDestroy {
       await this.db.update(docks).set({ llmTokenHash: raw ? hashToken(raw) : null }).where(eq(docks.id, dock.id));
     }
     return raw ? chatgptDockBundle(raw, `${publicApiUrl(this.config)}/v1/llm/chatgpt`, agents) : { vars: {}, files: [] };
+  }
+
+  /** Docks created with connectors get a fresh gateway token on every apply; the old one stops working. */
+  private async rotateConnectorToken(dock: Dock): Promise<ReturnType<typeof connectorDockBundle>> {
+    const kinds = (dock.connectors ?? []).filter(isConnectorKind);
+    if (!kinds.length) return { vars: {}, files: [] };
+    const raw = newToken();
+    await this.db.update(docks).set({ connectorTokenHash: hashToken(raw) }).where(eq(docks.id, dock.id));
+    return connectorDockBundle(raw, `${publicApiUrl(this.config)}/v1/connectors/gateway`, kinds);
   }
 
   /** Read-only installation tokens for GitHub repos an org installation can reach; misses fall back to env tokens. */

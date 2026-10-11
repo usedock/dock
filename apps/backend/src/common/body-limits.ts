@@ -14,6 +14,7 @@ const anonymous = (parser: Handler): Handler => (req, res, next) => parser(req, 
  */
 export function registerBodyLimits(http: Pick<Express, 'use'>): void {
   http.use('/v1/llm', anonymous(raw({ type: () => true, limit: '32mb' })));
+  http.use('/v1/connectors/gateway', anonymous(raw({ type: () => true, limit: '32mb' })));
   http.use('/v1/github/runs/:id/complete', anonymous(json({ limit: '16mb' })));
   http.use('/v1/docks/:id/exec', anonymous(json({ limit: '1mb' })));
   http.use('/v1/fleet/commands/:id/result', anonymous(json({ limit: '16mb' })));

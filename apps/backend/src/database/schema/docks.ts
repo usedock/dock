@@ -66,6 +66,10 @@ export const docks = pgTable(
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     /** SHA-256 of the dock-scoped LLM gateway token; set only while the creator's ChatGPT sign-in serves the dock. */
     llmTokenHash: text('llm_token_hash'),
+    /** Connector kinds the dock was created with; the gateway serves only these. */
+    connectors: jsonb('connectors').notNull().$type<string[]>().default([]),
+    /** SHA-256 of the dock-scoped connector gateway token; rotated on every apply, gone with the dock. */
+    connectorTokenHash: text('connector_token_hash'),
     setupStatus: text('setup_status').notNull().$type<SetupStatus>().default('pending'),
     setupError: text('setup_error'),
     lastSnapshotAt: timestamp('last_snapshot_at', { withTimezone: true }),
@@ -81,6 +85,7 @@ export const docks = pgTable(
     index('docks_workspace_id_state_idx').on(table.workspaceId, table.state),
     index('docks_state_idx').on(table.state),
     index('docks_llm_token_idx').on(table.llmTokenHash),
+    index('docks_connector_token_idx').on(table.connectorTokenHash),
     uniqueIndex('docks_workspace_id_name_unique').on(table.workspaceId, table.name).where(sql`${table.name} IS NOT NULL`),
   ],
 );
