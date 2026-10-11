@@ -35,8 +35,8 @@ yours and goes in as written. Likewise an Environment's own `*_BASE_URL` or
 `OPENCODE_CONFIG_CONTENT` overrides the gateway wiring: the agent then talks to
 that endpoint with the gateway token and fails, and nothing leaks.
 
-The budget is 3000 requests per Dock per hour, shared by every provider the Dock
-uses, including a ChatGPT Dock. A Dock over budget gets a 429 saying so.
+The budget is shared by every provider the Dock uses, including a ChatGPT Dock.
+A Dock over budget gets a 429 saying so.
 
 ## Plain mode
 
@@ -44,9 +44,11 @@ Some tools cannot use a base URL. An admin can set the Environment's
 `providerKeys` to `plain` (`PATCH /v1/environments/:ref`, default `gateway`).
 Then the apply writes the real provider keys into the Dock as environment
 variables, as before. This is weaker: anyone who can run a command in the Dock
-can read the key, so keep such Environments admins-only. Switching to `plain`
-takes effect on the next apply; switching back removes the keys from the Dock
-on its next apply, but a key a Dock already read must be rotated.
+can read the key, so keep such Environments admins-only. A change of mode makes
+a new Environment version, so a Dock picks it up once it moves to that version:
+when an admin upgrades the Environment's Docks, or when a Dock is resumed onto
+the Environment. Switching back to `gateway` removes the keys from the Dock
+then, but a key a Dock already read must be rotated.
 
 Docks created before this change use the gateway from their next apply onward
 (resume, branch or Environment upgrade); until then they keep the keys they
