@@ -1,6 +1,6 @@
 ---
 title: Objects
-description: The fields of the Dock, operation, Environment, Snapshot, Template, Run, Installation, organization, workspace, and Host objects as the API returns them.
+description: The fields of the Dock, operation, Environment, Snapshot, Template, Run, Installation, organization, workspace, Host, import upload, and Export objects as the API returns them.
 ---
 
 Each table lists the fields of the `data` value a route returns. Timestamps are
@@ -213,3 +213,36 @@ Returned by `GET /v1/hosts/:id`.
 | `docks` | array of objects | Non-archived Docks placed on it, as `{ "id", "name", "state", "cpus", "memoryMiB", "diskGiB", "runtime", "ip", "stateChangedAt", "workspaceName", "organizationId", "organizationName" }`. |
 | `runs` | array of objects | Ephemeral Run runtimes, as `{ "dockId", "state", "kind" }`; `kind` may be absent. |
 | `orphans` | array of objects | Reported runtimes that match no Dock; the reconciler fences these. Same shape as `runs`. |
+
+## Import upload
+
+Returned by [`POST /v1/docks/import`](/api/docks#post-v1docksimport). There is
+no route to read an import afterwards; complete it to get the
+[Dock](#dock). An import that is not completed expires after 24 hours.
+
+| Field | Type | Description |
+|---|---|---|
+| `importId` | uuid | Import id, used in the part and complete routes. |
+| `upload.mode` | string | `direct`: part URLs are presigned object-store URLs, valid 24 hours; keep each part's `ETag` response header. `proxy`: part URLs are control-plane paths (`PUT /v1/docks/import/:importId/parts/:number`) used with your API credentials. |
+| `upload.partSize` | integer | Bytes per part; the last part may be shorter. |
+| `upload.parts` | array of objects | `{ "number": integer, "url": string }`, numbered from 1. |
+
+## Export
+
+Returned by [`GET /v1/docks/exports/:exportId`](/api/docks#get-v1docksexportsexportid).
+The export and its object are removed at `expiresAt`, 24 hours after it starts.
+
+| Field | Type | Description |
+|---|---|---|
+| `state` | string | `pending`, `ready`, or `failed`. |
+| `error` | string | Only present on a failed export: `export_failed`, `export_base_unsupported` (the disk was not built from a Dockyard image), or `export_interrupted`. |
+| `image` | string | Image of the exported Dock. |
+| `cpus` | integer | vCPUs of the exported Dock. |
+| `memoryMiB` | integer | Memory in MiB. |
+| `diskGiB` | integer | Disk in GiB. |
+| `sizeBytes` | integer, nullable | Size of the compressed file; `null` until ready. |
+| `sha256` | string, nullable | sha256 of the compressed file; `null` until ready. |
+| `baseImage` | string, nullable | Dockyard image whose kernel boots the disk; `null` until ready. |
+| `url` | string, nullable | Download URL of `rootfs.ext4.zst`; `null` until ready. A presigned URL (supports `Range`) or the control-plane path `/v1/docks/exports/:exportId/download`. |
+| `expiresAt` | timestamp | When the export and its object are removed. |
+| `urlExpiresAt` | timestamp, nullable | When `url` stops working: 15 minutes for a presigned URL, `expiresAt` for the control-plane path; `null` until ready. |
