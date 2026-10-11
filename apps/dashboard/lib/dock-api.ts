@@ -98,6 +98,27 @@ export interface GithubRun {
   updatedAt?: string;
 }
 
+export interface Connector {
+  kind: string;
+  type: 'tool' | 'github' | 'model-keys';
+  status: 'connected' | 'not_connected' | 'reauth_required';
+  accountLabel: string | null;
+  scopes: string[];
+  oauthAvailable: boolean;
+  readOnly: boolean;
+  updatedAt: string | null;
+}
+
+/** A Dockyard catalog image (`GET /v1/images`); `available` is false when no host serves it. */
+export interface DockImage {
+  name: string;
+  description: string;
+  arch: string;
+  sizeMiB: number;
+  contents: string[];
+  available: boolean;
+}
+
 export interface Snapshot {
   id: string;
   dockId?: string;
@@ -368,6 +389,11 @@ export interface DockApi {
   listDocks: (filter?: string, all?: boolean) => Promise<Dock[]>;
   getDock: (id: string) => Promise<Dock>;
   createDock: (input: Record<string, unknown>) => Promise<Dock>;
+  listImages: () => Promise<DockImage[]>;
+  listConnectors: (workspaceId: string) => Promise<Connector[]>;
+  connectConnector: (workspaceId: string, kind: string, token: string) => Promise<Connector>;
+  disconnectConnector: (workspaceId: string, kind: string) => Promise<unknown>;
+  startConnectorOauth: (workspaceId: string, kind: string) => Promise<{ url: string }>;
   updateDock: (id: string, input: Record<string, unknown>) => Promise<unknown>;
   deleteDock: (id: string) => Promise<unknown>;
   stopDock: (id: string, force?: boolean) => Promise<unknown>;
@@ -520,6 +546,14 @@ export function createDockApi({ baseUrl = '', fetchImpl = fetch, headers = {} }:
     },
     getDock: (id: string) => get<Dock>(`/v1/docks/${enc(id)}`),
     createDock: (input: Record<string, unknown>) => post<Dock>('/v1/docks', input),
+    listImages: () => get<DockImage[]>('/v1/images'),
+    listConnectors: (workspaceId: string) => get<Connector[]>(`/v1/workspaces/${enc(workspaceId)}/connectors`),
+    connectConnector: (workspaceId: string, kind: string, token: string) =>
+      put<Connector>(`/v1/workspaces/${enc(workspaceId)}/connectors/${enc(kind)}`, { token }),
+    disconnectConnector: (workspaceId: string, kind: string) =>
+      del<unknown>(`/v1/workspaces/${enc(workspaceId)}/connectors/${enc(kind)}`),
+    startConnectorOauth: (workspaceId: string, kind: string) =>
+      get<{ url: string }>(`/v1/connectors/${enc(kind)}/oauth/start?workspaceId=${enc(workspaceId)}`),
     updateDock: (id: string, input: Record<string, unknown>) => patch<unknown>(`/v1/docks/${enc(id)}`, input),
     deleteDock: (id: string) => delConfirmed<unknown>(`/v1/docks/${enc(id)}`, id),
     stopDock: (id: string, force?: boolean) => post<unknown>(`/v1/docks/${enc(id)}/stop`, { force }),

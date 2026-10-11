@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Bell,
+  Cable,
   Camera,
   Container,
   CreditCard,
@@ -38,6 +39,7 @@ const DESTINATIONS = [
   { href: '/snapshots', label: 'Snapshots & Templates', icon: Camera },
   { href: '/environments', label: 'Environments', icon: Layers },
   { href: '/runs', label: 'Runs', icon: GitBranch },
+  { href: '/connectors', label: 'Connectors', icon: Cable },
   { href: '/billing', label: 'Billing', icon: CreditCard },
   { href: '/developers/webhooks', label: 'Webhooks', icon: Webhook },
   { href: '/developers/api-keys', label: 'API keys', icon: KeyRound },

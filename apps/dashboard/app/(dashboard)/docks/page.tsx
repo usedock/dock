@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { MoreHorizontal, Plus } from 'lucide-react';
-import { apiSnippetBase, getDefaultApi, type Dock, type Environment, type GithubRun } from '@/lib/dock-api';
+import { apiSnippetBase, getDefaultApi, type Connector, type Dock, type DockImage, type Environment, type GithubRun } from '@/lib/dock-api';
 import { formatAgo, formatDate, formatDuration, messageOf, runtimeLabel, sizeLabel } from '@/lib/format';
 import { useOrg } from '@/components/dashboard/org-context';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
@@ -30,10 +30,19 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-const IMAGES = ['ubuntu-24.04'];
+const DEFAULT_IMAGE = 'ubuntu-24.04';
+
+const CREATE_ERRORS: Record<string, string> = {
+  capacity_exhausted: 'No host has room for that size right now. Try a smaller size or retry shortly.',
+  connector_not_connected: 'A selected connector is no longer connected. Reconnect it on the Connectors page.',
+  connector_admin_only: 'Only organization admins can create docks with connectors.',
+  image_unknown: 'That image is not in the catalog. Pick another one.',
+  image_unavailable: 'No host serves that image yet. Pick another one.',
+};
 const CPU_OPTIONS = [1, 2, 4, 8];
 const MEMORY_OPTIONS_MIB = [1024, 2048, 4096, 8192, 16384];
 /** Select sentinel: create omits environment so the org default applies. */
@@ -43,7 +52,7 @@ const STATES = ['provisioning', 'provisioned', 'cloning', 'ready', 'idle', 'runn
 function DocksTable() {
   const router = useRouter();
   const params = useSearchParams();
-  const { workspaces, selectedWorkspaceId } = useOrg();
+  const { organizations, workspaces, selectedWorkspaceId } = useOrg();
   const [api] = useState(getDefaultApi);
 
   const query = params.get('q') ?? '';
@@ -60,7 +69,7 @@ function DocksTable() {
 
   const [formWorkspace, setFormWorkspace] = useState('');
   const [formName, setFormName] = useState('');
-  const [formImage, setFormImage] = useState(IMAGES[0]);
+  const [formImage, setFormImage] = useState(DEFAULT_IMAGE);
   const [formCpus, setFormCpus] = useState(2);
   const [formMemoryMiB, setFormMemoryMiB] = useState(4096);
   // Kept as typed so the field can be cleared and retyped; parsed on create.
@@ -68,6 +77,9 @@ function DocksTable() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [formEnvironment, setFormEnvironment] = useState('');
   const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [images, setImages] = useState<DockImage[]>([]);
+  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [formConnectors, setFormConnectors] = useState<string[]>([]);
 
   const setParam = useCallback(
     (key: string, value: string) => {
@@ -136,6 +148,27 @@ function DocksTable() {
       .catch(() => setEnvironments([]));
   }, [api, dialogOpen, orgForCreate]);
 
+  useEffect(() => {
+    if (!dialogOpen) return;
+    api
+      .listImages()
+      .then((rows) => setImages(rows))
+      .catch(() => setImages([]));
+  }, [api, dialogOpen]);
+
+  useEffect(() => {
+    if (!dialogOpen || !workspaceForCreate) return;
+    api
+      .listConnectors(workspaceForCreate)
+      .then((rows) => setConnectors(rows.filter((c) => c.type === 'tool' && c.status === 'connected')))
+      .catch(() => setConnectors([]));
+  }, [api, dialogOpen, workspaceForCreate]);
+
+  const orgRole = organizations.find((o) => o.id === orgForCreate)?.role;
+  const isAdmin = orgRole === 'admin' || orgRole === 'owner';
+  // Drop picks for connectors that are gone after a workspace switch.
+  const pickedConnectors = formConnectors.filter((k) => connectors.some((c) => c.kind === k));
+
   const runByDock = useMemo(() => {
     const map = new Map<string, GithubRun>();
     for (const run of runs) {
@@ -183,15 +216,14 @@ function DocksTable() {
         memoryMiB: formMemoryMiB,
         diskGiB: formDiskGiB,
         environment: formEnvironment || undefined,
+        connectors: pickedConnectors.length ? pickedConnectors : undefined,
       });
       setFormName('');
+      setFormConnectors([]);
       closeDialog();
       refresh();
     } catch (e: unknown) {
-      const msg =
-        (e as { code?: string }).code === 'capacity_exhausted'
-          ? 'No host has room for that size right now. Try a smaller size or retry shortly.'
-          : messageOf(e, 'request failed');
+      const msg = CREATE_ERRORS[(e as { code?: string }).code ?? ''] ?? messageOf(e, 'request failed');
       setCreateError(`Could not create dock: ${msg}`);
     } finally {
       setCreating(false);
@@ -260,14 +292,21 @@ function DocksTable() {
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="dock-image">Image</Label>
-              <Select value={formImage} onValueChange={(v) => setFormImage(v ?? IMAGES[0])}>
+              <Select value={formImage} onValueChange={(v) => setFormImage(v ?? DEFAULT_IMAGE)}>
                 <SelectTrigger id="dock-image" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {IMAGES.map((i) => (
-                    <SelectItem key={i} value={i}>
-                      {i}
+                  {(images.length ? images : [{ name: DEFAULT_IMAGE, description: '', available: true } as DockImage]).map((i) => (
+                    <SelectItem key={i.name} value={i.name} disabled={!i.available}>
+                      <span className="flex flex-col items-start">
+                        <span>{i.name}</span>
+                        {i.description || !i.available ? (
+                          <span className="text-xs text-muted-foreground">
+                            {i.available ? i.description : 'No host serves this image yet'}
+                          </span>
+                        ) : null}
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -302,6 +341,33 @@ function DocksTable() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="col-span-2 flex flex-col gap-2">
+              <Label>Connectors</Label>
+              {!isAdmin ? (
+                <p className="text-xs text-muted-foreground">Only organization admins can create docks with connectors.</p>
+              ) : connectors.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No connected tools in this workspace.{' '}
+                  <Link href="/connectors" className="text-foreground underline underline-offset-4">
+                    Connect one
+                  </Link>
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {connectors.map((c) => (
+                    <Label key={c.kind} className="flex items-center gap-2 font-normal capitalize">
+                      <Checkbox
+                        checked={pickedConnectors.includes(c.kind)}
+                        onCheckedChange={(on) =>
+                          setFormConnectors(on ? [...pickedConnectors, c.kind] : pickedConnectors.filter((k) => k !== c.kind))
+                        }
+                      />
+                      {c.kind}
+                    </Label>
+                  ))}
+                </div>
+              )}
             </div>
             <Collapsible className="col-span-2">
               <CollapsibleTrigger render={<Button type="button" variant="ghost" size="sm" />}>

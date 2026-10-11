@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import {
   Bell,
+  Cable,
   BookOpen,
   Camera,
   ChevronsUpDown,
@@ -53,6 +54,7 @@ const PRIMARY = [
   { href: '/snapshots', label: 'Snapshots & Templates', icon: Camera },
   { href: '/environments', label: 'Environments', icon: Layers },
   { href: '/runs', label: 'Runs', icon: GitBranch },
+  { href: '/connectors', label: 'Connectors', icon: Cable },
   { href: '/billing', label: 'Billing', icon: CreditCard },
 ];
 
