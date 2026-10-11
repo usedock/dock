@@ -13,6 +13,7 @@ import type { Response } from 'express';
 import type { RequestUser } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SnapshotQuery } from './dto/snapshot.dto';
+import { snapshotView } from './snapshot-view';
 import { SnapshotsService } from './snapshots.service';
 
 /** Snapshot reads stream straight from captures; deletes are confirmed operations. */
@@ -21,18 +22,21 @@ export class SnapshotsController {
   constructor(private readonly snapshots: SnapshotsService) {}
 
   @Get('snapshots')
-  list(@CurrentUser() user: RequestUser, @Query() query: SnapshotQuery) {
-    return this.snapshots.listAll(user.id, query.cursor, query.limit);
+  async list(@CurrentUser() user: RequestUser, @Query() query: SnapshotQuery) {
+    const page = await this.snapshots.listAll(user.id, query.cursor, query.limit);
+    return { snapshots: page.snapshots.map(snapshotView), nextCursor: page.nextCursor };
   }
 
   @Get('docks/:id/snapshots')
-  listByDock(@CurrentUser() user: RequestUser, @Param('id') id: string, @Query() query: SnapshotQuery) {
-    return this.snapshots.listByDock(user.id, id, query.cursor, query.limit);
+  async listByDock(@CurrentUser() user: RequestUser, @Param('id') id: string, @Query() query: SnapshotQuery) {
+    const page = await this.snapshots.listByDock(user.id, id, query.cursor, query.limit);
+    return { snapshots: page.snapshots.map(snapshotView), nextCursor: page.nextCursor };
   }
 
   @Get('docks/:id/snapshots/latest')
-  latest(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    return this.snapshots.latest(user.id, id);
+  async latest(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    const snap = await this.snapshots.latest(user.id, id);
+    return snap ? snapshotView(snap) : null;
   }
 
   @Get('snapshots/:id/tree')

@@ -97,7 +97,7 @@ export class TerminalLimitException extends HttpException {
   }
 }
 
-/** Template names: 2-64 chars, lowercase/digits/dash/underscore, padded ends. */
+/** Template names: 3-64 chars, lowercase/digits/dash/underscore, padded ends. */
 export const TEMPLATE_RE = /^[a-z0-9]([a-z0-9-_]{1,63}[a-z0-9])$/;
 
 export class SnapshotInUseException extends ConflictException {

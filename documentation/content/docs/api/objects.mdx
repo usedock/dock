@@ -78,8 +78,9 @@ Secret values are never included; names and sizes are. Returned by the
 
 ## Snapshot
 
-A Snapshot is returned as its stored record, so internal bookkeeping fields are
-present too. Returned by the [Snapshots](/api/snapshots) routes.
+Built field by field. The file listing, storage ids, and placement details are
+never returned; read files with the tree and files routes. Returned by the
+[Snapshots](/api/snapshots) routes.
 
 | Field | Type | Description |
 |---|---|---|
@@ -87,19 +88,13 @@ present too. Returned by the [Snapshots](/api/snapshots) routes.
 | `dockId` | uuid | Dock it was taken from. |
 | `status` | string | `saving`, `completed`, or `failed`. |
 | `sizeBytes` | integer | Size of the capture. |
-| `parentId` | uuid, nullable | The earlier Snapshot this one builds on. |
-| `manifest` | object | Internal file listing, `{ "files": [ { "path", "size", "content" } ] }`. Use the tree and files routes instead. |
-| `storeSnapshotId` | string, nullable | Internal storage id. |
-| `cpuFamily` | string, nullable | CPU family it must restore onto. |
 | `runtime` | string, nullable | Runtime that captured it. |
-| `kernelRelease` | string, nullable | Kernel release of the capturing host. |
-| `baseFingerprint` | string, nullable | Base image a delta restores onto. |
 | `createdAt` | timestamp | Creation time. |
 
 ## Template
 
-A Template is returned as its stored record. Returned by the
-[Templates](/api/snapshots) routes.
+Built field by field. Storage ids and placement details are never returned.
+Returned by the [Templates](/api/snapshots) routes.
 
 | Field | Type | Description |
 |---|---|---|
@@ -107,14 +102,8 @@ A Template is returned as its stored record. Returned by the
 | `organizationId` | uuid | Owning organization. |
 | `name` | string | Name, unique per organization. |
 | `sourceDockId` | uuid, nullable | Dock it was saved from. |
-| `status` | string | `saving`, `ready`, or `failed`. |
+| `status` | string | `saving`, `ready`, or `failed`. Only `ready` Templates can start a Dock. |
 | `sizeBytes` | integer | Size of the capture. |
-| `snapshotRef` | string, nullable | Snapshot it references instead of owning a capture. |
-| `storeSnapshotId` | string, nullable | Internal storage id of a capture it owns. |
-| `cpuFamily` | string, nullable | CPU family it must restore onto. |
-| `runtime` | string, nullable | Runtime that captured it. |
-| `baseFingerprint` | string, nullable | Base image a delta restores onto. |
-| `savingSince` | timestamp, nullable | Set while a capture is in flight. |
 | `createdAt` | timestamp | Creation time. |
 | `updatedAt` | timestamp | Last update. |
 

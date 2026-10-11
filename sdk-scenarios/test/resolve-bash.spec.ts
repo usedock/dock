@@ -43,6 +43,14 @@ describe('resolveBash', () => {
     'C:\\Windows\\System32\\..\\System32\\bash.exe',
     'C:\\Users\\me\\AppData\\Local\\Microsoft\\WINDOW~1\\bash.exe',
     'C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps \\bash.exe',
+    'C:\\Windows\\System32::$INDEX_ALLOCATION\\bash.exe',
+    'C:\\Windows\\System32:$I30:$INDEX_ALLOCATION\\bash.exe',
+    'C:\\Windows::$INDEX_ALLOCATION\\System32\\bash.exe',
+    'C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps::$INDEX_ALLOCATION\\bash.exe',
+    '\\\\?\\C:\\Windows\\System32\\bash.exe',
+    '\\\\.\\C:\\Windows\\System32\\bash.exe',
+    '//?/C:/Windows/System32/bash.exe',
+    '\\\\localhost\\C$\\Windows\\System32\\bash.exe',
   ])('rejects unsafe DOCK_TEST_BASH %s without falling back to PATH', (p) => {
     const r = win({ DOCK_TEST_BASH: p }, [p, GIT]);
     expect(r.bash).toBeUndefined();

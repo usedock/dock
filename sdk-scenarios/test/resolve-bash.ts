@@ -17,7 +17,8 @@ export function isSafeWindowsBash(p: string): boolean {
   const segs = n.split('\\').slice(1);
   // Windows drops `.`/`..`, empty and trailing-dot segments and expands 8.3 names (WINDOW~1),
   // so only plain segments are accepted or the System32/WindowsApps check could be bypassed.
-  if (segs.some((s) => s === '' || s.endsWith('.') || s.endsWith(' ') || s.includes('~'))) return false;
+  // A `:` after the drive letter is an NTFS stream suffix (System32::$INDEX_ALLOCATION).
+  if (segs.some((s) => s === '' || s.endsWith('.') || s.endsWith(' ') || s.includes('~') || s.includes(':'))) return false;
   if (/\\windows\\(system32|sysnative|syswow64)\\/.test(n)) return false;
   return !segs.includes('windowsapps');
 }

@@ -9,6 +9,9 @@ from it with `from`. See [Docks](/concepts/docks). Routes return the
 [Snapshot object](/api/objects#snapshot) and [Template object](/api/objects#template).
 Shared rules are in [Conventions](/api).
 
+Responses carry the listed fields only; the file listing and storage details
+are not returned.
+
 Snapshot reads need org role `member` of the Dock's organization.
 
 Both Snapshot lists take the same paging query:
@@ -102,8 +105,8 @@ Dock has no completed Snapshot), `service_unavailable` (the capture failed).
 
 ### `GET /v1/templates`
 
-List Templates in all your organizations, newest first, including ones still
-`saving` or `failed`.
+List Templates in all your organizations, newest first. Templates still
+`saving` or `failed` are included; check `status` before deploying one.
 
 Response: an array of [Template objects](/api/objects#template).
 
