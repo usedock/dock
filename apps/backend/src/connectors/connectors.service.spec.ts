@@ -328,4 +328,48 @@ describe('ConnectorsService', () => {
       expect(service.webhookSecretsFor({ kind: 'figma', webhookSecret: null } as never)).toEqual([]);
     });
   });
+  describe('who may start runs', () => {
+    it('defaults the Figma allowlist to the connecting admin and records the Sentry organization', async () => {
+      const { values } = mockUpsert();
+      fetchFn.mockResolvedValueOnce(json({ id: 'fig-42', handle: 'pat' }));
+      await service.connect('u1', 'w1', 'figma', 'figd_x');
+      expect(values.mock.calls[0][0]).toMatchObject({ allowedUsers: ['fig-42'], vendorUserId: 'fig-42' });
+      fetchFn.mockResolvedValueOnce(json([{ slug: 'acme' }]));
+      await service.connect('u1', 'w1', 'sentry', 'sntryu_x');
+      expect(values.mock.calls[1][0]).toMatchObject({ vendorOrg: 'acme' });
+      expect(values.mock.calls[1][0].allowedUsers).toBeUndefined();
+    });
+
+    const updateChain = () => {
+      const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) });
+      db.update.mockReturnValue({ set });
+      return set;
+    };
+    const rows = (over: Row = {}) => selectQ([{ id: 'c1', kind: 'sentry', externalId: 'inst-1', webhookSecret: { sealed: true }, allowedUsers: [], triggersEnabled: false, ...over }]);
+
+    it('lets an admin opt Sentry triggers in and set the allowlist, deduplicated', async () => {
+      db.select.mockReturnValue(rows());
+      const set = updateChain();
+      const out = await service.setWebhook('u1', 'w1', 'sentry', { triggersEnabled: true, allowedUsers: [' 7 ', '7', '9'] });
+      expect(set.mock.calls[0][0]).toMatchObject({ triggersEnabled: true, allowedUsers: ['7', '9'] });
+      expect(out).toMatchObject({ triggersEnabled: true, allowedUsers: ['7', '9'], externalId: 'inst-1' });
+    });
+
+    it('leaves the opt-in and allowlist alone when they are not sent, and reports them', async () => {
+      db.select.mockReturnValue(rows({ allowedUsers: ['5'], triggersEnabled: true }));
+      const set = updateChain();
+      const out = await service.setWebhook('u1', 'w1', 'sentry', { externalId: 'inst-1' });
+      expect(set.mock.calls[0][0]).not.toHaveProperty('triggersEnabled');
+      expect(set.mock.calls[0][0]).not.toHaveProperty('allowedUsers');
+      expect(out).toMatchObject({ triggersEnabled: true, allowedUsers: ['5'] });
+    });
+
+    it('does not rotate a Figma passcode when only the allowlist changes', async () => {
+      db.select.mockReturnValue(rows({ kind: 'figma', externalId: '77' }));
+      const set = updateChain();
+      const out = await service.setWebhook('u1', 'w1', 'figma', { allowedUsers: ['99'] });
+      expect(set.mock.calls[0][0]).not.toHaveProperty('webhookSecret');
+      expect(out.secret).toBeUndefined();
+    });
+  });
 });

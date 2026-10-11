@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class ConnectConnectorDto {
   @IsString()
@@ -24,6 +24,17 @@ export class SetWebhookDto {
   @MinLength(1)
   @MaxLength(128)
   externalId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  allowedUsers?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  triggersEnabled?: boolean;
 }
 
 export class ConnectorOauthStartQuery {

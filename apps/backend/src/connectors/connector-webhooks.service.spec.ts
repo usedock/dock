@@ -7,35 +7,41 @@ const hex = (secret: string, data: string | Buffer) => createHmac('sha256', secr
 const unique = Object.assign(new Error('duplicate'), { code: '23505' });
 
 function connector(kind: string, over: Record<string, unknown> = {}) {
-  return { id: `c-${kind}`, workspaceId: 'w1', kind, createdBy: 'admin-1', vendorUserId: 'me', externalId: 'ext', ...over };
+  return { id: `c-${kind}`, workspaceId: 'w1', kind, createdBy: 'admin-1', vendorUserId: 'me', externalId: kind === 'linear' ? 'org-1' : 'ext', triggersEnabled: true, allowedUsers: ['7'], vendorOrg: null, ...over };
 }
 
 describe('ConnectorWebhooksService', () => {
   let db: { insert: Mock };
   let insertValues: Mock;
-  let connectors: { findByExternalId: Mock; listByKind: Mock; webhookSecretsFor: Mock; envWebhookSecret: Mock };
-  let runs: { start: Mock };
+  let connectors: { findByExternalId: Mock; listByKind: Mock; webhookSecretsFor: Mock; envWebhookSecret: Mock; accessFor: Mock };
+  let runs: { start: Mock; notify: Mock };
+  let fetchFn: Mock;
   let service: ConnectorWebhooksService;
 
   beforeEach(() => {
     insertValues = vi.fn().mockResolvedValue(undefined);
     db = { insert: vi.fn().mockReturnValue({ values: insertValues }) };
-    connectors = { findByExternalId: vi.fn(), listByKind: vi.fn().mockResolvedValue([]), webhookSecretsFor: vi.fn().mockReturnValue(['secret']), envWebhookSecret: vi.fn().mockReturnValue(null) };
-    runs = { start: vi.fn().mockResolvedValue('run-1') };
-    service = new ConnectorWebhooksService(db as never, connectors as never, runs as never);
+    connectors = { findByExternalId: vi.fn(), listByKind: vi.fn().mockResolvedValue([]), webhookSecretsFor: vi.fn().mockReturnValue(['secret']), envWebhookSecret: vi.fn().mockReturnValue(null), accessFor: vi.fn().mockResolvedValue({ type: 'oauth', access: 'tok' }) };
+    runs = { start: vi.fn().mockResolvedValue({ status: 'started', id: 'run-1' }), notify: vi.fn() };
+    // Vendor identity calls the requester gate makes: a full Slack member and an active Linear member.
+    fetchFn = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('users.info')) return new Response(JSON.stringify({ ok: true, user: { id: 'U1', team_id: 'ext' } }), { status: 200 });
+      return new Response(JSON.stringify({ data: { user: { id: 'u1', active: true, guest: false, organization: { id: 'org-1' } } } }), { status: 200 });
+    });
+    service = new ConnectorWebhooksService(db as never, connectors as never, runs as never, { fetchFn: fetchFn as never });
   });
 
   const raw = (body: unknown) => Buffer.from(JSON.stringify(body));
 
   describe('linear', () => {
-    const assigned = { action: 'update', type: 'Issue', organizationId: 'org-1', webhookTimestamp: NOW, data: { id: 'i1', identifier: 'ENG-1', title: 'T', assigneeId: 'me' }, updatedFrom: { assigneeId: null } };
+    const assigned = { action: 'update', type: 'Issue', organizationId: 'org-1', actor: { type: 'user', id: 'u1' }, webhookTimestamp: NOW, data: { id: 'i1', identifier: 'ENG-1', title: 'T', assigneeId: 'me' }, updatedFrom: { assigneeId: null } };
     const req = (body: unknown, secret = 'secret', delivery = 'd1') => {
       const rawBody = raw(body);
       return { rawBody, headers: { 'linear-signature': hex(secret, rawBody), 'linear-delivery': delivery } };
     };
 
     it('routes by organization, verifies and starts a run with the connector attached', async () => {
-      connectors.findByExternalId.mockResolvedValue(connector('linear'));
+      connectors.findByExternalId.mockResolvedValue(connector('linear', { externalId: 'org-1' }));
       const out = await service.handle('linear', req(assigned), NOW);
       expect(connectors.findByExternalId).toHaveBeenCalledWith('linear', 'org-1');
       expect(out).toEqual({ status: 200, body: { received: true, runId: 'run-1' } });
@@ -108,7 +114,7 @@ describe('ConnectorWebhooksService', () => {
 
   describe('slack', () => {
     const ts = String(NOW / 1000);
-    const mention = { type: 'event_callback', team_id: 'T1', event_id: 'Ev1', event: { type: 'app_mention', channel: 'C1', ts: '1.1', text: '<@B> hi' } };
+    const mention = { type: 'event_callback', team_id: 'T1', event_id: 'Ev1', event: { type: 'app_mention', channel: 'C1', ts: '1.1', text: '<@B> hi', user: 'U1' } };
     const req = (body: unknown, secret = 'secret', stamp = ts) => {
       const rawBody = raw(body);
       return { rawBody, headers: { 'x-slack-request-timestamp': stamp, 'x-slack-signature': `v0=${hex(secret, `v0:${stamp}:${rawBody.toString()}`)}` } };
@@ -213,6 +219,98 @@ describe('ConnectorWebhooksService', () => {
       connectors.findByExternalId.mockResolvedValue(connector('figma'));
       insertValues.mockRejectedValueOnce(unique);
       expect((await service.handle('figma', req(comment), NOW)).body).toMatchObject({ duplicate: true });
+    });
+  });
+
+  describe('requester gating', () => {
+    const slackMention = { type: 'event_callback', team_id: 'ext', event_id: 'EvG', event: { type: 'app_mention', channel: 'C1', ts: '1.1', text: '<@B> run env', user: 'U9' } };
+    const ts = String(NOW / 1000);
+    const slackReq = (body: unknown) => {
+      const rawBody = raw(body);
+      return { rawBody, headers: { 'x-slack-request-timestamp': ts, 'x-slack-signature': `v0=${hex('secret', `v0:${ts}:${rawBody.toString()}`)}` } };
+    };
+
+    it('starts nothing for a Slack guest and explains why in the thread', async () => {
+      connectors.findByExternalId.mockResolvedValue(connector('slack'));
+      fetchFn.mockResolvedValue(new Response(JSON.stringify({ ok: true, user: { id: 'U9', team_id: 'ext', is_restricted: true } }), { status: 200 }));
+      const out = await service.handle('slack', slackReq(slackMention), NOW);
+      expect(out.body).toMatchObject({ ignored: true, reason: 'requester_not_allowed' });
+      expect(runs.start).not.toHaveBeenCalled();
+      expect(runs.notify).toHaveBeenCalledWith('w1', 'slack', { channel: 'C1', threadTs: '1.1' }, expect.stringContaining('full members'));
+    });
+
+    it('starts nothing for a Slack Connect user from another team', async () => {
+      connectors.findByExternalId.mockResolvedValue(connector('slack'));
+      fetchFn.mockResolvedValue(new Response(JSON.stringify({ ok: true, user: { id: 'U9', team_id: 'T-other' } }), { status: 200 }));
+      await service.handle('slack', slackReq(slackMention), NOW);
+      expect(runs.start).not.toHaveBeenCalled();
+    });
+
+    it('starts nothing, silently, when the connector credential cannot be used to check the sender', async () => {
+      connectors.findByExternalId.mockResolvedValue(connector('slack'));
+      connectors.accessFor.mockRejectedValue(new Error('reauth'));
+      await service.handle('slack', slackReq(slackMention), NOW);
+      expect(runs.start).not.toHaveBeenCalled();
+      expect(runs.notify).not.toHaveBeenCalled();
+    });
+
+    it('refuses a Linear guest', async () => {
+      connectors.findByExternalId.mockResolvedValue(connector('linear', { externalId: 'org-1' }));
+      fetchFn.mockResolvedValue(new Response(JSON.stringify({ data: { user: { id: 'u1', active: true, guest: true, organization: { id: 'org-1' } } } }), { status: 200 }));
+      const body = { action: 'update', type: 'Issue', organizationId: 'org-1', actor: { type: 'user', id: 'u1' }, webhookTimestamp: NOW, data: { id: 'i1', assigneeId: 'me' }, updatedFrom: { assigneeId: null } };
+      const rawBody = raw(body);
+      const out = await service.handle('linear', { rawBody, headers: { 'linear-signature': hex('secret', rawBody), 'linear-delivery': 'dG' } }, NOW);
+      expect(out.body).toMatchObject({ ignored: true });
+      expect(runs.start).not.toHaveBeenCalled();
+      expect(runs.notify).toHaveBeenCalledWith('w1', 'linear', { issueId: 'i1' }, expect.stringContaining('not guests'));
+    });
+
+    it('refuses a Figma commenter who is not allowlisted and admits the allowlisted one', async () => {
+      connectors.findByExternalId.mockResolvedValue(connector('figma', { allowedUsers: ['99'] }));
+      const comment = { event_type: 'FILE_COMMENT', passcode: 'secret', webhook_id: 77, timestamp: 't1', file_key: 'FK', comment_id: 5, comment: [{ text: '@dock hi' }], mentions: [], triggered_by: { id: '7' } };
+      const out = await service.handle('figma', { rawBody: raw(comment), headers: {} }, NOW);
+      expect(out.body).toMatchObject({ reason: 'requester_not_allowed' });
+      expect(runs.notify).toHaveBeenCalledWith('w1', 'figma', { fileKey: 'FK', commentId: '5' }, expect.stringContaining('allowlist'));
+      const ok = await service.handle('figma', { rawBody: raw({ ...comment, timestamp: 't2', triggered_by: { id: '99' } }), headers: {} }, NOW);
+      expect(ok.body).toEqual({ received: true, runId: 'run-1' });
+    });
+
+    it('ignores Sentry events until an admin opts in', async () => {
+      connectors.findByExternalId.mockResolvedValue(connector('sentry', { triggersEnabled: false }));
+      const body = { action: 'created', installation: { uuid: 'inst-1' }, data: { issue: { id: '9', title: 'Boom' } } };
+      const rawBody = raw(body);
+      const out = await service.handle('sentry', { rawBody, headers: { 'sentry-hook-signature': hex('secret', rawBody), 'sentry-hook-resource': 'issue', 'request-id': 'rg' } }, NOW);
+      expect(out.body).toMatchObject({ ignored: true });
+      expect(runs.start).not.toHaveBeenCalled();
+      expect(runs.notify).not.toHaveBeenCalled();
+    });
+
+    it('fills the Sentry organization from the connector when the event URL has none', async () => {
+      connectors.findByExternalId.mockResolvedValue(connector('sentry', { vendorOrg: 'acme' }));
+      const body = { action: 'created', installation: { uuid: 'inst-1' }, data: { issue: { id: '9', title: 'Boom', web_url: 'https://sentry.io/issues/9/' } } };
+      const rawBody = raw(body);
+      await service.handle('sentry', { rawBody, headers: { 'sentry-hook-signature': hex('secret', rawBody), 'sentry-hook-resource': 'issue', 'request-id': 'ro' } }, NOW);
+      expect(runs.start.mock.calls[0][1].reply).toEqual({ issueId: '9', org: 'acme' });
+    });
+
+    it('tells Slack and Linear users when the workspace is busy, and keeps Sentry quiet', async () => {
+      connectors.findByExternalId.mockResolvedValue(connector('slack'));
+      runs.start.mockResolvedValue({ status: 'busy' });
+      const slack = await service.handle('slack', slackReq({ ...slackMention, event_id: 'EvB' }), NOW);
+      expect(slack.body).toMatchObject({ busy: true });
+      expect(runs.notify).toHaveBeenCalledWith('w1', 'slack', { channel: 'C1', threadTs: '1.1' }, expect.stringContaining('busy'));
+      runs.notify.mockClear();
+      connectors.findByExternalId.mockResolvedValue(connector('sentry'));
+      const body = { action: 'created', installation: { uuid: 'inst-1' }, data: { issue: { id: '9', title: 'Boom' } } };
+      const rawBody = raw(body);
+      await service.handle('sentry', { rawBody, headers: { 'sentry-hook-signature': hex('secret', rawBody), 'sentry-hook-resource': 'issue', 'request-id': 'rb' } }, NOW);
+      expect(runs.notify).not.toHaveBeenCalled();
+    });
+
+    it('does not claim a run for a duplicate subject', async () => {
+      connectors.findByExternalId.mockResolvedValue(connector('slack'));
+      runs.start.mockResolvedValue({ status: 'duplicate' });
+      expect((await service.handle('slack', slackReq({ ...slackMention, event_id: 'EvD' }), NOW)).body).toEqual({ received: true, runId: null });
     });
   });
 });

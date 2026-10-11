@@ -6,6 +6,8 @@ export interface VerifiedIdentity {
   label: string | null;
   externalId: string | null;
   userId: string | null;
+  /** Sentry organization slug. */
+  org?: string | null;
 }
 
 /** Cheap vendor identity call; returns who the credential is or throws a typed error. */
@@ -44,7 +46,8 @@ export async function verifyCredential(fetchFn: typeof fetch, kind: ConnectorKin
       if (json.ok !== true) throw invalidToken();
       return { label: json.team ?? null, externalId: json.team_id ?? null, userId: json.user_id ?? null };
     case 'sentry':
-      return { label: Array.isArray(json) ? (json[0]?.slug ?? null) : null, externalId: null, userId: null };
+      const slug = Array.isArray(json) ? (json[0]?.slug ?? null) : null;
+      return { label: slug, externalId: null, userId: null, org: slug };
   }
 }
 

@@ -146,11 +146,12 @@ export class ConnectorsService {
       ...(identity.externalId ? { externalId: identity.externalId } : {}),
       ...(identity.userId ? { vendorUserId: identity.userId } : {}),
       ...(host !== undefined ? { host } : {}),
+      ...(identity.org ? { vendorOrg: identity.org } : {}),
     };
     try {
       const [row] = await this.db
         .insert(connectors)
-        .values({ workspaceId, kind, credentials: sealed, accountLabel: identity.label, scopes, createdBy: userId, ...optional })
+        .values({ workspaceId, kind, credentials: sealed, accountLabel: identity.label, scopes, createdBy: userId, ...optional, ...(kind === 'figma' && identity.userId ? { allowedUsers: [identity.userId] } : {}) })
         .onConflictDoUpdate({
           target: [connectors.workspaceId, connectors.kind],
           // The connecting admin owns the connector's docks: triggered runs act on their behalf.
@@ -237,15 +238,16 @@ export class ConnectorsService {
     callerId: string,
     workspaceId: string,
     kind: string,
-    input: { secret?: string; externalId?: string },
-  ): Promise<{ kind: ConnectorKind; externalId: string | null; secret?: string }> {
+    input: { secret?: string; externalId?: string; allowedUsers?: string[]; triggersEnabled?: boolean },
+  ): Promise<{ kind: ConnectorKind; externalId: string | null; allowedUsers: string[]; triggersEnabled: boolean; secret?: string }> {
     const checked = this.checkedKind(kind);
     const ws = await this.requireAdmin(callerId, workspaceId);
     const [row] = await this.db.select().from(connectors).where(and(eq(connectors.workspaceId, ws.id), eq(connectors.kind, checked))).limit(1);
     if (!row) throw new ConnectorNotFoundException();
     const given = input.secret?.trim();
-    const generated = !given && checked === 'figma' ? randomBytes(24).toString('hex') : undefined;
+    const generated = !given && checked === 'figma' && !row.webhookSecret ? randomBytes(24).toString('hex') : undefined;
     const secret = given || generated;
+    const allowedUsers = input.allowedUsers ? [...new Set(input.allowedUsers.map((u) => u.trim()).filter(Boolean))] : undefined;
     const typed = input.externalId?.trim();
     const externalId = typed || row.externalId;
     if (!secret && !row.webhookSecret && !this.envWebhookSecret(checked)) {
@@ -262,13 +264,25 @@ export class ConnectorsService {
     try {
       await this.db
         .update(connectors)
-        .set({ ...(secret ? { webhookSecret: sealValue(this.key, secret) } : {}), externalId, updatedAt: new Date() })
+        .set({
+          ...(secret ? { webhookSecret: sealValue(this.key, secret) } : {}),
+          ...(allowedUsers ? { allowedUsers } : {}),
+          ...(input.triggersEnabled !== undefined ? { triggersEnabled: input.triggersEnabled } : {}),
+          externalId,
+          updatedAt: new Date(),
+        })
         .where(eq(connectors.id, row.id));
     } catch (err) {
       if (isUniqueViolation(err)) throw new ConnectorAccountInUseException();
       throw err;
     }
-    return { kind: checked, externalId: externalId ?? null, ...(generated ? { secret: generated } : {}) };
+    return {
+      kind: checked,
+      externalId: externalId ?? null,
+      allowedUsers: allowedUsers ?? row.allowedUsers,
+      triggersEnabled: input.triggersEnabled ?? row.triggersEnabled,
+      ...(generated ? { secret: generated } : {}),
+    };
   }
 
   /** App-level secret, only for kinds whose routing id the token proves (Linear, Slack). */

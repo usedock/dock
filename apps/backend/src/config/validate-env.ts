@@ -83,6 +83,10 @@ const envSchema = z
     CONNECTOR_RUN_AGENT: z.enum(['opencode', 'codex', '']).default('opencode'),
     /** Model for connector runs, passed to the agent as is; empty uses the agent default. */
     CONNECTOR_RUN_MODEL: z.string().optional().default(''),
+    /** Most connector runs a workspace may have in flight; further events get a busy reply. */
+    CONNECTOR_RUN_MAX_CONCURRENT: z.string().regex(/^[0-9]*$/).optional().default('5'),
+    /** Non-secret setup that installs the run agent in connector docks, which receive no environment. */
+    CONNECTOR_RUN_SETUP_SCRIPT: z.string().optional().default(''),
     CONNECTOR_RUN_TIMEOUT_MINUTES: z.string().regex(/^[0-9]*$/).optional().default('30'),
     /** Personal ChatGPT subscription sign-in for runs; unofficial (Codex client), so off unless opted in. */
     CHATGPT_SIGNIN_ENABLED: z.enum(['true', 'false']).default('false'),

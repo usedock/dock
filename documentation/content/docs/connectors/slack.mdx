@@ -14,7 +14,8 @@ The account label is the Slack team name.
 | Web API in a dock | `$DOCK_SLACK_API_URL/<method>`, for example `chat.postMessage` |
 | MCP in a dock | not available |
 
-A mention of the app (`app_mention`) starts a run and is answered in its thread; see
+A mention of the app (`app_mention`) by a full member of the workspace starts a run
+and is answered in its thread; guests and Slack Connect users are refused. See
 [Triggers and replies](/docs/connectors/triggers). The bot must be in the channel.
 
 Only Web API method names are accepted as the path (letters, digits and dots).

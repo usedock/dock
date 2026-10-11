@@ -1,4 +1,4 @@
-import { index, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, index, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { SealedValue } from './environments';
 import { users } from './users';
@@ -29,6 +29,12 @@ export const connectors = pgTable(
     host: text('host'),
     /** Vendor user id of the connected identity (the Dock app user that triggers match). */
     vendorUserId: text('vendor_user_id'),
+    /** Sentry organization slug the connected token read at connect time; replies post under it. */
+    vendorOrg: text('vendor_org'),
+    /** Figma user ids allowed to start runs; defaults to the connecting admin. */
+    allowedUsers: jsonb('allowed_users').notNull().$type<string[]>().default([]),
+    /** Sentry events start runs only after an admin opts in. */
+    triggersEnabled: boolean('triggers_enabled').notNull().default(false),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -51,6 +57,7 @@ export interface ConnectorReplyTarget {
   issueId?: string;
   channel?: string;
   threadTs?: string;
+  org?: string;
   fileKey?: string;
   commentId?: string;
 }
@@ -82,6 +89,11 @@ export const connectorRuns = pgTable(
     state: text('state').notNull().$type<ConnectorRunState>().default('pending'),
     /** Event-level key (issue, thread, comment) so one subject has one active run. */
     triggerKey: text('trigger_key').notNull(),
+    organizationId: uuid('organization_id'),
+    agent: text('agent').notNull().default('opencode'),
+    model: text('model'),
+    /** Hash of the run-scoped LLM gateway token; the plaintext only reaches the dock. */
+    gatewayTokenHash: text('gateway_token_hash'),
     reply: jsonb('reply').notNull().$type<ConnectorReplyTarget>(),
     dockId: uuid('dock_id'),
     completionTokenHash: text('completion_token_hash').notNull(),

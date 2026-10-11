@@ -1,12 +1,15 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, UnauthorizedException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { DB, Db } from '../database/database.module';
 import { connectorDeliveries, type Connector, type ConnectorKind } from '../database/schema';
 import { isUniqueViolation } from '../organizations/organizations.service';
+import { admitFigma, admitLinear, admitSentry, admitSlack, type Admission } from './connector-gate';
 import { ConnectorRunsService } from './connector-runs.service';
 import { figmaTrigger, linearTrigger, sentryTrigger, slackTrigger, type ConnectorTrigger } from './connector-triggers';
 import { verifyFigma, verifyLinear, verifySentry, verifySlack, type SignatureCheck } from './connector-webhook-verify';
 import { ConnectorsService } from './connectors.service';
+
+const BUSY = 'Dock is busy with other runs here. Try again in a few minutes.';
 
 type Headers = Record<string, string | string[] | undefined>;
 type Json = Record<string, any>;
@@ -35,11 +38,16 @@ function refused(check: Exclude<SignatureCheck, 'ok'>): UnauthorizedException {
 export class ConnectorWebhooksService {
   private readonly logger = new Logger(ConnectorWebhooksService.name);
 
+  private readonly fetchFn: typeof fetch;
+
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly connectors: ConnectorsService,
     private readonly runs: ConnectorRunsService,
-  ) {}
+    @Optional() options: { fetchFn?: typeof fetch } = {},
+  ) {
+    this.fetchFn = options?.fetchFn ?? fetch;
+  }
 
   async handle(kind: ConnectorKind, req: ConnectorWebhookRequest, nowMs = Date.now()): Promise<WebhookOutcome> {
     let payload: Json;
@@ -62,13 +70,42 @@ export class ConnectorWebhooksService {
     this.verify(kind, req, payload, this.connectors.webhookSecretsFor(connector), nowMs);
     if (!(await this.claimAll(kind, this.deliveryIds(kind, req, payload)))) return { status: 200, body: { received: true, duplicate: true } };
     const trigger = this.trigger(kind, req, payload, connector);
+    if (trigger && kind === 'sentry' && !trigger.reply.org && connector.vendorOrg) trigger.reply.org = connector.vendorOrg;
     if (!trigger) return { status: 200, body: { received: true, ignored: true } };
+    // Who sent the event decides whether it may start an agent that acts with the tool's credential.
+    const admission = await this.admit(kind, connector, payload);
+    if (!admission.ok) {
+      if (admission.say) this.runs.notify(connector.workspaceId, kind, trigger.reply, admission.say);
+      return { status: 200, body: { received: true, ignored: true, reason: 'requester_not_allowed' } };
+    }
     // Acknowledge now (Slack allows three seconds); the run proceeds in the background.
-    const runId = await this.runs.start(connector, trigger).catch((err) => {
+    const outcome = await this.runs.start(connector, trigger).catch((err) => {
       this.logger.warn(`Starting ${kind} run failed: ${(err as Error).message}`);
       return null;
     });
-    return { status: 200, body: { received: true, runId } };
+    if (outcome?.status === 'busy') {
+      // A Sentry note per dropped alert would flood the issue.
+      if (kind !== 'sentry') this.runs.notify(connector.workspaceId, kind, trigger.reply, BUSY);
+      return { status: 200, body: { received: true, busy: true, runId: null } };
+    }
+    return { status: 200, body: { received: true, runId: outcome?.status === 'started' ? outcome.id : null } };
+  }
+
+  private async admit(kind: ConnectorKind, connector: Connector, payload: Json): Promise<Admission> {
+    switch (kind) {
+      case 'sentry':
+        return admitSentry(connector);
+      case 'figma':
+        return admitFigma(connector, payload);
+      default: {
+        try {
+          const access = await this.connectors.accessFor(connector.workspaceId, kind);
+          return kind === 'slack' ? await admitSlack(this.fetchFn, access, connector, payload) : await admitLinear(this.fetchFn, access, connector, payload);
+        } catch {
+          return { ok: false };
+        }
+      }
+    }
   }
 
   private async route(kind: ConnectorKind, payload: Json): Promise<Connector | null> {

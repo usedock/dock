@@ -44,6 +44,12 @@ the hosted one and reaches sentry.io organizations.
 
 ## Triggers
 
-A new issue or an issue alert from your integration starts a run, and the result
-is added as a note on the issue. Replies need the `event:write` scope. See
+A new issue or an issue alert from your integration can start a run, and the
+result is added as a note on the issue. Sentry triggers are off until an admin
+sets `triggersEnabled: true` on the webhook configuration, because event text can
+come from end users of your app. Notes are posted with
+`POST /api/0/organizations/{org}/issues/{id}/comments/`, using the organization
+read when the token was connected (or the one in the issue URL). They need the
+`event:write` scope and a user token (`sntryu_`) or OAuth: Sentry refuses notes
+from organization and internal-integration tokens. See
 [Triggers and replies](/docs/connectors/triggers) for the webhook setup.

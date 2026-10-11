@@ -1,9 +1,8 @@
 import type { ConnectorKind, ConnectorReplyTarget } from '../database/schema';
+import { redactSecrets } from './connector-redact';
 import { apiBase, upstreamAuth, type ConnectorAccess } from './connector-kinds';
 
 const REPLY_TIMEOUT_MS = 15_000;
-/** Longest reply body sent to a vendor; summaries come from an agent. */
-const MAX_REPLY_CHARS = 3000;
 
 async function call(fetchFn: typeof fetch, kind: ConnectorKind, access: ConnectorAccess, path: string, body: unknown): Promise<any> {
   const res = await fetchFn(`${apiBase(kind, access.host)}/${path}`, {
@@ -35,7 +34,8 @@ export async function linearSetState(fetchFn: typeof fetch, access: ConnectorAcc
 
 /** Posts text back where the event came from: a Linear comment, Slack thread message, Sentry issue note or Figma comment reply. */
 export async function postReply(fetchFn: typeof fetch, kind: ConnectorKind, access: ConnectorAccess, target: ConnectorReplyTarget, text: string): Promise<void> {
-  const body = text.length > MAX_REPLY_CHARS ? `${text.slice(0, MAX_REPLY_CHARS)}...` : text;
+  // Every reply passes here: secrets are scrubbed and the length capped, and no reply can mention @dock and re-trigger itself.
+  const body = redactSecrets(text).replace(/@dock/gi, 'dock');
   switch (kind) {
     case 'linear':
       await linear(fetchFn, access, 'mutation($issueId: String!, $body: String!) { commentCreate(input: { issueId: $issueId, body: $body }) { success } }', { issueId: target.issueId, body });
@@ -46,7 +46,9 @@ export async function postReply(fetchFn: typeof fetch, kind: ConnectorKind, acce
       return;
     }
     case 'sentry':
-      await call(fetchFn, 'sentry', access, `0/issues/${encodeURIComponent(target.issueId ?? '')}/comments/`, { text: body });
+      // The unscoped issue comments route is deprecated; the organization route needs the slug.
+      if (!target.org) throw new Error('sentry organization unknown');
+      await call(fetchFn, 'sentry', access, `0/organizations/${encodeURIComponent(target.org)}/issues/${encodeURIComponent(target.issueId ?? '')}/comments/`, { text: body });
       return;
     case 'figma':
       await call(fetchFn, 'figma', access, `v1/files/${encodeURIComponent(target.fileKey ?? '')}/comments`, { message: body, comment_id: target.commentId });

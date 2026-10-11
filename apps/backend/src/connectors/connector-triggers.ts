@@ -56,6 +56,20 @@ export function slackTrigger(payload: Json): ConnectorTrigger | null {
   };
 }
 
+/** Organization slug from an issue URL: `/organizations/<org>/...` (self-hosted, legacy) or an `<org>.sentry.io` style subdomain. */
+export function sentryOrgFromUrl(url: string): string | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return undefined;
+  }
+  const path = /^\/organizations\/([^/]+)\//.exec(parsed.pathname);
+  if (path) return decodeURIComponent(path[1]);
+  const sub = /^([a-z0-9][a-z0-9-]*)\.(?:[a-z]{2}\.)?sentry\.io$/i.exec(parsed.hostname);
+  return sub && !['www', 'us', 'de'].includes(sub[1].toLowerCase()) ? sub[1] : undefined;
+}
+
 /** Sentry `issue.created` and `event_alert` webhooks, keyed by issue so both fire one run. */
 export function sentryTrigger(resource: string | undefined, payload: Json): ConnectorTrigger | null {
   const data: Json = payload.data ?? {};
@@ -67,7 +81,7 @@ export function sentryTrigger(resource: string | undefined, payload: Json): Conn
       title: str(issue.title) || 'Sentry issue',
       body: [str(issue.culprit) && `Culprit: ${issue.culprit}`, str(issue.level) && `Level: ${issue.level}`, str(issue.project?.slug) && `Project: ${issue.project.slug}`].filter(Boolean).join('\n'),
       url: str(issue.web_url) || str(issue.permalink) || null,
-      reply: { issueId: String(issue.id) },
+      reply: { issueId: String(issue.id), org: sentryOrgFromUrl(str(issue.web_url) || str(issue.permalink)) },
     };
   }
   if (resource === 'event_alert' && payload.action === 'triggered' && data.event?.issue_id) {
@@ -78,16 +92,15 @@ export function sentryTrigger(resource: string | undefined, payload: Json): Conn
       title: str(event.title) || 'Sentry alert',
       body: [str(data.triggered_rule) && `Alert rule: ${data.triggered_rule}`, str(event.culprit) && `Culprit: ${event.culprit}`].filter(Boolean).join('\n'),
       url: str(event.web_url) || null,
-      reply: { issueId: String(event.issue_id) },
+      reply: { issueId: String(event.issue_id), org: sentryOrgFromUrl(str(event.web_url)) },
     };
   }
   return null;
 }
 
-/** Figma `FILE_COMMENT` that mentions the connected user or writes @dock; the connected user's own comments never trigger. */
+/** Figma `FILE_COMMENT` that mentions the connected user or writes @dock; who may start a run is decided by the caller. */
 export function figmaTrigger(payload: Json, vendorUserId: string | null): ConnectorTrigger | null {
   if (payload.event_type !== 'FILE_COMMENT' || !payload.file_key || payload.comment_id === undefined) return null;
-  if (vendorUserId && String(payload.triggered_by?.id) === vendorUserId) return null;
   const fragments: Json[] = Array.isArray(payload.comment) ? payload.comment : [];
   const text = fragments.map((f) => str(f?.text)).join('').trim();
   const mentions: Json[] = Array.isArray(payload.mentions) ? payload.mentions : [];

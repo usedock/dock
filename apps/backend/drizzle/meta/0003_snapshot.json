@@ -1,5 +1,5 @@
 {
-  "id": "e0449ca9-e7b8-456e-a19b-a0d935ccb913",
+  "id": "b3a4a914-464e-4bfd-bc73-b5a498612543",
   "prevId": "e5d2da66-8db0-42b8-af26-5f222005c560",
   "version": "7",
   "dialect": "postgresql",
@@ -4712,6 +4712,31 @@
           "primaryKey": false,
           "notNull": true
         },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent": {
+          "name": "agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'opencode'"
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gateway_token_hash": {
+          "name": "gateway_token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "reply": {
           "name": "reply",
           "type": "jsonb",
@@ -4882,6 +4907,26 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "vendor_org": {
+          "name": "vendor_org",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "allowed_users": {
+          "name": "allowed_users",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "triggers_enabled": {
+          "name": "triggers_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "created_by": {
           "name": "created_by",

@@ -119,7 +119,7 @@ function chatgptAuthEnv(): string {
 }
 
 /** Bare model id for agents that take no provider prefix. */
-function modelId(model: string): string {
+export function modelId(model: string): string {
   return model.slice(providerOf(model).length + 1);
 }
 

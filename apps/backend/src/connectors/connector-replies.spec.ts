@@ -26,10 +26,14 @@ describe('postReply', () => {
 
   it('adds a note to a Sentry issue on the connector host', async () => {
     const fetchFn = vi.fn().mockResolvedValue(ok());
-    await postReply(fetchFn, 'sentry', { ...bearer, host: 'https://de.sentry.io' }, { issueId: '42' }, 'fixed');
+    await postReply(fetchFn, 'sentry', { ...bearer, host: 'https://de.sentry.io' }, { issueId: '42', org: 'acme' }, 'fixed');
     const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe('https://de.sentry.io/api/0/issues/42/comments/');
+    expect(url).toBe('https://de.sentry.io/api/0/organizations/acme/issues/42/comments/');
     expect(JSON.parse(init.body)).toEqual({ text: 'fixed' });
+  });
+
+  it('refuses a Sentry note when the organization is unknown', async () => {
+    await expect(postReply(vi.fn(), 'sentry', bearer, { issueId: '42' }, 'x')).rejects.toThrow('organization');
   });
 
   it('replies to a Figma comment with the Figma token header for personal tokens', async () => {
@@ -44,8 +48,19 @@ describe('postReply', () => {
   it('clips long summaries and surfaces vendor errors', async () => {
     const fetchFn = vi.fn().mockResolvedValue(ok({ ok: true }));
     await postReply(fetchFn, 'slack', bearer, { channel: 'C', threadTs: '1' }, 'x'.repeat(5000));
-    expect(JSON.parse(fetchFn.mock.calls[0][1].body).text.length).toBeLessThan(3100);
+    expect(JSON.parse(fetchFn.mock.calls[0][1].body).text.length).toBe(2003);
     await expect(postReply(vi.fn().mockResolvedValue(new Response('{}', { status: 500 })), 'sentry', bearer, { issueId: '1' }, 'x')).rejects.toThrow();
+  });
+});
+
+describe('postReply scrubbing', () => {
+  it('removes credentials from every reply and cannot re-trigger itself with @dock', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(ok({ ok: true }));
+    await postReply(fetchFn, 'slack', bearer, { channel: 'C', threadTs: '1' }, `env dump: ${'ab'.repeat(32)} xoxb-1234567890-abcdefABC sk-ant-api03-abcdefghij @dock again`);
+    const text = JSON.parse(fetchFn.mock.calls[0][1].body).text as string;
+    expect(text).not.toMatch(/abab|xoxb|sk-ant/);
+    expect(text).toContain('[redacted]');
+    expect(text).not.toContain('@dock');
   });
 });
 

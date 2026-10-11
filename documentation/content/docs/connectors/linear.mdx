@@ -15,9 +15,9 @@ with `{ "token": "lin_api_..." }`) or with OAuth when `LINEAR_CLIENT_ID` and
 
 OAuth access tokens last 24 hours and are refreshed by the control plane.
 
-An issue assigned to the connected user, or labelled `dock`, starts a run and is
-answered with a comment and state changes; see
-[Triggers and replies](/docs/connectors/triggers).
+An issue assigned to the connected user, or labelled `dock`, by a non-guest member
+of the organization starts a run and is answered with a comment and state changes;
+see [Triggers and replies](/docs/connectors/triggers).
 
 ```bash
 curl -H "Authorization: Bearer $DOCK_CONNECTOR_TOKEN" -H "content-type: application/json" \

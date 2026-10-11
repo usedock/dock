@@ -1,4 +1,4 @@
-import { figmaTrigger, linearTrigger, sentryTrigger, slackTrigger } from './connector-triggers';
+import { figmaTrigger, linearTrigger, sentryOrgFromUrl, sentryTrigger, slackTrigger } from './connector-triggers';
 
 const linearIssue = (over: Record<string, unknown> = {}, from: Record<string, unknown> | undefined = undefined, action = 'update') => ({
   action,
@@ -80,6 +80,21 @@ describe('sentryTrigger', () => {
   });
 });
 
+describe('sentryOrgFromUrl', () => {
+  it('reads the organization from path and subdomain URLs', () => {
+    expect(sentryOrgFromUrl('https://sentry.example.com/organizations/acme/issues/42/')).toBe('acme');
+    expect(sentryOrgFromUrl('https://acme.sentry.io/issues/42/')).toBe('acme');
+    expect(sentryOrgFromUrl('https://acme.de.sentry.io/issues/42/')).toBe('acme');
+    expect(sentryOrgFromUrl('https://de.sentry.io/issues/42/')).toBeUndefined();
+    expect(sentryOrgFromUrl('nope')).toBeUndefined();
+  });
+
+  it('is carried in the issue and alert reply targets', () => {
+    expect(sentryTrigger('issue', { action: 'created', data: { issue: { id: '1', web_url: 'https://acme.sentry.io/issues/1/' } } })?.reply.org).toBe('acme');
+    expect(sentryTrigger('event_alert', { action: 'triggered', data: { event: { issue_id: '1', web_url: 'https://sentry.io/organizations/beta/issues/1/' } } })?.reply.org).toBe('beta');
+  });
+});
+
 describe('figmaTrigger', () => {
   const comment = (over: Record<string, unknown> = {}) => ({
     event_type: 'FILE_COMMENT',
@@ -101,9 +116,8 @@ describe('figmaTrigger', () => {
     expect(t?.reply).toEqual({ fileKey: 'FK', commentId: '500' });
   });
 
-  it('ignores comments that do not mention it, its own comments and other events', () => {
+  it('ignores comments that do not mention it and other events', () => {
     expect(figmaTrigger(comment({ mentions: [], comment: [{ text: 'looks good' }] }), '99')).toBeNull();
-    expect(figmaTrigger(comment({ triggered_by: { id: '99' } }), '99')).toBeNull();
     expect(figmaTrigger(comment({ event_type: 'PING' }), '99')).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { RateLimitService } from '../auth/rate-limit.service';
 import { hashToken } from '../crypto/tokens';
 import { DB, Db } from '../database/database.module';
-import { docks, githubRuns, type GithubRun } from '../database/schema';
+import { connectorRuns, docks, githubRuns } from '../database/schema';
 import { type ChatgptAccess, ChatgptNotConnectedException, ChatgptService } from '../chatgpt/chatgpt.service';
 import { EnvironmentsService } from '../environments/environments.service';
 import { LLM_UPSTREAMS, providerOf } from './runner';
@@ -11,6 +11,13 @@ import { LLM_UPSTREAMS, providerOf } from './runner';
 /** Requests per run per hour; bounds what a leaked run token can spend. */
 const RUN_REQUEST_LIMIT = 2000;
 const LIVE_STATES = new Set(['provisioning', 'working']);
+const CONNECTOR_LIVE_STATES = new Set(['pending', 'working']);
+
+/** What the gateway needs of a run to pick the org's provider key. */
+interface RunScope {
+  organizationId: string | null;
+  agent: string;
+}
 /** Dock tokens work only while the dock can run an agent. */
 const LIVE_DOCK_STATES = new Set(['ready', 'idle', 'running']);
 const PATH_RE = /^[A-Za-z0-9._~\-/]+$/;
@@ -85,7 +92,7 @@ export class LlmGatewayService {
     if (req.provider === 'chatgpt') {
       Object.assign(headers, await this.chatgptHeaders(caller.llmUserId, req.path));
     } else {
-      const run = caller.run as GithubRun;
+      const run = caller.run as RunScope;
       const orgId = run.organizationId;
       const bundle = orgId ? await this.envs.resolveBundle(orgId, undefined, { agents: [run.agent] }).catch(() => null) : null;
       const key = bundle?.vars[upstream.key];
@@ -106,11 +113,17 @@ export class LlmGatewayService {
    * only the ChatGPT route, as the dock's creator. Docks get org provider
    * keys as env vars instead, so they never need the gateway for those.
    */
-  private async caller(tokenHash: string, provider: string): Promise<{ rateKey: string; llmUserId: string | null; run: GithubRun | null }> {
+  private async caller(tokenHash: string, provider: string): Promise<{ rateKey: string; llmUserId: string | null; run: RunScope | null }> {
     const [run] = await this.db.select().from(githubRuns).where(eq(githubRuns.gatewayTokenHash, tokenHash)).limit(1);
     if (run) {
       if (!LIVE_STATES.has(run.state) || !run.model || providerOf(run.model) !== provider) throw new GatewayUnauthorizedException();
       return { rateKey: run.id, llmUserId: run.llmUserId, run };
+    }
+    const [connectorRun] = await this.db.select().from(connectorRuns).where(eq(connectorRuns.gatewayTokenHash, tokenHash)).limit(1);
+    if (connectorRun) {
+      // Connector runs never use a ChatGPT sign-in; the token dies when the run settles.
+      if (!CONNECTOR_LIVE_STATES.has(connectorRun.state) || !connectorRun.model || providerOf(connectorRun.model) !== provider || provider === 'chatgpt') throw new GatewayUnauthorizedException();
+      return { rateKey: connectorRun.id, llmUserId: null, run: connectorRun };
     }
     if (provider !== 'chatgpt') throw new GatewayUnauthorizedException();
     const [dock] = await this.db.select().from(docks).where(eq(docks.llmTokenHash, tokenHash)).limit(1);
