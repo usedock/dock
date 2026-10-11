@@ -91,13 +91,25 @@ at the edge: a cookie obtained by signing in as a member of the Dock's
 organization (a 60-second token in a redirect, traded for an 8-hour cookie bound
 to that one port host, rechecked against membership and account closure on every
 request), or an API key bound to that Dock as a bearer token, accepted only while
-its owner is still a member. The edge proxy asks the API before
-each request, and the ports proxy refuses private ports unless the API's answer
-reached it in a signed header, so an edge without the check fails closed with
-`403`. The ports proxy removes the port cookie and a `Bearer dock_...`
+its owner is still a member. Opening a private port follows the same rule as
+opening the Dock's shell: a plain member is refused on a connector Dock someone
+else created and on a Dock that received admins-only Environment secrets, so a
+private port cannot be used to reach what the shell would hide. The edge proxy
+asks the API before each request, and the ports proxy refuses private ports
+unless the API's answer reached it in a signed header
+(`v1.<seconds>.<hmac of label and time>`, refused after 60 seconds, keyed by
+`DOCK_PORT_PROOF_SECRET` or a separate subkey of `BETTER_AUTH_SECRET`), so an
+edge without the check fails closed with `403`. The API remembers a successful
+decision for 5 seconds per port and credential, so a removed member or revoked
+key can keep reaching a port for up to that long; denials are never remembered
+and a visibility change or port removal clears the memory. The ports proxy removes the port cookie and a `Bearer dock_...`
 `Authorization` header before the request reaches the service in the Dock, so a
 service cannot collect members' port credentials. Ports exposed
 before this setting existed stay public.
+
+Hosted deployments keep the ports domain on a separate registrable domain from
+the sign-in cookie domain, so the session cookie never reaches a port host; the
+API refuses to boot otherwise.
 
 Port hostnames carry 80 bits of randomness, but by default each name gets its
 own public TLS certificate, so it appears in Certificate Transparency logs

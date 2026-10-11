@@ -78,6 +78,19 @@ Open `DOCK_PUBLIC_URL` and sign up. On a self-hosted instance:
   Ports already exposed stay public. A Caddyfile from before private ports does
   not run the access check, so private ports answer `403` until you `git pull`
   and recreate the caddy service (`docker compose up -d caddy`).
+- Keep the ports domain off the sign-in cookie domain. Port hosts serve code
+  from Docks, so a ports domain under the cookie domain (for example
+  `ports.usedock.io` when the dashboard and API share `.usedock.io`) would send
+  the control-plane session cookie to every port host. The API refuses to boot
+  with `PORTS_DOMAIN` under the auth cookie domain; use a separate registrable
+  domain (for example `usedock-ports.example`).
+- Private ports follow the rule for opening a Dock's shell: a plain member
+  cannot open them on a Dock created by someone else with connectors, or on a
+  Dock that received admins-only Environment secrets.
+- The edge proves its access check to the ports proxy with a 60-second signed
+  header. Set `DOCK_PORT_PROOF_SECRET` (`openssl rand -hex 32`) to give it its
+  own key; empty derives one from `BETTER_AUTH_SECRET`. Changing it only
+  affects in-flight requests.
 
 Upgrade from `deploy/self-host/`: run `git pull` (compose and Caddyfile changes
 ship with the release), then `./setup.sh --upgrade <version>`, for example
