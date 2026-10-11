@@ -63,11 +63,21 @@ What the isolation is, stated plainly:
 - QEMU's device model is larger than Firecracker's, and a local dock is not run
   under the jailer. Prefer `microvm` on a fleet host for hostile or
   multi-tenant workloads.
-- The network is QEMU user-mode networking. With the network on, the dock can
-  reach the internet and services listening on your machine, including ones
-  bound to `127.0.0.1` (the guest sees the host as `10.0.2.2`).
-  `dock new --network off` blocks both. The guest agent's port is forwarded to
-  `127.0.0.1` on the host only.
+- The network is QEMU user-mode networking, which maps the gateway `10.0.2.2`
+  to your machine's `127.0.0.1`. With the network on (the default), the dock
+  reaches the internet, and from `dock` v0.3.4 its guest refuses new connections
+  to `10.0.2.2`, so code in the dock or its containers does not reach services
+  listening on your machine's localhost by accident, including other docks'
+  `dock port` forwards. The rule is applied inside the guest at boot: root in
+  the dock can remove it, and docks created from older images do not have it.
+  Treat a network-on dock running hostile code as able to reach your localhost
+  services, and use `dock new --network off` for untrusted code; it blocks the
+  network entirely. A host-enforced fix is tracked in
+  [docklet#98](https://github.com/usedock/docklet/issues/98). The guest agent's
+  port is forwarded to `127.0.0.1` on the host only.
+- A copied dock (`dock branch`, `dock pull`, or a dock started from a saved
+  template) gets fresh SSH host keys on its first boot, from the images that
+  `dock` v0.3.4 uses.
 - The guest agent's config, including its token, is passed through a QEMU
   `fw_cfg` file with mode 0600, not on the QEMU command line, which other users
   on the machine can read.
