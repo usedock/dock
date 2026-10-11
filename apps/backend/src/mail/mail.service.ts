@@ -170,7 +170,10 @@ export class MailService {
           headers: { 'X-Dock-Template': options.template, 'X-Dock-Cid': correlationId },
         });
         if (this.logOnly) {
-          this.logger.warn(`mail not delivered (no SMTP_HOST) template=${options.template} to=${maskAddress(options.to)} cid=${correlationId}\n${rendered.text}`);
+          // Several bodies quote the address; re-render the logged copy with it masked.
+          const email = options.context.email === undefined ? undefined : maskAddress(options.context.email);
+          const logged = textFor(options.template, { ...options.context, email, subject: options.subject });
+          this.logger.warn(`mail not delivered (no SMTP_HOST) template=${options.template} to=${maskAddress(options.to)} cid=${correlationId}\n${logged}`);
         } else {
           this.logger.log(`mail delivered template=${options.template} cid=${correlationId}`);
         }

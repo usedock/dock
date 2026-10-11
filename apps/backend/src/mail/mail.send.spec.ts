@@ -49,6 +49,22 @@ describe('MailService without SMTP_HOST', () => {
     expect(line).not.toContain('jane@example.com');
   });
 
+  it.each([
+    ['verify-email', { email: 'jane@example.com', verifyUrl: 'http://dock.local/v?t=1' }, 'http://dock.local/v?t=1'],
+    ['reset-password', { email: 'jane@example.com', resetUrl: 'http://dock.local/r?t=1' }, 'http://dock.local/r?t=1'],
+    ['organization-invitation', { email: 'jane@example.com', orgName: 'Acme', inviteUrl: 'http://dock.local/i?t=1' }, 'http://dock.local/i?t=1'],
+    ['contact-message', { email: 'jane@example.com', name: 'Jane', message: 'hi' }, 'Jane wrote from j***@example.com'],
+  ] as const)('masks the address in the logged %s body and keeps the rest', async (template, context, kept) => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    const svc = new MailService({ get: (_k: string, d?: unknown) => d, getOrThrow: () => 'Dock <dock@localhost>' } as never);
+    await svc.send({ to: 'jane@example.com', subject: 'Hi', template, context });
+    const line = warn.mock.calls.map((c) => String(c[0])).find((m) => m.includes('no SMTP_HOST'))!;
+    expect(line).not.toContain('jane@example.com');
+    expect(line).toContain('j***@example.com');
+    expect(line).toContain(kept);
+  });
+
   it('delivers over SMTP silently when SMTP_HOST is set', () => {
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     new MailService({ get: (k: string, d?: unknown) => (k === 'SMTP_HOST' ? 'smtp.example.com' : d) } as never);
