@@ -8,6 +8,7 @@ import { hashCredential } from '../fleet/host-command-queue';
 import {
   CAPACITY_HOLDING_STATES,
   DEFAULT_CPUS,
+  DEFAULT_IMAGE,
   DEFAULT_MEMORY_MIB,
   RUNTIMES,
   docks,
@@ -41,6 +42,8 @@ export interface HostHeartbeatInput {
   running?: HostWorkload[];
   /** Base image fingerprints the host holds; undefined keeps the last report. */
   baseFingerprints?: string[];
+  /** Image names the host serves; undefined keeps the last report. */
+  images?: string[];
   /** Runtime the host reports; undefined keeps the last one. */
   runtime?: Runtime;
 }
@@ -154,6 +157,11 @@ function holdingBase(rows: Host[], fingerprint: string, cpuFamily: string | null
   if (unknown.length) return unknown;
   if (matching.length) throw new BaseImageUnavailableException();
   return [];
+}
+
+/** Whether a host serves an image: its reported list, or for hosts that never reported one (null) only the default image. */
+export function hostServesImage(host: Pick<Host, 'images'>, image: string): boolean {
+  return host.images == null ? image === DEFAULT_IMAGE : host.images.includes(image);
 }
 
 function validationError(message: string): BadRequestException {
@@ -333,6 +341,7 @@ export class HostsService {
         usedDocks,
         running: input.running ?? existing.running,
         ...(input.baseFingerprints !== undefined ? { baseFingerprints: input.baseFingerprints } : {}),
+        ...(input.images !== undefined ? { images: input.images } : {}),
         ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
         lastHeartbeatAt: new Date(),
         state: 'online',
@@ -382,6 +391,7 @@ export class HostsService {
     excludeHostIds = [],
     baseFingerprint,
     feature,
+    image,
   }: {
     cpuFamily?: string | null;
     runtime?: Runtime | null;
@@ -391,12 +401,17 @@ export class HostsService {
     excludeHostIds?: string[];
     baseFingerprint?: string | null;
     feature?: string;
+    /** Requested Dockyard image: hosts serving it are tried first, the rest remain the fallback. */
+    image?: string | null;
   }): Promise<Host | null> {
     return this.db.transaction(async (tx) => {
       // Fixed lock order keeps concurrent placements from deadlocking.
       const online = await tx.select().from(hosts).where(eq(hosts.state, 'online')).orderBy(asc(hosts.id)).for('update');
       const rows = withFeature(baseFingerprint ? holdingBase(online, baseFingerprint, cpuFamily, runtime ?? null) : online, feature);
-      const chosen = await this.fitting(tx, rows, { cpuFamily, runtime: runtime ?? null, dockId, cpus, memoryMiB, excludeHostIds });
+      const fit = { cpuFamily, runtime: runtime ?? null, dockId, cpus, memoryMiB, excludeHostIds };
+      const serving = image ? rows.filter((h) => hostServesImage(h, image)) : [];
+      // Prefer hosts that report the image; a host that does not is still tried (docklet may refuse with image_unavailable).
+      const chosen = (serving.length ? await this.fitting(tx, serving, fit) : null) ?? (await this.fitting(tx, rows, fit));
       if (chosen && dockId) await tx.update(docks).set({ hostId: chosen.id }).where(eq(docks.id, dockId));
       return chosen;
     });

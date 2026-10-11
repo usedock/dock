@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DEFAULT_IMAGE } from '../database/schema/docks';
-import { HostsService } from '../hosts/hosts.service';
+import { HostsService, hostServesImage } from '../hosts/hosts.service';
 import { DOCKYARD_CATALOG } from './catalog';
 
 export interface ImageView {
@@ -17,9 +16,9 @@ export interface ImageView {
 export class ImagesService {
   constructor(private readonly hosts: HostsService) {}
 
-  /** Hosts do not report images yet, so only the default image counts as served, and only while a host is online. */
+  /** An image is available when some online host serves it; a host that never reported images serves only the default. */
   async list(): Promise<ImageView[]> {
-    const anyOnline = (await this.hosts.listOnline()).length > 0;
-    return DOCKYARD_CATALOG.map((image) => ({ ...image, arch: [...image.arch], available: anyOnline && image.name === DEFAULT_IMAGE }));
+    const online = await this.hosts.listOnline();
+    return DOCKYARD_CATALOG.map((image) => ({ ...image, arch: [...image.arch], available: online.some((h) => hostServesImage(h, image.name)) }));
   }
 }

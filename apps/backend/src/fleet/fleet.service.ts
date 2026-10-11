@@ -76,8 +76,9 @@ export class FleetService {
     running?: HostWorkload[];
     samples?: HostSampleDto[];
     baseFingerprints?: string[];
+    images?: string[];
   }): Promise<{ hostId: string }> {
-    await this.hostsService.heartbeat(input.hostId, { runtime: input.runtime, usedDocks: input.usedDocks, running: input.running, baseFingerprints: input.baseFingerprints });
+    await this.hostsService.heartbeat(input.hostId, { runtime: input.runtime, usedDocks: input.usedDocks, running: input.running, baseFingerprints: input.baseFingerprints, images: input.images });
     await this.recordSamples(input.hostId, input.samples);
     return { hostId: input.hostId };
   }

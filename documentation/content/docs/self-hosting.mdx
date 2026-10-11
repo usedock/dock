@@ -189,6 +189,28 @@ The runtime is a property of the host, not of a Dock: a Dock gets the runtime of
 the host it lands on. See [Runtimes and images](/concepts/runtimes). The
 docklet repository covers hosts in depth.
 
+### Serve Dockyard images on a host
+
+A microVM host serves `ubuntu-24.04` by default. To serve another
+[Dockyard](/dockyard) image, pull it on the host; no restart is needed:
+
+```bash
+sudo docklet image pull node-22 python-3.12
+```
+
+To pull images while provisioning, set `DOCKLET_IMAGES` for
+`scripts/provision-host.sh`:
+
+```bash
+sudo DOCKLET_IMAGES="node-22 python-3.12" bash scripts/provision-host.sh
+```
+
+The host reports the images it serves in its next heartbeat. `GET /v1/images`
+then marks them available, and new Docks that request an image are placed on
+hosts that serve it first. If you set a custom `DOCKLET_IMAGE_DIR` for the
+daemon, pass it to the pull command too. gVisor hosts cannot serve Dockyard
+images.
+
 ## GitHub issue to pull request
 
 Each instance registers its own GitHub App:

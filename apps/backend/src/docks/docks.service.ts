@@ -263,7 +263,7 @@ export class DocksService {
   }
 
   /** Scheduler placement for restate-mode writes, reserving the dock's cpus and memory; fake mode places nothing. */
-  private async placeOrThrow(source: PlacementSource, dock: { id: string } & DockSize, excludeHostIds: string[] = []): Promise<Host | null> {
+  private async placeOrThrow(source: PlacementSource, dock: { id: string; image?: string } & DockSize, excludeHostIds: string[] = []): Promise<Host | null> {
     if (this.config.get<string>('RUNTIME_DRIVER') !== 'restate') return null;
     const host = await this.hosts.placeForDock({
       cpuFamily: source.cpuFamily ?? undefined,
@@ -272,6 +272,7 @@ export class DocksService {
       cpus: dock.cpus,
       memoryMiB: dock.memoryMiB,
       excludeHostIds,
+      ...(dock.image ? { image: dock.image } : {}),
       ...(source.baseFingerprint ? { baseFingerprint: source.baseFingerprint } : {}),
       ...(source.feature ? { feature: source.feature } : {}),
     });
