@@ -309,8 +309,10 @@ directions need a `microvm` runtime; a `gvisor` Dock cannot be exported.
 Imports land only on hosts whose docklet advertises the `verified-imports`
 feature, so older docklets never boot a disk they cannot verify. When no online
 `microvm` host has it, `POST /v1/docks/import` fails with `runtime_unsupported`
-(409) and nothing is uploaded. The check applies on a real fleet
-(`RUNTIME_DRIVER=restate`).
+(409) and nothing is uploaded. When the organization's default Environment has
+an egress allowlist, one of those hosts must also advertise `egress-on-resume`,
+or the call fails with `import_egress_unsupported` (409). Both checks apply on a
+real fleet (`RUNTIME_DRIVER=restate`).
 
 ### `POST /v1/docks/import`
 
@@ -397,7 +399,9 @@ disk), `import_checksum_mismatch` (400: the assembled object is not the declared
 `sizeBytes`), `conflict` (the import failed, expired or is already being
 completed), `environment_secrets_admin_only` (a member, when the organization's
 default Environment passes admins-only secrets), `no_host_capacity`,
-`capacity_exhausted`, `host_egress_unsupported`, `dock_name_taken`, `subscription_required`,
+`capacity_exhausted`, `host_egress_unsupported` (503: the default Environment
+has an egress allowlist and no host with room confines it on resume),
+`dock_name_taken`, `subscription_required`,
 `concurrency_exceeded`, `budget_exceeded`.
 
 ### `POST /v1/docks/:id/export`
@@ -453,5 +457,5 @@ Response: the raw bytes (`application/octet-stream`), 200, or 206 with
 
 Errors: `export_not_found`, `environment_secrets_admin_only`,
 `connector_admin_only`, `conflict` (the export is not `ready`),
-`range_not_satisfiable` (416, with `Content-Range: bytes */<size>`: start past
-the end of the file, or end before start).
+`range_not_satisfiable` (416, with `Content-Range: bytes */<size>`: start at or
+past the end of the file, or end before start).
