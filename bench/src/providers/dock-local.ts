@@ -29,6 +29,16 @@ interface DockView {
 
 const benchName = () => `bench-${crypto.randomUUID().slice(0, 12)}`;
 
+/** The error line of a CLI failure: the `error:` line when there is one, else the last line, without terminal escapes. */
+export function lastLine(stderr: string): string {
+  const lines = stderr
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b[A-Za-z]|\r/g, '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return (lines.findLast((l) => l.startsWith('error:')) ?? lines.at(-1) ?? '').slice(0, 200);
+}
+
 export function cliRunner(bin: string, timeoutMs: number): CliRunner {
   return (args) =>
     new Promise((resolve) => {
@@ -56,7 +66,7 @@ export class DockLocalProvider implements Provider {
 
   private async ok(args: string[]): Promise<string> {
     const r = await this.run(args);
-    if (r.code !== 0) throw new Error(`dock ${args[0]} exited ${r.code}: ${r.stderr.trim().split('\n').pop() ?? ''}`);
+    if (r.code !== 0) throw new Error(`dock ${args[0]} exited ${r.code}: ${lastLine(r.stderr)}`);
     return r.stdout;
   }
 
@@ -93,7 +103,7 @@ export class DockLocalProvider implements Provider {
       const out = JSON.parse(r.stdout) as { exitCode: number; stdout?: string };
       return { exitCode: out.exitCode, stdout: out.stdout ?? '' };
     } catch {
-      throw new Error(`dock exec exited ${r.code}: ${r.stderr.trim().split('\n').pop() ?? 'no output'}`);
+      throw new Error(`dock exec exited ${r.code}: ${lastLine(r.stderr) || 'no output'}`);
     }
   }
 
@@ -118,7 +128,7 @@ export class DockLocalProvider implements Provider {
     if (r.code !== 0) {
       // On a partial failure the CLI still prints the copies it made; do not leak them.
       await Promise.allSettled(made.map((d) => this.destroy({ id: d.id })));
-      throw new Error(`dock branch exited ${r.code}: ${r.stderr.trim().split('\n').pop() ?? ''}`);
+      throw new Error(`dock branch exited ${r.code}: ${lastLine(r.stderr)}`);
     }
     return made.map((d) => ({ id: d.id }));
   }
@@ -126,7 +136,7 @@ export class DockLocalProvider implements Provider {
   async destroy(handle: Handle): Promise<void> {
     const r = await this.run(['rm', handle.id, '--json']);
     if (r.code !== 0 && !/not_found|no such dock/i.test(r.stderr)) {
-      throw new Error(`dock rm exited ${r.code}: ${r.stderr.trim().split('\n').pop() ?? ''}`);
+      throw new Error(`dock rm exited ${r.code}: ${lastLine(r.stderr)}`);
     }
   }
 

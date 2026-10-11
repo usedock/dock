@@ -9,7 +9,7 @@ on:
         default: "50"
       dock_version:
         description: Release tag of the dock CLI to install (empty is the latest release)
-        default: ""
+        default: v0.3.1
   schedule:
     - cron: "17 4 1 * *"
   pull_request:
@@ -27,9 +27,11 @@ concurrency:
 jobs:
   local-engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 75
     env:
       ITERATIONS: ${{ inputs.iterations || '50' }}
+      BRANCH_ITERATIONS: "20"
+      DOCK_VERSION: ${{ inputs.dock_version || 'v0.3.1' }}
       DOCK_DATA_DIR: ${{ github.workspace }}/../dockdata
       DOCK_BENCH_MEMORY_MIB: "1024"
     steps:
@@ -44,8 +46,6 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
       - name: install dock
-        env:
-          DOCK_VERSION: ${{ inputs.dock_version }}
         run: |
           curl -fsSL https://usedock.io/install | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -62,25 +62,33 @@ jobs:
           bash scripts/environment.sh | tee results/environment.json
       # Cold create from the cached image, one at a time, then four at once.
       - name: sequential create
+        timeout-minutes: 15
         working-directory: bench
         run: bun run bench --provider dock-local --scenario sequential --iterations "$ITERATIONS"
       - name: concurrent create (4)
+        timeout-minutes: 15
         working-directory: bench
         run: bun run bench --provider dock-local --scenario burst --iterations "$ITERATIONS" --concurrency 4
       - name: exec
+        timeout-minutes: 15
         working-directory: bench
         run: bun run bench --provider dock-local --scenario exec --iterations "$ITERATIONS"
       - name: stop and resume
+        timeout-minutes: 25
         working-directory: bench
-        run: bun run bench --provider dock-local --scenario resume --iterations "$ITERATIONS"
+        run: bun run bench --provider dock-local --scenario resume --iterations "$ITERATIONS" --concurrency 1
       - name: branch
+        timeout-minutes: 20
         working-directory: bench
-        run: bun run bench --provider dock-local --scenario branch --iterations "$ITERATIONS"
+        run: bun run bench --provider dock-local --scenario branch --iterations "$BRANCH_ITERATIONS"
       - name: leftover docks
         if: always()
-        run: dock ls --all --json
+        timeout-minutes: 2
+        run: |
+          dock ls --all --json
+          echo "qemu processes: $(pgrep -fc qemu-system || true)"
       - name: guest logs
-        if: failure()
+        if: failure() || cancelled()
         run: |
           for f in "$DOCK_DATA_DIR"/docks/*/serial.log "$DOCK_DATA_DIR"/docks/*/qemu.log; do
             [ -f "$f" ] && { echo "=== $f"; tail -40 "$f"; }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DockLocalProvider, type CliResult } from './dock-local.ts';
+import { DockLocalProvider, lastLine, type CliResult } from './dock-local.ts';
 
 const done = (stdout = '', code = 0, stderr = ''): CliResult => ({ code, stdout, stderr });
 
@@ -65,5 +65,10 @@ describe('DockLocalProvider', () => {
     await expect(gone.provider.destroy({ id: 'x' })).resolves.toBeUndefined();
     const bad = fake(() => done('', 1, 'error: boom'));
     await expect(bad.provider.destroy({ id: 'x' })).rejects.toThrow(/boom/);
+  });
+  it('reduces CLI stderr to its error line without terminal escapes', () => {
+    const noisy = '\x1b[0;32m  OK  \x1b[0m Started x\nerror: timeout: dock never became ready\n\x1b[K[ OK ] late console\n';
+    expect(lastLine(noisy)).toBe('error: timeout: dock never became ready');
+    expect(lastLine('only line')).toBe('only line');
   });
 });
