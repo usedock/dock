@@ -1,0 +1,131 @@
+---
+title: Snapshots and templates
+description: List and read Snapshots, delete them, and save, list, and delete Templates.
+---
+
+A Snapshot is a point-in-time capture of a Dock's disk, made when the Dock stops
+or branches. A Template is a Snapshot frozen under a name so new Docks can start
+from it with `from`. See [Docks](/concepts/docks). Routes return the
+[Snapshot object](/api/objects#snapshot) and [Template object](/api/objects#template).
+Shared rules are in [Conventions](/api).
+
+Snapshot reads need org role `member` of the Dock's organization.
+
+Both Snapshot lists take the same paging query:
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `limit` (query) | integer | no | 1 to 100 | Page size. |
+| `cursor` (query) | string | no | opaque | The `nextCursor` of the previous page. |
+
+### `GET /v1/snapshots`
+
+List Snapshots of all Docks you can see, newest first.
+
+Response: `{ "snapshots": [ ... ], "nextCursor": "..." | null }` with
+[Snapshot objects](/api/objects#snapshot). Errors: `validation_error`.
+
+### `GET /v1/docks/:id/snapshots`
+
+List one Dock's Snapshots, with the same query and response as
+`GET /v1/snapshots`. Errors: `validation_error`, `dock_not_found`.
+
+### `GET /v1/docks/:id/snapshots/latest`
+
+The Dock's most recent completed Snapshot.
+
+Response: the [Snapshot object](/api/objects#snapshot), or `null` when the Dock
+has none. Errors: `dock_not_found`.
+
+### `GET /v1/snapshots/:id/tree`
+
+List the files in a completed Snapshot.
+
+Response: `{ "snapshotId": "...", "files": [ { "path": "work/app.js", "size": 120 } ] }`.
+Errors: `snapshot_not_found`.
+
+### `GET /v1/snapshots/:id/files`
+
+Read the bytes of one file in a completed Snapshot. The response is
+`application/octet-stream` and is not enveloped.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `path` (query) | string | yes | a path from the tree | File to read. |
+
+Errors: `snapshot_not_found` (also for an unknown path), `not_a_regular_file`
+(422), `file_too_large` (413).
+
+### `GET /v1/snapshots/:id/download`
+
+List download links for every file in a completed Snapshot.
+
+Response:
+
+```json
+{ "snapshotId": "...", "files": [ { "path": "work/app.js", "size": 120, "url": "/v1/snapshots/<id>/files?path=work%2Fapp.js" } ] }
+```
+
+Each `url` is a relative link to `GET /v1/snapshots/:id/files`. Errors:
+`snapshot_not_found`.
+
+### `DELETE /v1/snapshots/:id`
+
+Delete a Snapshot (202).
+
+Role: `admin`. Needs `x-confirm-delete: <snapshot id>`.
+
+Response: `{ "operation": { ... } }`, an [operation](/api/objects#operation).
+Errors: `confirm_required`, `snapshot_not_found`, `snapshot_in_use` (a newer
+Snapshot or a Template depends on it).
+
+### `POST /v1/templates`
+
+Freeze a Dock as a named Template (202). A running Dock is captured first.
+Saving over an existing name replaces that Template.
+
+Role: `admin`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `dockId` | string | yes | | Dock to freeze. |
+| `name` | string | yes | max 64; 2 to 64 lowercase letters, digits, dash, underscore, starting and ending with a letter or digit | Template name, unique per organization. |
+
+Response: the [Template object](/api/objects#template), `status: "saving"` until
+the capture finishes. Errors: `validation_error`, `dock_not_found`,
+`dock_not_running` (the Dock is in error or unreachable), `template_limit_reached`,
+`zdr_blocks_templates`, `conflict` (the same name is
+being saved).
+
+### `GET /v1/templates`
+
+List Templates in all your organizations, newest first.
+
+Response: an array of [Template objects](/api/objects#template).
+
+### `GET /v1/templates/:name`
+
+Read one ready Template.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` (query) | uuid | yes | | Organization the name is resolved in. |
+
+Response: the [Template object](/api/objects#template). Errors: `validation_error`,
+`template_not_found`.
+
+### `DELETE /v1/templates/:name`
+
+Delete a Template. It needs no `x-confirm-delete` header.
+
+Role: `admin`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` (query) | uuid | yes | | Organization the name is resolved in. |
+
+Response: `{ "operation": { ... } }`, an [operation](/api/objects#operation).
+Errors: `validation_error`, `template_not_found`.
+
+To start a Dock from a Template, pass its name as `from` to
+[`POST /v1/docks`](/api/docks#post-v1docks).

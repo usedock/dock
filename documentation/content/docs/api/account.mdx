@@ -1,0 +1,232 @@
+---
+title: Account
+description: Your identity, profile, login methods, account closure, notifications, retention, instance config, and the contact form.
+---
+
+Routes about you and about instance-wide facts. Account responses are sent with
+`Cache-Control: no-store`. Shared rules are in [Conventions](/api).
+
+## Instance
+
+### `GET /v1/config`
+
+Public instance facts for the dashboard. No credentials, no secrets.
+
+Response:
+
+```json
+{
+  "apiUrl": "https://dock.example.com",
+  "appUrl": "https://dock.example.com",
+  "billingEnabled": false,
+  "authProviders": ["github"],
+  "mailDelivery": "smtp",
+  "githubAppConfigured": true,
+  "ssh": { "host": "dock.example.com", "port": 2222 },
+  "ports": { "domain": "ports.example.com" },
+  "chatgptSignIn": false
+}
+```
+
+`ssh` is `null` when the SSH gateway is off, `ports` is `null` when hosted ports
+are off, and `mailDelivery` is `log` when no SMTP host is set.
+
+### `POST /v1/contact`
+
+Public contact-form intake. No credentials. Limited to 3 per hour per client
+address.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `name` | string | yes | 1 to 100 | Your name. |
+| `email` | string | yes | valid email, max 254 | Reply address. |
+| `company` | string | no | max 120 | Company. |
+| `topic` | string | yes | `request-access`, `pricing-plans`, `business`, `cloud-waitlist` | What the message is about. |
+| `message` | string | yes | 1 to 4000 | The message. |
+
+Response: `{ "sent": true }`. Errors: `validation_error`, `rate_limited`,
+`mail_unavailable`.
+
+## Identity and profile
+
+### `GET /v1/me`
+
+The caller.
+
+Response: `{ "id", "email", "emailVerified", "providers", "instanceAdmin" }`, where
+`providers` lists the linked login providers and `instanceAdmin` says whether the
+caller is an instance admin.
+
+### `GET /v1/me/profile`
+
+Read your profile.
+
+Response: `{ "userId", "displayName", "avatarUrl", "bio", "createdAt", "updatedAt" }`.
+`avatarUrl` is `null` when unset. Errors: `not_found`.
+
+### `PATCH /v1/me/profile`
+
+Update your profile. Every field is optional.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `displayName` | string | no | 1 to 60 | Display name. |
+| `avatarUrl` | string | no | URL with protocol | Avatar image. |
+| `bio` | string | no | max 280 | Short bio. |
+
+Response: the profile. Errors: `validation_error`, `not_found`.
+
+### `GET /v1/me/connections`
+
+List your linked login methods.
+
+Response: an array of `{ "id", "provider", "identifier", "primary", "linkedAt" }`.
+`id` is `provider:identifier`, and `primary` is `true` for the password login.
+
+### `DELETE /v1/me/connections/:id`
+
+Unlink a login method. The primary password method is never removed.
+
+Response: `{ "removed": true }`, or `{ "removed": false }` when nothing matched.
+Errors: `last_login_method`.
+
+## Closing the account
+
+Closing keeps your data for a 30-day grace period. While closed, every route
+except `POST /v1/account/reopen` and `POST /v1/account/erase` fails with
+`account_closed`.
+
+### `POST /v1/account/close`
+
+Close your account (202). Session only. Running Docks in organizations only you belong to stop, your API keys are revoked, and your SSH keys and sessions are removed.
+
+Response: `{ "closed": true, "purgeAt": "..." }`, the date the data is purged
+unless you reopen. Errors: `session_required`, `account_closed` (410, already
+erased), `sole_owner_of_shared_org` (you are the only owner of an organization
+that has other members; transfer or delete it first).
+
+### `POST /v1/account/reopen`
+
+Reopen a closed account.
+
+Response: `{ "reopened": true }`, or `{ "reopened": false }` when it was not
+closed. Errors: `account_closed` (410, already erased).
+
+### `POST /v1/account/erase`
+
+Erase your data now (202). Session only.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `confirmation` | string | yes | exactly `erase my account data` | Confirmation phrase. |
+
+Response: `{ "erased": true }`. Errors: `session_required`, `confirm_required`,
+`account_closed` (410, already erased), `sole_owner_of_shared_org`.
+
+## Notifications
+
+The inbox holds alerts about your Docks. Alert types are `stopped_responding`,
+`stop_refused`, `disk_warning`, `disk_full`, `auto_recovered`, and
+`held_after_loss`.
+
+### `GET /v1/notifications`
+
+Read your inbox, newest first.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `limit` (query) | integer | no | 1 to 100 | Page size. |
+| `cursor` (query) | string | no | opaque | The `nextCursor` of the previous page. |
+
+Response:
+
+```json
+{
+  "notifications": [
+    { "id": "...", "eventId": "...", "type": "disk_warning", "title": "...", "body": "...", "dockId": "...", "linkPath": "/docks/...", "read": false, "occurredAt": "..." }
+  ],
+  "nextCursor": null,
+  "unreadCount": 3
+}
+```
+
+`unreadCount` covers the whole inbox, not just the page. Errors:
+`validation_error`.
+
+### `POST /v1/notifications/read-all`
+
+Mark everything read.
+
+Response: `{ "updated": 3 }`, the number of notifications changed.
+
+### `POST /v1/notifications/:id/read`
+
+Mark one notification read.
+
+Response: `{ "id": "...", "read": true }`. Errors: `notification_not_found`.
+
+### `GET /v1/notifications/preferences`
+
+Read alert preferences for an organization. Role: `member`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` (query) | uuid | yes | | Organization. |
+
+Response: `{ "organizationId": "...", "preferences": [ { "type": "disk_warning", "audience": "dock", "enabled": true, "emailEnabled": true } ] }`,
+one entry per alert type. `enabled` is the organization setting and
+`emailEnabled` is yours. Errors: `validation_error`, `organization_not_found`.
+
+### `PUT /v1/notifications/preferences/organization`
+
+Turn an alert on or off for the organization. Session only. Role: `admin`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` | uuid | yes | | Organization. |
+| `type` | string | yes | an alert type above | Alert. |
+| `enabled` | boolean | yes | | Whether the organization receives it. |
+
+Response: `{ "organizationId": "...", "type": "...", "enabled": true }`. Errors:
+`validation_error`, `session_required`, `organization_not_found`.
+
+### `PUT /v1/notifications/preferences/personal`
+
+Turn email for an alert on or off for you.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `type` | string | yes | an alert type above | Alert. |
+| `emailEnabled` | boolean | yes | | Whether you get the email. |
+
+Response: `{ "type": "...", "emailEnabled": true }`. Errors: `validation_error`.
+
+## Retention
+
+Retention is a zero-data-retention policy for an organization. While it is
+enabled, stopping a Dock deletes its data and Templates are disabled.
+
+### `GET /v1/account/retention`
+
+Read the organization's policy. Role: `member`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` (query) | uuid | yes | | Organization. |
+
+Response: `{ "enabled": false }`. Errors: `validation_error`,
+`organization_not_found`.
+
+### `PATCH /v1/account/retention`
+
+Turn the policy on or off. Session only. Role: `owner`. Turning it on deletes the
+organization's archived Docks and Templates.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organizationId` (query) | uuid | yes | | Organization. |
+| `enabled` | boolean | yes | | New state. |
+| `confirmation` | string | when turning on | exactly `delete archived dock data` | Confirmation phrase. |
+
+Response: `{ "enabled": true }`. Errors: `validation_error`, `session_required`,
+`organization_not_found`, `confirm_required`.

@@ -1,0 +1,161 @@
+---
+title: GitHub
+description: Register the GitHub App, link installations to workspaces, and read and promote Runs.
+---
+
+The GitHub App turns issues into pull requests: a mention in an issue comment
+starts a [Run](/api/objects#run) in a Dock. Installations link a GitHub App
+installation to a workspace. Shared rules are in [Conventions](/api).
+
+The GitHub webhook receiver and the Run completion callback are called by GitHub
+and by Run Docks, not by you, and are not documented here. Starting more than 10
+Runs per hour for one installation and repository is refused.
+
+An installation object is `{ "id", "installationId", "workspaceId", "createdBy",
+"repos", "agent", "testCommand", "createdAt", "updatedAt" }`. `installationId` is
+GitHub's integer id, `repos` lists the `owner/name` repositories the App may act
+on, `agent` is the coding agent name (default `opencode`), and `testCommand` is
+the command Runs use to check their work, or `null`.
+
+## App registration
+
+These routes register the GitHub App from a manifest. They need an instance admin
+with a verified email (the email must be listed in `INSTANCE_ADMIN_EMAILS`) and a
+browser session (Session only). Otherwise they fail with
+`instance_admin_required`.
+
+### `POST /v1/github/app-setup/start`
+
+Begin registering the App. Returns a form target and manifest to post to GitHub.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `organization` | string | no | GitHub login, 1 to 39 characters | GitHub organization that will own the App; your own account when omitted. |
+
+Response: `{ "postUrl": "https://github.com/...", "manifest": "<JSON string>", "state": "..." }`.
+The state is single-use and valid for a short time. Errors: `validation_error`,
+`instance_admin_required`.
+
+### `POST /v1/github/app-setup/conversion`
+
+Finish registration with the values GitHub appends to the redirect.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `code` | string | yes | 1 to 128 of `A-Za-z0-9_-` | The code GitHub returned. Single-use, expires after one hour. |
+| `state` | string | yes | 32 hex characters | The `state` from `start`. |
+
+Response:
+
+```json
+{
+  "appId": 123,
+  "slug": "dock-example",
+  "name": "Dock example",
+  "owner": "octocat",
+  "htmlUrl": "https://github.com/apps/dock-example",
+  "installUrl": "https://github.com/apps/dock-example/installations/new",
+  "env": { "GITHUB_APP_ID": "123", "GITHUB_APP_SLUG": "...", "GITHUB_APP_PRIVATE_KEY": "...", "GITHUB_APP_WEBHOOK_SECRET": "...", "GITHUB_APP_CLIENT_ID": "...", "GITHUB_APP_CLIENT_SECRET": "..." },
+  "envFile": "GITHUB_APP_ID=123\n..."
+}
+```
+
+`env` and `envFile` hold the App's secrets and are shown once; put them in the
+control plane's environment. Errors: `validation_error`, `instance_admin_required`,
+`invalid_state`, `invalid_code`, `github_unavailable`.
+
+## Installations
+
+### `POST /v1/github/installations/start`
+
+Get a link to install or authorize the App for a workspace. Session only. Role:
+`admin`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `workspaceId` | uuid | yes | | Workspace to link. |
+| `mode` | string | no | `install` or `authorize`, default `install` | `install` opens GitHub's install page; `authorize` skips it when the App is already installed on the account. |
+
+Response: `{ "url": "https://github.com/...", "state": "..." }`. Errors:
+`validation_error`, `session_required`, `workspace_not_found`,
+`github_app_oauth_not_configured`, `unavailable`.
+
+### `POST /v1/github/installations/complete`
+
+Link an installation after GitHub redirects back (201). Session only. Role:
+`admin`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `installationId` | integer | no | at least 1 | The installation GitHub reported. |
+| `code` | string | no | 1 to 128 of `A-Za-z0-9_-` | The OAuth code GitHub appended. Absent on a follow-up that picks one candidate. |
+| `state` | string | when `code` is sent | 32 hex characters | The `state` from `start`. |
+
+One of `installationId` or `code` is required. Response: the linked installation
+as `{ "id", "installationId", "workspaceId", "repos", "agent", "testCommand" }`.
+When several installations qualify, the response is
+`{ "candidates": [ { "installationId": 1, "account": "octocat" } ] }`; call again
+with the chosen `installationId`. Errors: `validation_error`, `session_required`,
+`invalid_state`, `installation_not_accessible`, `github_unavailable`,
+`github_app_oauth_not_configured`.
+
+### `GET /v1/github/installations`
+
+List a workspace's installations. Role: `member`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `workspaceId` (query) | uuid | yes | | Workspace. |
+
+Response: an array of installation objects. Errors: `validation_error`,
+`workspace_not_found`.
+
+### `PATCH /v1/github/installations/:id`
+
+Update an installation. Session only. Role: `admin`. Every field is optional.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `repos` | array of strings | no | each `owner/name`, max 100 characters | Repositories the App may act on. |
+| `agent` | string | no | max 64 | Coding agent name. |
+| `testCommand` | string | no | max 500 | Command Runs use to check their work. |
+
+Response: the installation object. Errors: `validation_error`,
+`session_required`, `installation_not_found`.
+
+### `DELETE /v1/github/installations/:id`
+
+Unlink an installation. Session only. Role: `admin`.
+
+Response: `{ "deleted": true }`. Errors: `session_required`,
+`installation_not_found`.
+
+## Runs
+
+### `GET /v1/github/runs`
+
+List a workspace's Runs, newest first. Role: `member`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `workspaceId` (query) | uuid | yes | | Workspace. |
+| `state` (query) | string | no | `pending`, `provisioning`, `working`, `pr_opened`, `failed`, `stopped`, `done` | Only Runs in this state. |
+
+Response: an array of [Run objects](/api/objects#run). Errors:
+`validation_error`, `workspace_not_found`.
+
+### `GET /v1/github/runs/:id`
+
+Read one Run. Role: `member`.
+
+Response: the [Run object](/api/objects#run). Errors: `run_not_found`.
+
+### `POST /v1/github/runs/:id/promote`
+
+Move a Fast Run onto a full Dock so it can keep working. Session only. Role:
+`member`. A Run that is not a Fast Run is returned unchanged.
+
+Response: the [Run object](/api/objects#run), now in state `provisioning`.
+Errors: `session_required`, `run_not_found`, `run_not_promotable` (the Run
+finished, its envelope is incomplete, or credentials cannot be resolved),
+`subscription_required`, `budget_exceeded`.

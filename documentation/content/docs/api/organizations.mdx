@@ -1,0 +1,215 @@
+---
+title: Organizations
+description: Organizations, members, invitations, and workspaces.
+---
+
+An organization is the tenancy root: it owns members, workspaces, Environments,
+Templates, keys, and webhooks. A workspace is a scope inside one organization
+that owns Docks. Roles are `member`, `admin`, and `owner`; see
+[Conventions](/api#authentication). A caller who is not a member of an
+organization reads it as not found.
+
+Slugs are 3 to 63 lowercase letters, digits, and hyphens. Every route below
+needs an API key or session unless stated. Dock-bound keys cannot reach the
+invitation routes.
+
+## Organizations
+
+### `POST /v1/organizations`
+
+Create an organization (201); you become its owner and it gets a `default`
+workspace. Role: none.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `name` | string | yes | 1 to 100 | Display name. |
+| `slug` | string | no | slug rules above | Derived from the name when omitted. |
+| `seats` | integer | no | at least 1, default 5 | Seat count: members plus pending invitations may not exceed it. |
+
+Response: the [Organization object](/api/objects#organization) with your `role`.
+Errors: `validation_error`, `slug_taken`.
+
+### `GET /v1/organizations`
+
+List the organizations you belong to. Role: none.
+
+Response: an array of [Organization objects](/api/objects#organization), each with your `role`.
+
+### `GET /v1/organizations/:id`
+
+Read one organization. Role: `member`.
+
+Response: the [Organization object](/api/objects#organization) with your `role`.
+Errors: `organization_not_found`.
+
+### `PATCH /v1/organizations/:id`
+
+Update an organization. Role: `admin`. Every field is optional.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `name` | string | no | 1 to 100 | Display name. |
+| `slug` | string | no | slug rules above | New slug. |
+| `seats` | integer | no | at least 1, not below members plus pending invitations | Seat count. |
+
+Response: the [Organization object](/api/objects#organization) without `role`.
+Errors: `validation_error`, `organization_not_found`, `slug_taken`, `seats_exceeded`.
+
+### `DELETE /v1/organizations/:id`
+
+Delete an organization. Role: `owner`.
+
+Response: `{ "deleted": true }`. Errors: `organization_not_found`.
+
+## Members
+
+### `GET /v1/organizations/:id/members`
+
+List members and roles. Role: `member`.
+
+Response: an array of `{ "userId", "email", "role", "createdAt", "updatedAt" }`.
+Errors: `organization_not_found`.
+
+### `POST /v1/organizations/:id/members`
+
+Invite a person by email or user id (201). The invitation is emailed and expires
+after 7 days. Role: `admin`; inviting an owner needs `owner`. The response is the
+same whether or not the email has an account or is already a member.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `email` | string | one of `email`, `userId` | valid email | Address to invite. |
+| `userId` | uuid | one of `email`, `userId` | | An existing user to invite. |
+| `role` | string | no | `owner`, `admin`, `member`; default `member` | Role on acceptance. |
+
+Response: `{ "status": "accepted" }`. Errors: `validation_error`,
+`organization_not_found`, `user_not_found`, `seats_exceeded`.
+
+### `PATCH /v1/organizations/:id/members/:userId`
+
+Change a member's role. Role: `admin`; changes involving owners need `owner`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `role` | string | yes | `owner`, `admin`, `member` | New role. |
+
+Response: the membership `{ "organizationId", "userId", "role", "createdAt", "updatedAt" }`.
+Errors: `validation_error`, `organization_not_found`, `member_not_found`,
+`cannot_remove_owner`.
+
+### `DELETE /v1/organizations/:id/members/:userId`
+
+Remove a member. Role: `admin`; removing an owner needs `owner`.
+
+Response: `{ "removed": true }`. Errors: `organization_not_found`,
+`member_not_found`, `cannot_remove_owner` (the last owner cannot be removed).
+
+## Invitations
+
+An invitation object is `{ "id", "email", "role", "expiresAt", "createdAt" }`.
+Invitations addressed to you can be used only with a verified email; otherwise
+they read as `invitation_not_found`.
+
+### `GET /v1/organizations/:id/invitations`
+
+List the organization's pending invitations, newest first. Role: `admin`.
+
+Response: an array of invitation objects. Errors: `organization_not_found`.
+
+### `DELETE /v1/organizations/:id/invitations/:invitationId`
+
+Revoke a pending invitation. Role: `admin`.
+
+Response: `{ "revoked": true }`. Errors: `organization_not_found`,
+`invitation_not_found`.
+
+### `POST /v1/organizations/:id/invitations/:invitationId/resend`
+
+Send the invitation again with a fresh link and expiry; the old link stops
+working. Role: `admin`; resending an owner invitation needs `owner`.
+
+Response: the invitation object. Errors: `organization_not_found`,
+`invitation_not_found`, `seats_exceeded`.
+
+### `GET /v1/me/invitations`
+
+List pending invitations addressed to your verified email.
+
+Response: an array of `{ "id", "organizationName", "role", "expiresAt" }`.
+
+### `POST /v1/me/invitations/:invitationId/accept`
+
+Accept one of your invitations by id.
+
+Response: `{ "organizationId": "...", "role": "member" }`. Errors:
+`invitation_not_found`, `seats_exceeded`.
+
+### `POST /v1/me/invitations/:invitationId/decline`
+
+Decline one of your invitations by id.
+
+Response: `{ "declined": true }`. Errors: `invitation_not_found`.
+
+### `GET /v1/invitations/:token`
+
+Preview an invitation from the token in its emailed link.
+
+Response: `{ "id", "organizationName", "role", "expiresAt" }`. Errors:
+`invitation_not_found`.
+
+### `POST /v1/invitations/:token/accept`
+
+Accept an invitation by token. Response and errors as for
+`POST /v1/me/invitations/:invitationId/accept`.
+
+### `POST /v1/invitations/:token/decline`
+
+Decline an invitation by token. Response and errors as for
+`POST /v1/me/invitations/:invitationId/decline`.
+
+## Workspaces
+
+### `GET /v1/organizations/:orgId/workspaces`
+
+List an organization's workspaces. Role: `member`.
+
+Response: an array of [Workspace objects](/api/objects#workspace). Errors:
+`organization_not_found`.
+
+### `POST /v1/organizations/:orgId/workspaces`
+
+Create a workspace (201). Role: `admin`.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `name` | string | yes | 1 to 100 | Display name. |
+| `slug` | string | no | slug rules above, unique per organization | Derived from the name when omitted. |
+
+Response: the [Workspace object](/api/objects#workspace). Errors:
+`validation_error`, `organization_not_found`, `slug_taken`.
+
+### `GET /v1/workspaces/:id`
+
+Read one workspace. Role: `member`.
+
+Response: the [Workspace object](/api/objects#workspace). Errors: `workspace_not_found`.
+
+### `PATCH /v1/workspaces/:id`
+
+Update a workspace. Role: `admin`. Every field is optional.
+
+| Field | Type | Required | Limits / default | Description |
+|---|---|---|---|---|
+| `name` | string | no | 1 to 100 | Display name. |
+| `slug` | string | no | slug rules above | New slug. |
+
+Response: the [Workspace object](/api/objects#workspace). Errors:
+`validation_error`, `workspace_not_found`, `slug_taken`.
+
+### `DELETE /v1/workspaces/:id`
+
+Delete a workspace. Role: `admin`. The only workspace of an organization cannot
+be deleted, and the workspace must hold no Docks.
+
+Response: `{ "deleted": true }`. Errors: `validation_error` (only workspace),
+`workspace_not_found`, `workspace_not_empty`.
