@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getDefaultApi, type Connector, type ConnectorCredentialType } from '@/lib/dock-api';
@@ -103,8 +103,12 @@ function ConnectorsView() {
   const router = useRouter();
   const params = useSearchParams();
   const [api] = useState(getDefaultApi);
-  const [items, setItems] = useState<Connector[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Results are tagged with their workspace, so another workspace's connectors never render after a switch.
+  const [loaded, setLoaded] = useState<{ workspaceId: string; items: Connector[]; error: string | null } | null>(null);
+  const loadSeq = useRef(0);
+  const current = loaded && loaded.workspaceId === selectedWorkspaceId ? loaded : null;
+  const items = current?.items ?? null;
+  const error = current?.error ?? null;
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [tokenFor, setTokenFor] = useState<Connector | null>(null);
@@ -133,20 +137,25 @@ function ConnectorsView() {
 
   const refresh = useCallback(() => {
     if (!selectedWorkspaceId) return;
+    const seq = ++loadSeq.current;
+    const workspaceId = selectedWorkspaceId;
     api
-      .listConnectors(selectedWorkspaceId)
+      .listConnectors(workspaceId)
       .then((rows) => {
-        setItems(rows);
-        setError(null);
+        if (seq === loadSeq.current) setLoaded({ workspaceId, items: rows, error: null });
       })
       .catch((e: unknown) => {
-        setItems([]);
-        setError(messageOf(e, 'Could not load connectors.'));
+        if (seq === loadSeq.current) setLoaded({ workspaceId, items: [], error: messageOf(e, 'Could not load connectors.') });
       });
   }, [api, selectedWorkspaceId]);
 
   useEffect(() => {
     refresh();
+    // Intentionally the live counter: bumping it drops in-flight responses.
+    return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      loadSeq.current++;
+    };
   }, [refresh]);
 
   async function startOauth(c: Connector) {
@@ -273,7 +282,7 @@ function ConnectorsView() {
                   </Alert>
                 ) : null}
                 {c.status === 'connected' && c.type === 'tool' && selectedWorkspaceId ? (
-                  <ConnectorRepoLinks workspaceId={selectedWorkspaceId} kind={c.kind} label={entry.label} isAdmin={isAdmin} />
+                  <ConnectorRepoLinks key={`${selectedWorkspaceId}:${c.kind}`} workspaceId={selectedWorkspaceId} kind={c.kind} label={entry.label} isAdmin={isAdmin} />
                 ) : null}
                 <div className="mt-auto flex flex-wrap items-center gap-2">
                   {c.readOnly ? (
