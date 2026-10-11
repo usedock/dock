@@ -229,8 +229,9 @@ export class DockletClient {
     resources: DockletResources,
     snapshotId: string,
     execAgent?: boolean,
+    egressAllow?: string[],
   ): Promise<{ ip: string; hostId: string }> {
-    return this.call('/v1/snapshots/load', { dockId, resources, snapshotId, ...(execAgent ? { execAgent: true } : {}) });
+    return this.call('/v1/snapshots/load', { dockId, resources, snapshotId, ...(execAgent ? { execAgent: true } : {}), ...(egressAllow?.length ? { egressAllow } : {}) });
   }
 
   destroy(dockId: string): Promise<void> {

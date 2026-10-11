@@ -3,6 +3,7 @@ import {
   assertEnvKey,
   assertEnvMap,
   assertSecretPath,
+  checkedEgressAllow,
   parseEnvContents,
   serializeEnvContents,
 } from './env-validation';
@@ -64,5 +65,24 @@ describe('assertSecretPath', () => {
 
   it.each(['/abs/path', '../escape', 'a/../../b', 'a//b', '', 'back\\slash'])('rejects %s', (path) => {
     expect(errOf(() => assertSecretPath(path)).body).toMatchObject({ code: 'validation_error' });
+  });
+});
+
+describe('checkedEgressAllow', () => {
+  it('passes null through and normalizes hostnames and wildcards', () => {
+    expect(checkedEgressAllow(null)).toBeNull();
+    expect(checkedEgressAllow([' API.GitHub.com ', '*.npmjs.org', 'api.github.com'])).toEqual(['api.github.com', '*.npmjs.org']);
+  });
+
+  it('rejects empty lists, IPs, schemes, ports, bare wildcards and non-lists', () => {
+    for (const bad of [[], ['10.0.0.1'], ['1.2.3.4'], ['https://example.com'], ['example.com:443'], ['example.com/x'], ['*.com'], ['*'], ['localhost'], [''], [5], 'example.com', ['a_b.example.com']]) {
+      expect(errOf(() => checkedEgressAllow(bad)).status).toBe(400);
+    }
+  });
+
+  it('caps entry count and length', () => {
+    const many = Array.from({ length: 51 }, (_, i) => `h${i}.example.com`);
+    expect(errOf(() => checkedEgressAllow(many)).status).toBe(400);
+    expect(errOf(() => checkedEgressAllow([`${'a'.repeat(64)}.example.com`])).status).toBe(400);
   });
 });

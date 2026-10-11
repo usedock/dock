@@ -73,6 +73,7 @@ function EnvironmentDetail() {
   const [varValue, setVarValue] = useState('');
   const [filePath, setFilePath] = useState('');
   const [fileContents, setFileContents] = useState('');
+  const [egressText, setEgressText] = useState<string | null>(null);
 
   const setTab = useCallback(
     (value: string) => {
@@ -488,6 +489,44 @@ function EnvironmentDetail() {
                 ) : (
                   <Badge variant="outline">{env.secretsAccess === 'admins' ? 'Admins only' : 'Members'}</Badge>
                 )}
+              </div>
+            </section>
+            <section className="flex flex-col gap-3">
+              <h2 className="text-sm font-medium">Outbound allowlist</h2>
+              <div className="flex flex-col gap-3 rounded-md border p-4">
+                <p className="text-xs text-muted-foreground">
+                  One host per line, like api.github.com or *.npmjs.org (HTTPS only, no IP addresses, at most 50). Empty
+                  leaves outbound internet open, as today. With a list, docks on this environment can reach only those
+                  hosts, so include what setup needs, such as github.com for cloning and your package registry. Changes
+                  apply when a dock is created, resumed or branched on this version; upgrade older docks to pick them up.
+                </p>
+                <Textarea
+                  aria-label="Outbound allowlist"
+                  value={egressText ?? (env.egressAllow ?? []).join('\n')}
+                  onChange={(e) => setEgressText(e.target.value)}
+                  disabled={!isAdmin}
+                  placeholder="api.github.com"
+                  className="font-mono"
+                />
+                {isAdmin ? (
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      disabled={egressText === null}
+                      onClick={() => {
+                        const hosts = (egressText ?? '').split('\n').map((h) => h.trim()).filter(Boolean);
+                        void runAction(
+                          () => api.updateEnvironment(name, selectedOrgId, { egressAllow: hosts.length ? hosts : null }),
+                          'Could not save allowlist',
+                        ).then((ok) => {
+                          if (ok) setEgressText(null);
+                        });
+                      }}
+                    >
+                      Save allowlist
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             </section>
             <section className="flex flex-col gap-3">

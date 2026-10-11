@@ -44,12 +44,12 @@ export interface ExecOutcome {
  * implementation until a real driver lands.
  */
 export interface ComputeProvider {
-  /** Every machine boots with the guest exec agent; egressAllow confines it (internal runs only). */
+  /** Every machine boots with the guest exec agent; egressAllow confines it (internal runs, and environments with an allowlist). */
   provision(dock: Dock, opts?: { snapshotId?: string | null; hostId?: string | null; egressAllow?: string[] }): Promise<MachineHandle>;
   captureSnapshot(dock: Dock, parentId: string | null): Promise<SnapshotCapture>;
   captureFinal(dock: Dock, parentId: string | null): Promise<SnapshotCapture>;
-  resume(dock: Dock, opts: { snapshotId: string | null; hostId?: string | null }): Promise<MachineHandle>;
-  branch(source: Dock, target: Dock, opts?: { snapshotId?: string | null; hostId?: string | null }): Promise<MachineHandle>;
+  resume(dock: Dock, opts: { snapshotId: string | null; hostId?: string | null; egressAllow?: string[] }): Promise<MachineHandle>;
+  branch(source: Dock, target: Dock, opts?: { snapshotId?: string | null; hostId?: string | null; egressAllow?: string[] }): Promise<MachineHandle>;
   destroyBacking(dock: Dock): Promise<void>;
   deleteBacking(id: string): Promise<void>;
   exec(dock: Dock, request: ExecRequest): Promise<ExecOutcome>;

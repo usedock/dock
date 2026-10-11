@@ -84,3 +84,26 @@ export function assertSecretPath(path: string): void {
     throw validationError(`secret file path ${path} is reserved for the platform`);
   }
 }
+
+export const MAX_EGRESS_HOSTS = 50;
+export const MAX_EGRESS_HOST_LENGTH = 253;
+const EGRESS_LABEL = '[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?';
+const EGRESS_HOST_RE = new RegExp(String.raw`^(\*\.)?(${EGRESS_LABEL}\.)+${EGRESS_LABEL}$`);
+const NUMERIC_LABEL_RE = /^[0-9]+$/;
+
+/** Hostnames and `*.suffix` only (no IPs, ports or paths); returns a trimmed, lowercased, de-duplicated list or null for open egress. */
+export function checkedEgressAllow(raw: unknown): string[] | null {
+  if (raw === null) return null;
+  if (!Array.isArray(raw)) throw validationError('egressAllow must be a list of hosts or null');
+  if (raw.length === 0) throw validationError('egressAllow must list at least one host; use null for open internet');
+  if (raw.length > MAX_EGRESS_HOSTS) throw validationError(`egressAllow holds at most ${MAX_EGRESS_HOSTS} hosts`);
+  const hosts = new Set<string>();
+  for (const entry of raw) {
+    const host = typeof entry === 'string' ? entry.trim().toLowerCase() : '';
+    if (!host || host.length > MAX_EGRESS_HOST_LENGTH || !EGRESS_HOST_RE.test(host) || NUMERIC_LABEL_RE.test(host.split('.').pop() as string)) {
+      throw validationError(`egressAllow entry ${JSON.stringify(entry)} must be a hostname like api.example.com or *.example.com`);
+    }
+    hosts.add(host);
+  }
+  return [...hosts];
+}

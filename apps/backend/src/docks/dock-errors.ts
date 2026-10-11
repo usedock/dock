@@ -120,3 +120,10 @@ export class DockDeleteForbiddenException extends ForbiddenException {
     super({ code: 'dock_delete_forbidden', message: "Only the dock's creator or an org admin can delete it" });
   }
 }
+
+/** An egress allowlist is set but no suitable host registers egress-on-resume; booting there would run open. */
+export class HostEgressUnsupportedException extends ServiceUnavailableException {
+  constructor() {
+    super({ code: 'host_egress_unsupported', message: 'No suitable host supports the environment egress allowlist; upgrade the docklets' });
+  }
+}

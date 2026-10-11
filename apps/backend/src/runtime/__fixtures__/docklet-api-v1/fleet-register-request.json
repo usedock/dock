@@ -1,1 +1,1 @@
-{"hostId":"host-fra-01","cpuFamily":"intel-icelake","kernel":"vmlinux-6.1.102","kernelRelease":"6.1.102","runtime":"microvm","vcpuTotal":32,"memTotalBytes":137438953472,"memBudgetBytes":120259084288,"diskTotalBytes":1099511627776,"maxDocks":16,"acceptsCredential":true}
+{"hostId":"host-fra-01","cpuFamily":"intel-icelake","kernel":"vmlinux-6.1.102","kernelRelease":"6.1.102","runtime":"microvm","vcpuTotal":32,"memTotalBytes":137438953472,"memBudgetBytes":120259084288,"diskTotalBytes":1099511627776,"maxDocks":16,"acceptsCredential":true,"features":["egress-on-resume"]}

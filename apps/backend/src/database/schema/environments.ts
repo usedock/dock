@@ -70,6 +70,8 @@ export const environmentVersions = pgTable(
     passSecrets: boolean('pass_secrets').notNull().default(true),
     passDockCredentials: boolean('pass_dock_credentials').notNull().default(false),
     passAgentsCredentials: boolean('pass_agents_credentials').notNull().default(true),
+    /** HTTPS hosts docks may reach; null leaves egress open (minus private ranges). */
+    egressAllow: jsonb('egress_allow').$type<string[]>(),
     repos: jsonb('repos').notNull().$type<EnvRepo[]>(),
     envVars: jsonb('env_vars').notNull().$type<Record<string, SealedValue>>(),
     secretFiles: jsonb('secret_files').notNull().$type<EnvSecretFile[]>(),

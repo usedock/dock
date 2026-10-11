@@ -58,6 +58,11 @@ describe('FleetService', () => {
     expect(err.body).toMatchObject({ code: 'validation_error' });
   });
 
+  it('passes the registered features to the host service', async () => {
+    await service.register({ hostId: 'h1', cpuFamily: 'x86_64-v4', kernel: '6.8.0', maxDocks: 8, features: ['egress-on-resume'] }, false);
+    expect(hostsService.register).toHaveBeenCalledWith(expect.objectContaining({ features: ['egress-on-resume'] }));
+  });
+
   it('registers through the host service with an outbound address', async () => {
     await service.register({ hostId: 'h1', cpuFamily: 'x86_64-v4', kernel: '6.8.0', maxDocks: 8 }, false);
     expect(hostsService.register).toHaveBeenCalledWith(

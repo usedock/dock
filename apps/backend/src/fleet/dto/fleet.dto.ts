@@ -41,6 +41,14 @@ export class FleetRegisterDto {
   @IsBoolean()
   acceptsCredential?: boolean;
 
+  /** Optional docklet behaviours, for example egress-on-resume. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(32)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  features?: string[];
+
   @IsString()
   @MaxLength(64)
   cpuFamily!: string;

@@ -33,6 +33,7 @@ const versionRow = (overrides: Record<string, unknown> = {}) => ({
   passSecrets: true,
   passDockCredentials: true,
   passAgentsCredentials: true,
+  egressAllow: null,
   repos: [],
   envVars: {},
   secretFiles: [],
@@ -440,6 +441,61 @@ describe('EnvironmentsService', () => {
     const bad = await catchErr(service.update(callerId, envId, undefined, { secretsAccess: 'everyone' as never }));
     expect(bad.status).toBe(400);
     expect(db.update).not.toHaveBeenCalled();
+  });
+
+  describe('egressAllow', () => {
+    it('stores a normalized list in a new version and shows it on the view', async () => {
+      db.select.mockReturnValueOnce(selectQ([envRow()])); // resolveRef
+      db.select.mockReturnValueOnce(selectQ([versionRow()])); // bump latest
+      const inserted: any[] = [];
+      db.insert.mockReturnValueOnce({ values: (v: unknown) => { inserted.push(v); return { returning: () => Promise.resolve([versionRow({ version: 2 })]) }; } });
+      db.update.mockReturnValueOnce(updateQ([envRow({ currentVersion: 2 })]));
+      queueView(envRow({ currentVersion: 2 }), versionRow({ version: 2, egressAllow: ['github.com', '*.npmjs.org'] }));
+      const view = await service.update(callerId, envId, undefined, { egressAllow: [' GitHub.com ', '*.npmjs.org', 'github.com'] });
+      expect(inserted[0]).toMatchObject({ version: 2, egressAllow: ['github.com', '*.npmjs.org'] });
+      expect(view.egressAllow).toEqual(['github.com', '*.npmjs.org']);
+    });
+
+    it('clears the list with null and keeps it across other saves', async () => {
+      db.select.mockReturnValueOnce(selectQ([envRow()]));
+      db.select.mockReturnValueOnce(selectQ([versionRow({ egressAllow: ['github.com'] })]));
+      const inserted: any[] = [];
+      db.insert.mockReturnValueOnce({ values: (v: unknown) => { inserted.push(v); return { returning: () => Promise.resolve([versionRow({ version: 2 })]) }; } });
+      db.update.mockReturnValueOnce(updateQ([envRow({ currentVersion: 2 })]));
+      queueView(envRow({ currentVersion: 2 }), versionRow({ version: 2 }));
+      await service.update(callerId, envId, undefined, { egressAllow: null });
+      expect(inserted[0].egressAllow).toBeNull();
+      db.select.mockReturnValueOnce(selectQ([envRow()]));
+      db.select.mockReturnValueOnce(selectQ([versionRow({ egressAllow: ['github.com'] })]));
+      db.insert.mockReturnValueOnce({ values: (v: unknown) => { inserted.push(v); return { returning: () => Promise.resolve([versionRow({ version: 3 })]) }; } });
+      db.update.mockReturnValueOnce(updateQ([envRow({ currentVersion: 3 })]));
+      queueView(envRow({ currentVersion: 3 }), versionRow({ version: 3 }));
+      await service.update(callerId, envId, undefined, { passSecrets: false });
+      expect(inserted[1].egressAllow).toEqual(['github.com']);
+    });
+
+    it('rejects invalid lists and non-admins without writing', async () => {
+      db.select.mockReturnValueOnce(selectQ([envRow()]));
+      const bad = await catchErr(service.update(callerId, envId, undefined, { egressAllow: ['10.0.0.1'] }));
+      expect(bad).toMatchObject({ status: 400, body: { code: 'validation_error' } });
+      db.select.mockReturnValueOnce(selectQ([envRow()]));
+      orgs.requireMembership.mockRejectedValueOnce(new ForbiddenException({ code: 'forbidden', message: 'no' }));
+      const denied = await catchErr(service.update(callerId, envId, undefined, { egressAllow: ['github.com'] }));
+      expect(denied.status).toBe(403);
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('resolves the list at a dock pin, and open when the environment is gone', async () => {
+      db.select.mockReturnValueOnce(selectQ([envRow()])); // resolveVersion env
+      db.select.mockReturnValueOnce(selectQ([versionRow({ version: 3, egressAllow: ['new.example.com'] })])); // latest
+      db.select.mockReturnValueOnce(selectQ([versionRow({ version: 1, egressAllow: ['old.example.com'] })])); // pinned v1
+      await expect(service.egressAllowFor(orgId, 'base', 'v1')).resolves.toEqual(['old.example.com']);
+      db.select.mockReturnValueOnce(selectQ([envRow()]));
+      db.select.mockReturnValueOnce(selectQ([versionRow({ version: 3, egressAllow: null })]));
+      await expect(service.egressAllowFor(orgId, 'base', null)).resolves.toBeNull();
+      db.select.mockReturnValueOnce(selectQ([]));
+      await expect(service.egressAllowFor(orgId, 'gone', 'v1')).resolves.toBeNull();
+    });
   });
 
   describe('assertSecretsLaunchable', () => {

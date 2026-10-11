@@ -101,6 +101,7 @@ describe('DocksService', () => {
       resolveVersion: vi.fn().mockResolvedValue({ environment: { name: 'base' }, version: { version: 1 } }),
       assertSecretsLaunchable: vi.fn().mockResolvedValue(undefined),
       assertDockSecretsReadable: vi.fn().mockResolvedValue(undefined),
+      egressAllowFor: vi.fn().mockResolvedValue(null),
     };
     provider = new FakeComputeProvider();
     hosts = { placeForDock: vi.fn(), canPlace: vi.fn().mockResolvedValue(true), getById: vi.fn().mockResolvedValue(null), anyOnlineWithHeadroom: vi.fn().mockResolvedValue(true), sizeFit: vi.fn().mockResolvedValue('ok') };
@@ -184,6 +185,128 @@ describe('DocksService', () => {
     await service.create('u1', { workspaceId: wsId, egressAllow: [] });
     expect(spy.mock.calls[2][1]).not.toHaveProperty('egressAllow');
     spy.mockRestore();
+  });
+
+  it('confines a new dock to its environment allowlist, with a run list taking precedence', async () => {
+    const spy = vi.spyOn(provider, 'provision');
+    db.insert.mockReturnValue(insertQ([dockRow({ state: 'provisioning', ip: null })]));
+    db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
+    envs.resolveVersion.mockResolvedValue({ environment: { name: 'base' }, version: { version: 2, egressAllow: ['registry.npmjs.org'] } });
+    await service.create('u1', { workspaceId: wsId });
+    expect(spy.mock.calls[0][1]).toMatchObject({ egressAllow: ['registry.npmjs.org'] });
+    expect(applier.apply).toHaveBeenCalledTimes(1);
+    await service.create('u1', { workspaceId: wsId, egressAllow: ['github.com'] });
+    expect(spy.mock.calls[1][1]).toMatchObject({ egressAllow: ['github.com'] });
+    envs.resolveVersion.mockResolvedValue({ environment: { name: 'base' }, version: { version: 3, egressAllow: null } });
+    await service.create('u1', { workspaceId: wsId });
+    expect(spy.mock.calls[2][1]).not.toHaveProperty('egressAllow');
+    spy.mockRestore();
+  });
+
+  it('resumes a dock with its pinned environment allowlist and leaves a null list open', async () => {
+    const spy = vi.spyOn(provider, 'resume');
+    const run = async () => {
+      db.select
+        .mockReturnValueOnce(selectQ([dockRow({ state: 'archived' })]))
+        .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
+        .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1', cpuFamily: 'x86_64-v4' }]));
+      db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
+      await service.resume('u1', dockId);
+    };
+    envs.egressAllowFor.mockResolvedValueOnce(['github.com']);
+    await run();
+    expect(envs.egressAllowFor).toHaveBeenCalledWith(orgId, 'base', 'base');
+    expect(spy.mock.calls[0][1]).toMatchObject({ snapshotId: 'gen-1', egressAllow: ['github.com'] });
+    await run();
+    expect(spy.mock.calls[1][1]).not.toHaveProperty('egressAllow');
+    spy.mockRestore();
+  });
+
+  it('branches a dock onto its environment allowlist', async () => {
+    const spy = vi.spyOn(provider, 'branch');
+    envs.egressAllowFor.mockResolvedValueOnce(['github.com']);
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow()]))
+      .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
+      .mockReturnValueOnce(selectQ([]))
+      .mockReturnValueOnce(selectQ([{ id: 'snap-9', status: 'completed' }]));
+    db.insert
+      .mockReturnValueOnce(insertQ([dockRow({ id: 'dock-new', name: 'fork-a', state: 'provisioning' })]))
+      .mockReturnValueOnce(insertQ([{ id: 'snap-10' }]));
+    db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow({ id: 'dock-new', state: 'ready' })]) }) }) });
+    await service.branch('u1', dockId, { name: 'fork-a' });
+    expect(spy.mock.calls[0][2]).toMatchObject({ egressAllow: ['github.com'] });
+    spy.mockRestore();
+  });
+
+  describe('hosts without egress-on-resume', () => {
+    const archivedResume = () => {
+      db.select
+        .mockReturnValueOnce(selectQ([dockRow({ state: 'archived' })]))
+        .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
+        .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1', cpuFamily: 'x86_64-v4' }]));
+      db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
+    };
+
+    it('places a confined resume only on hosts that registered the feature', async () => {
+      config.get.mockReturnValue('restate');
+      envs.egressAllowFor.mockResolvedValueOnce(['github.com']);
+      hosts.placeForDock.mockResolvedValueOnce({ id: 'host-2' });
+      vi.spyOn(provider, 'resume').mockResolvedValueOnce({ ip: '10.9.9.2', hostId: 'host-2' });
+      archivedResume();
+      await service.resume('u1', dockId);
+      expect(hosts.placeForDock).toHaveBeenCalledWith(expect.objectContaining({ feature: 'egress-on-resume' }));
+    });
+
+    it('refuses with host_egress_unsupported and leaves the dock archived when only older hosts have room', async () => {
+      config.get.mockReturnValue('restate');
+      envs.egressAllowFor.mockResolvedValueOnce(['github.com']);
+      hosts.placeForDock.mockResolvedValueOnce(null);
+      hosts.sizeFit.mockResolvedValueOnce('ok');
+      hosts.canPlace.mockResolvedValueOnce(true); // placeable once the feature requirement is dropped
+      archivedResume();
+      const err = await catchErr(service.resume('u1', dockId));
+      expect(err.status).toBe(503);
+      expect(err.body).toMatchObject({ code: 'host_egress_unsupported' });
+    });
+
+    it('reports capacity, not the feature, when the only feature host refuses at its docklet', async () => {
+      config.get.mockReturnValue('restate');
+      envs.egressAllowFor.mockResolvedValueOnce(['github.com']);
+      hosts.placeForDock.mockResolvedValueOnce({ id: 'host-1' }).mockResolvedValueOnce(null);
+      hosts.sizeFit.mockResolvedValueOnce('ok');
+      hosts.anyOnlineWithHeadroom.mockResolvedValueOnce(false);
+      hosts.canPlace.mockResolvedValue(true); // host-1 still looks placeable once excluded
+      vi.spyOn(provider, 'resume').mockRejectedValueOnce(Object.assign(new Error('full'), { code: 'capacity_exhausted' }));
+      archivedResume();
+      const err = await catchErr(service.resume('u1', dockId));
+      expect(err.body).toMatchObject({ code: 'capacity_exhausted' });
+    });
+
+    it('does not ask for the feature when the environment has no list', async () => {
+      config.get.mockReturnValue('restate');
+      hosts.placeForDock.mockResolvedValueOnce({ id: 'host-2' });
+      vi.spyOn(provider, 'resume').mockResolvedValueOnce({ ip: '10.9.9.2', hostId: 'host-2' });
+      archivedResume();
+      await service.resume('u1', dockId);
+      expect(hosts.placeForDock.mock.calls[0][0]).not.toHaveProperty('feature');
+    });
+
+    it('requires the feature for an environment list on create, not for a run list', async () => {
+      config.get.mockReturnValue('restate');
+      hosts.placeForDock.mockResolvedValue({ id: 'host-1' });
+      vi.spyOn(provider, 'provision').mockResolvedValue({ ip: '10.9.9.8', hostId: 'host-1' });
+      db.insert.mockReturnValue(insertQ([dockRow({ state: 'provisioning', ip: null })]));
+      db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
+      db.select.mockReturnValue(selectQ([]));
+      envs.resolveVersion.mockResolvedValue({ environment: { name: 'base' }, version: { version: 2, egressAllow: ['github.com'] } });
+      await service.create('u1', { workspaceId: wsId });
+      expect(hosts.canPlace).toHaveBeenCalledWith(expect.objectContaining({ feature: 'egress-on-resume' }));
+      expect(hosts.placeForDock.mock.calls[0][0]).toMatchObject({ feature: 'egress-on-resume' });
+      hosts.placeForDock.mockClear();
+      await service.create('u1', { workspaceId: wsId, egressAllow: ['api.usedock.io'] });
+      expect(hosts.placeForDock.mock.calls[0][0]).not.toHaveProperty('feature');
+    });
   });
 
   it('places restate creates through the scheduler', async () => {

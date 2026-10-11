@@ -64,6 +64,13 @@
       "when": 1791685252575,
       "tag": "0008_amused_scrambler",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791687134069,
+      "tag": "0009_spicy_shockwave",
+      "breakpoints": true
     }
   ]
 }

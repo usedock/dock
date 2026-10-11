@@ -47,6 +47,13 @@ describe('RestateComputeProvider', () => {
     }
   });
 
+  it('forwards an environment allowlist on branch', async () => {
+    const docklet = { provision: vi.fn().mockResolvedValue({ ip: '10.9.9.9', hostId: 'h1' }) };
+    const provider = new RestateComputeProvider(factoryFor(docklet) as never);
+    await provider.branch(dockRow() as never, dockRow({ id: 'd2' }) as never, { hostId: 'h1', snapshotId: 's1', egressAllow: ['github.com'] });
+    expect(docklet.provision.mock.calls[0][0]).toMatchObject({ execAgent: true, egressAllow: ['github.com'] });
+  });
+
   it('runs exec through the owning host with the caller token and maps flags', async () => {
     const docklet = {
       fastRunExec: vi.fn().mockResolvedValue({ runtimeId: 'd1', exitCode: 2, stdout: 'o', stderr: 'e', truncated: true }),
@@ -155,8 +162,15 @@ describe('RestateComputeProvider', () => {
     await expect(provider.resume(dockRow({ hostId: 'h1' }) as never, { snapshotId: 'gen-9' })).resolves.toEqual({ ip: '10.9.9.10', hostId: 'h1' });
     await provider.destroyBacking(dockRow({ hostId: 'h1' }) as never);
     expect(docklets).toHaveBeenCalledWith('h1');
-    expect(docklet.snapshotLoad).toHaveBeenCalledWith('d1', { cpus: 2, memoryMiB: 4096, diskGiB: 20 }, 'gen-9', true);
+    expect(docklet.snapshotLoad).toHaveBeenCalledWith('d1', { cpus: 2, memoryMiB: 4096, diskGiB: 20 }, 'gen-9', true, undefined);
     expect(docklet.destroy).toHaveBeenCalledWith('d1');
+  });
+
+  it('passes an egress allowlist to the snapshot load', async () => {
+    const docklet = { snapshotLoad: vi.fn().mockResolvedValue({ ip: '10.9.9.10', hostId: 'h1' }) };
+    const provider = new RestateComputeProvider(factoryFor(docklet) as never);
+    await provider.resume(dockRow({ hostId: 'h1' }) as never, { snapshotId: 'gen-9', egressAllow: ['github.com'] });
+    expect(docklet.snapshotLoad).toHaveBeenCalledWith('d1', { cpus: 2, memoryMiB: 4096, diskGiB: 20 }, 'gen-9', true, ['github.com']);
   });
 
   it('refuses to resume without a stored snapshot id', async () => {

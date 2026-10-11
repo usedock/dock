@@ -30,6 +30,8 @@ export interface RegisterHostInput {
   memTotalBytes?: number;
   memBudgetBytes?: number;
   diskTotalBytes?: number;
+  /** Optional docklet behaviours the host registered with; undefined means an older docklet. */
+  features?: string[];
   maxDocks: number;
 }
 
@@ -139,6 +141,11 @@ export class BaseImageUnavailableException extends ServiceUnavailableException {
  * Hosts that can restore onto `fingerprint`, before capacity and exclusions: those reporting it,
  * else those that never reported (unknown); none of either means the base is nowhere to be had.
  */
+/** Hosts that registered the feature; no requirement keeps every host. */
+function withFeature(rows: Host[], feature: string | undefined): Host[] {
+  return feature ? rows.filter((h) => h.features.includes(feature)) : rows;
+}
+
 function holdingBase(rows: Host[], fingerprint: string, cpuFamily: string | null | undefined, runtime: Runtime | null): Host[] {
   const matching = rows.filter((h) => (cpuFamily == null || h.cpuFamily === cpuFamily) && (runtime == null || h.runtime === runtime));
   const holders = matching.filter((h) => h.baseFingerprints?.includes(fingerprint));
@@ -181,6 +188,7 @@ export class HostsService {
           memBudgetBytes: input.memBudgetBytes ?? null,
           diskTotalBytes: input.diskTotalBytes ?? 0,
           maxDocks: input.maxDocks,
+          features: input.features ?? [],
           usedDocks: 0,
           state: 'online',
         })
@@ -200,6 +208,7 @@ export class HostsService {
         memBudgetBytes: input.memBudgetBytes ?? existing.memBudgetBytes,
         diskTotalBytes: input.diskTotalBytes ?? existing.diskTotalBytes,
         maxDocks: input.maxDocks,
+        features: input.features ?? [],
         updatedAt: new Date(),
       })
       .where(eq(hosts.id, input.hostId))
@@ -251,6 +260,7 @@ export class HostsService {
         memBudgetBytes: input.memBudgetBytes ?? null,
         diskTotalBytes: input.diskTotalBytes ?? 0,
         maxDocks: input.maxDocks,
+        features: input.features ?? [],
         usedDocks: 0,
         state: 'online',
         credentialHash,
@@ -271,6 +281,7 @@ export class HostsService {
         ...(input.memBudgetBytes !== undefined ? { memBudgetBytes: input.memBudgetBytes } : {}),
         ...(input.diskTotalBytes !== undefined ? { diskTotalBytes: input.diskTotalBytes } : {}),
         maxDocks: input.maxDocks,
+        features: input.features ?? [],
         ...(credentialHash ? { credentialHash } : {}),
         updatedAt: new Date(),
       })
@@ -370,6 +381,7 @@ export class HostsService {
     memoryMiB = DEFAULT_MEMORY_MIB,
     excludeHostIds = [],
     baseFingerprint,
+    feature,
   }: {
     cpuFamily?: string | null;
     runtime?: Runtime | null;
@@ -378,11 +390,12 @@ export class HostsService {
     memoryMiB?: number;
     excludeHostIds?: string[];
     baseFingerprint?: string | null;
+    feature?: string;
   }): Promise<Host | null> {
     return this.db.transaction(async (tx) => {
       // Fixed lock order keeps concurrent placements from deadlocking.
       const online = await tx.select().from(hosts).where(eq(hosts.state, 'online')).orderBy(asc(hosts.id)).for('update');
-      const rows = baseFingerprint ? holdingBase(online, baseFingerprint, cpuFamily, runtime ?? null) : online;
+      const rows = withFeature(baseFingerprint ? holdingBase(online, baseFingerprint, cpuFamily, runtime ?? null) : online, feature);
       const chosen = await this.fitting(tx, rows, { cpuFamily, runtime: runtime ?? null, dockId, cpus, memoryMiB, excludeHostIds });
       if (chosen && dockId) await tx.update(docks).set({ hostId: chosen.id }).where(eq(docks.id, dockId));
       return chosen;
@@ -390,9 +403,9 @@ export class HostsService {
   }
 
   /** Advisory pre-insert twin of placeForDock: whether a host matching family, runtime and base has room; reserves nothing. */
-  async canPlace({ cpuFamily, runtime, baseFingerprint, cpus = DEFAULT_CPUS, memoryMiB = DEFAULT_MEMORY_MIB }: { cpuFamily?: string | null; runtime?: Runtime | null; baseFingerprint?: string | null; cpus?: number; memoryMiB?: number }): Promise<boolean> {
+  async canPlace({ cpuFamily, runtime, baseFingerprint, feature, cpus = DEFAULT_CPUS, memoryMiB = DEFAULT_MEMORY_MIB }: { cpuFamily?: string | null; runtime?: Runtime | null; baseFingerprint?: string | null; feature?: string; cpus?: number; memoryMiB?: number }): Promise<boolean> {
     const online = await this.db.select().from(hosts).where(eq(hosts.state, 'online'));
-    const rows = baseFingerprint ? holdingBase(online, baseFingerprint, cpuFamily, runtime ?? null) : online;
+    const rows = withFeature(baseFingerprint ? holdingBase(online, baseFingerprint, cpuFamily, runtime ?? null) : online, feature);
     return (await this.fitting(this.db, rows, { cpuFamily, runtime: runtime ?? null, cpus, memoryMiB, excludeHostIds: [] })) !== null;
   }
 

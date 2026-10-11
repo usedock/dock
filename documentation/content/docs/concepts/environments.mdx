@@ -62,5 +62,14 @@ Only organization admins can change `secretsAccess`
   may remain on the disk.
 - Run Docks are unaffected only when run egress is confined. With
   `RUN_EGRESS_ALLOW=*` they go through the guard as the installer.
+- The outbound allowlist (see below) limits where a Dock can send what it reads, but a Dock can still send anything to the hosts you list.
 - GitHub clone tokens are short-lived and visible in the process list while a
   clone is running.
+
+## Outbound allowlist
+
+By default a Dock can reach any public host over the internet (private ranges, cloud metadata and other Docks stay blocked). An organization admin can set an allowlist on an Environment instead: `egressAllow`, a list of hostnames or `*.suffix` patterns, set from the Environment's Settings tab or `PATCH /v1/environments/:ref`. `null`, the default, keeps open outbound.
+
+With a list, Docks on that Environment reach only those hosts, over HTTPS (port 443), through a proxy on the host. Everything else, including plain HTTP, raw TCP, UDP and IP addresses, is dropped. Include what your setup script and agents need, for example `github.com` and `api.github.com` for cloning and your package registry. Commands run through Dock get the proxy settings in their environment; a program that ignores them cannot connect.
+
+The list is part of the Environment version. It is applied when a Dock is created, resumed or branched, using the version the Dock is pinned to, so saving a new list does not touch running Docks: upgrade the Docks, then stop and resume them. It also applies with `noEnv`. If the Environment is deleted, its Docks are no longer confined when they next resume. Docks with a list are only placed on hosts whose docklet reports `egress-on-resume`; if no suitable host does, create, resume and branch fail with 503 `host_egress_unsupported` (a resume leaves the Dock archived), so upgrade your docklets first.

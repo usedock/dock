@@ -53,7 +53,7 @@ Errors: `validation_error` (including a size larger than every online host),
 `image_unknown`, `image_unavailable`, `dock_not_found` (unknown workspace),
 `environment_not_found`, `environment_secrets_admin_only`, `connector_admin_only` (members, when the Dock has connectors or `from` names a Template saved from a Dock with connectors), `template_not_found`,
 `template_source_missing`, `dock_name_taken`, `capacity_exhausted`,
-`no_host_capacity`, `base_image_unavailable`, `subscription_required`,
+`no_host_capacity`, `host_egress_unsupported`, `base_image_unavailable`, `subscription_required`,
 `concurrency_exceeded`, `budget_exceeded`, `idempotency_key_reused`,
 `idempotency_in_progress`.
 
@@ -133,7 +133,7 @@ Boot an archived Dock from its latest Snapshot (202).
 Response: `{ "id": "...", "state": "..." }`. Errors: `validation_error`
 (including a `ttlSeconds` out of range), `dock_not_found`, `environment_not_found`, `conflict` (the Dock is not archived,
 or has no completed Snapshot), `environment_secrets_admin_only`,
-`capacity_exhausted`, `no_host_capacity`, `base_image_unavailable`,
+`capacity_exhausted`, `no_host_capacity`, `host_egress_unsupported`, `base_image_unavailable`,
 `image_unavailable` (no online host serves the Dock's image), `dock_busy`,
 `subscription_required`, `concurrency_exceeded`, `budget_exceeded`.
 
