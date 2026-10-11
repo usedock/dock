@@ -31,7 +31,7 @@ describe.skipIf(process.platform === 'win32')('buildApplyScripts', () => {
     chmodSync(join(bin, 'git'), 0o755);
   });
 
-  // Background clone/setup jobs can still write into $HOME/.dock; retry so a late write does not fail cleanup.
+  // Tests that start background jobs await settledStatus (the runner's last write); retry covers a straggler.
   afterEach(() => rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
 
   function run(bundle: ApplyBundle, env: Record<string, string> = {}): void {
@@ -52,10 +52,6 @@ describe.skipIf(process.platform === 'win32')('buildApplyScripts', () => {
 
   function shellVar(name: string): string {
     return execFileSync('bash', ['-c', `. "$HOME/.dock/env.sh"; printf '%s' "$${name}"`], { env: { HOME: home } }).toString();
-  }
-
-  async function waitFor(path: string): Promise<void> {
-    for (let i = 0; i < 100 && !existsSync(path); i++) await new Promise((r) => setTimeout(r, 20));
   }
 
   it('writes an env file every shell sources, quoting values exactly', () => {
@@ -107,7 +103,8 @@ describe.skipIf(process.platform === 'win32')('buildApplyScripts', () => {
       repos: [repo({ baseBranch: 'develop', setupScript: 'touch "$HOME/setup-ran"' })],
       setupScript: 'touch "$HOME/dock-setup-ran"',
     });
-    await waitFor(join(home, 'dock-setup-ran'));
+    expect(await settledStatus()).toBe('done');
+    expect(existsSync(join(home, 'dock-setup-ran'))).toBe(true);
     expect(readFileSync(join(home, 'web/.env'), 'utf8')).toBe('SECRET=1\n');
     expect(readFileSync(join(home, 'web/README'), 'utf8')).toBe('readme\n');
     expect(existsSync(join(home, 'setup-ran'))).toBe(true);
@@ -160,7 +157,8 @@ describe.skipIf(process.platform === 'win32')('buildApplyScripts', () => {
   it('never re-clones an existing checkout', async () => {
     mkdirSync(join(home, 'web/.git'), { recursive: true });
     run({ vars: {}, files: [], repos: [repo()], setupScript: 'touch "$HOME/done"' });
-    await waitFor(join(home, 'done'));
+    expect(await settledStatus()).toBe('done');
+    expect(existsSync(join(home, 'done'))).toBe(true);
     expect(existsSync(join(home, '.git-calls'))).toBe(false);
   });
 });
