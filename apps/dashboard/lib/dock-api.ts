@@ -101,7 +101,6 @@ export interface GithubRun {
 export interface Snapshot {
   id: string;
   dockId?: string;
-  parentId?: string | null;
   status?: string;
   sizeBytes?: number;
   createdAt?: string;
@@ -118,7 +117,6 @@ export interface Template {
   status?: string;
   sizeBytes?: number;
   sourceDockId?: string | null;
-  snapshotRef?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
