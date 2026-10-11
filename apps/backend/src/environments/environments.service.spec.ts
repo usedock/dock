@@ -319,7 +319,7 @@ describe('EnvironmentsService', () => {
   });
 
   describe('gatewayKeyFor', () => {
-    const dockRef = { environment: 'base', envVersionPin: null, noEnv: false };
+    const dockRef = { environment: 'base', envVersionPin: null, noEnv: false, createdAt: new Date('2026-03-01') };
     const pinTo = (version: Record<string, unknown>) => {
       db.select.mockReturnValueOnce(selectQ([envRow()])); // resolveVersion env
       db.select.mockReturnValueOnce(selectQ([version])); // latest
@@ -335,6 +335,22 @@ describe('EnvironmentsService', () => {
       expect(await service.gatewayKeyFor(orgId, dockRef, 'ANTHROPIC_API_KEY')).toBeNull();
       pinTo(versionRow({ safeForThirdParties: true }));
       expect(await service.gatewayKeyFor(orgId, dockRef, 'ANTHROPIC_API_KEY')).toBeNull();
+    });
+
+    it('refuses a dock bound before the environment was re-created under the same name', async () => {
+      creds.varsFor.mockResolvedValue({ vars: { ANTHROPIC_API_KEY: 'sk-a' }, providers: ['anthropic'] });
+      db.select.mockReturnValueOnce(selectQ([envRow({ createdAt: new Date('2026-05-01') })]));
+      db.select.mockReturnValueOnce(selectQ([versionRow()]));
+      expect(await service.gatewayKeyFor(orgId, dockRef, 'ANTHROPIC_API_KEY')).toBeNull();
+      expect(creds.varsFor).not.toHaveBeenCalled();
+      // Re-bound after the re-creation (envBoundAt wins over createdAt): allowed again.
+      db.select.mockReturnValueOnce(selectQ([envRow({ createdAt: new Date('2026-05-01') })]));
+      db.select.mockReturnValueOnce(selectQ([versionRow()]));
+      expect(await service.gatewayKeyFor(orgId, { ...dockRef, envBoundAt: new Date('2026-06-01') }, 'ANTHROPIC_API_KEY')).toBe('sk-a');
+      // Bound in the same millisecond the environment was created: allowed.
+      db.select.mockReturnValueOnce(selectQ([envRow({ createdAt: new Date('2026-05-01') })]));
+      db.select.mockReturnValueOnce(selectQ([versionRow()]));
+      expect(await service.gatewayKeyFor(orgId, { ...dockRef, envBoundAt: new Date('2026-05-01') }, 'ANTHROPIC_API_KEY')).toBe('sk-a');
     });
 
     it('refuses noEnv docks and keys the dock agents do not require', async () => {
