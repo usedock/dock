@@ -74,6 +74,7 @@ const REASONS: Record<string, string> = {
   invalid_state: 'The connection request expired. Start again.',
   oauth_not_configured: 'OAuth is not configured for this tool on this instance.',
   connector_admin_only: 'Only organization admins can connect tools.',
+  forbidden: 'Only organization admins can connect tools.',
   connector_token_invalid: 'The tool rejected the credential.',
   connector_unreachable: 'The tool could not be reached.',
 };
@@ -104,7 +105,14 @@ function ConnectorsView() {
   const [notice] = useState(() => {
     const status = params.get('status');
     if (status !== 'connected' && status !== 'error') return null;
-    return { status, kind: params.get('kind') ?? '', reason: params.get('reason') };
+    // Only known kinds and reason codes are shown, so a crafted link cannot put its own text on the page.
+    const kind = params.get('kind') ?? '';
+    const reason = params.get('reason') ?? '';
+    return {
+      status,
+      label: ENTRIES[kind]?.label ?? 'the tool',
+      message: REASONS[reason] ?? (/^[a-z_]{1,40}$/.test(reason) ? `Something went wrong (${reason}).` : 'Something went wrong.'),
+    };
   });
   useEffect(() => {
     if (notice) router.replace('/connectors');
@@ -182,7 +190,7 @@ function ConnectorsView() {
             type="button"
             variant="outline"
             nativeButton={false}
-            render={<a href={`${DOCS_URL}/docs/connectors`} target="_blank" rel="noreferrer" />}
+            render={<a href={`${DOCS_URL}/connectors`} target="_blank" rel="noreferrer" />}
           >
             Docs
           </Button>
@@ -192,13 +200,9 @@ function ConnectorsView() {
       {notice ? (
         <Alert variant={notice.status === 'error' ? 'destructive' : 'default'}>
           <AlertTitle>
-            {notice.status === 'connected'
-              ? `${ENTRIES[notice.kind]?.label ?? notice.kind} connected.`
-              : `Could not connect ${ENTRIES[notice.kind]?.label ?? notice.kind}.`}
+            {notice.status === 'connected' ? `${notice.label} connected.` : `Could not connect ${notice.label}.`}
           </AlertTitle>
-          {notice.status === 'error' ? (
-            <AlertDescription>{(notice.reason && REASONS[notice.reason]) || notice.reason || 'Something went wrong.'}</AlertDescription>
-          ) : null}
+          {notice.status === 'error' ? <AlertDescription>{notice.message}</AlertDescription> : null}
         </Alert>
       ) : null}
       {!isAdmin && selectedOrgId ? (
@@ -307,7 +311,7 @@ function ConnectorsView() {
               {tokenFor ? ENTRIES[tokenFor.kind]?.tokenHint : null}{' '}
               <a
                 className="text-foreground underline underline-offset-4"
-                href={`${DOCS_URL}/docs/connectors/${tokenFor?.kind ?? ''}`}
+                href={`${DOCS_URL}/connectors/${tokenFor?.kind ?? ''}`}
                 target="_blank"
                 rel="noreferrer"
               >

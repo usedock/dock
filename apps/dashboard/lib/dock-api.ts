@@ -113,9 +113,9 @@ export interface Connector {
 export interface DockImage {
   name: string;
   description: string;
-  arch: string;
+  arch: string[];
   sizeMiB: number;
-  contents: string[];
+  contents: string;
   available: boolean;
 }
 

@@ -299,7 +299,7 @@ function DocksTable() {
                 <SelectContent>
                   {(images.length ? images : [{ name: DEFAULT_IMAGE, description: '', available: true } as DockImage]).map((i) => (
                     <SelectItem key={i.name} value={i.name} disabled={!i.available}>
-                      <span className="flex flex-col items-start">
+                      <span className="flex flex-col items-start whitespace-normal">
                         <span>{i.name}</span>
                         {i.description || !i.available ? (
                           <span className="text-xs text-muted-foreground">
@@ -342,8 +342,8 @@ function DocksTable() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="col-span-2 flex flex-col gap-2">
-              <Label>Connectors</Label>
+            <div className="col-span-2 flex flex-col gap-2" role="group" aria-labelledby="dock-connectors">
+              <Label id="dock-connectors">Connectors</Label>
               {!isAdmin ? (
                 <p className="text-xs text-muted-foreground">Only organization admins can create docks with connectors.</p>
               ) : connectors.length === 0 ? (
