@@ -27,7 +27,9 @@ The first `dock new` downloads the default `ubuntu-24.04` Dockyard image once. O
 
 Docs: [quickstart](https://docs.usedock.io/quickstart), [CLI](https://docs.usedock.io/cli), [local docks](https://docs.usedock.io/local-docks), [self-hosting](https://docs.usedock.io/self-hosting), [Dockyard images](https://docs.usedock.io/dockyard), [connectors](https://docs.usedock.io/connectors), [SDKs](https://docs.usedock.io/sdks), [API](https://docs.usedock.io/api).
 
-> **Status:** pre-release. Interfaces may change until the first public release; from then on `/v1` only grows. The `dock` CLI ships as signed release binaries (latest v0.2.0). Local docks work on Linux x86_64 with KVM and Windows x86_64 with Windows Hypervisor Platform; macOS builds but is untested. Dock Cloud is coming soon; self-hosting is free. The TypeScript, Python and Go SDKs are early and not published to registries yet.
+Questions and ideas: [GitHub Discussions](https://github.com/usedock/dock/discussions).
+
+> **Status:** pre-release. Interfaces may change until the first public release; from then on `/v1` only grows. The `dock` CLI ships as signed release binaries. Local docks work on Linux x86_64 with KVM and Windows x86_64 with Windows Hypervisor Platform; macOS builds but is untested. Dock Cloud is coming soon; self-hosting is free. The TypeScript, Python and Go SDKs are early and not published to registries yet.
 
 This repo is the open core: the control plane API, the dashboard, the self-host deploy and the documentation. Each dock runs in QEMU on your own machine, or in a Firecracker microVM or gVisor sandbox on a host enrolled with a control plane.
 
