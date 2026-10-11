@@ -69,6 +69,7 @@ Posture changes make a new version. The egress allowlist is saved the same way. 
 | `passSecrets` | boolean | no | | Write the Environment's variables and secret files into Docks. |
 | `passDockCredentials` | boolean | no | | Give each Dock a `DOCK_API_KEY` that acts as its creator; it is rotated on every apply and revoked with the Dock. |
 | `passAgentsCredentials` | boolean | no | | Fill missing agent keys from the organization's provider keys. |
+| `providerKeys` | string | no | `gateway` (default) or `plain` | How the organization's provider keys reach Docks. `gateway` keeps the real keys in the control plane: the key variables hold a Dock-scoped token and the base URLs point at Dock's LLM gateway. `plain` writes the real key into the Dock, where anyone who can run a command can read it. Applies when a Dock is created, resumed or branched. |
 | `egressAllow` | array of strings or null | no | At most 50 hosts, each a hostname (`api.example.com`) or `*.example.com`; no IPs, ports or paths | Confine Docks on this Environment to these HTTPS hosts. `null` clears the list and leaves outbound internet open. An empty list is refused. Applies when a Dock is created, resumed or branched. |
 
 Response: the [Environment object](/api/objects#environment). Errors:
