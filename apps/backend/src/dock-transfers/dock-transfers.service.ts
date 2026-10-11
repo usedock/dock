@@ -7,6 +7,7 @@ import { DOCK_IMAGES, apiKeys, dockExports, dockImports, docks, workspaces, type
 import { COMPUTE_PROVIDER, ComputeProvider } from '../docks/compute.provider';
 import { DockNameTakenException, DockNotFoundException, DockNotRunningException } from '../docks/dock-errors';
 import { DocksService, checkedSize } from '../docks/docks.service';
+import { EnvironmentsService } from '../environments/environments.service';
 import { FleetObjectsService } from '../fleet/fleet-objects.service';
 import { deadlineFromConfig } from '../fleet/host-command-queue';
 import { VERIFIED_IMPORTS } from '../hosts/host-features';
@@ -142,6 +143,7 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
     private readonly orgs: OrganizationsService,
     private readonly workspaces: WorkspacesService,
     private readonly docks: DocksService,
+    private readonly envs: EnvironmentsService,
     private readonly objects: FleetObjectsService,
     private readonly hosts: HostsService,
     private readonly retention: RetentionService,
@@ -175,6 +177,8 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
       throw err;
     });
     const orgId = ws.organizationId;
+    // The same gate complete meets in docks.create, so a refused member does not upload a disk first; imports carry no connectors.
+    await this.envs.assertSecretsLaunchable(callerId, orgId, undefined);
     await this.assertMicroVmHost();
     if (input.name !== undefined) await this.assertNameFree(input.workspaceId, input.name);
     const [{ open }] = await this.db

@@ -10,7 +10,10 @@ public, so any client can use them.
 
 Only the disk moves, never memory, so a pushed or pulled dock boots fresh. Both directions need a [microVM](/concepts/docks) host:
 a gVisor dock keeps only `/home/user/work`, so it cannot be exported and an
-import needs a microVM host to land on. The disk must come from a
+import needs a microVM host to land on. On a real fleet
+(`RUNTIME_DRIVER=restate`) an import is refused with `runtime_unsupported` up
+front when no online host can take it; the other drivers (the default `fake`
+driver used for development) skip that check. The disk must come from a
 [Dockyard](/dockyard) image; a dock built from a base made on the host cannot
 be exported.
 
@@ -56,7 +59,10 @@ start at 1.
   credentials as for any API call. At most 128 MiB per part.
 
 An organization can hold five open imports at once (`import_limit_reached`,
-HTTP 429).
+HTTP 429). A member is refused at start, before any upload, when the
+organization's default Environment passes admins-only secrets
+(`environment_secrets_admin_only`, 403), and when `name` is already used in the
+workspace (`dock_name_taken`, 409).
 
 ### Upload a part through the control plane
 
@@ -80,8 +86,12 @@ state; the host verifies the sha256 and size when it materializes the disk,
 and the dock ends in `error` if the file does not match. Imports land only on
 hosts whose docklet registers the `verified-imports` feature, so older docklets
 never boot an unverified disk. Repeating the call for a completed
-import returns the same dock. If no host can take the dock right now the call
-fails with a placement error and can be repeated without uploading again.
+import returns the same dock. If no host can take the dock right now, or the
+name was taken meanwhile, the call fails with `no_host_capacity`,
+`capacity_exhausted` or `dock_name_taken` and can be repeated without uploading
+again. Any other failure ends the import and removes its uploaded parts; start
+a new one. The dock boots in the background, so a host that refuses the image
+or its base later leaves the dock in `error`, with no error code on this call.
 
 An import that is not completed within 24 hours is removed together with its
 uploaded parts.
@@ -139,17 +149,24 @@ are removed at `expiresAt`, 24 hours after the export starts.
 
 When the control plane has no store address clients can reach, `url` is a path
 on the control plane: `GET /v1/docks/exports/:exportId/download` streams the
-file, with the same permissions, and honors one `Range: bytes=start-` header to
-resume.
+file, with the same permissions, and honors one `Range` header, `bytes=start-` or
+`bytes=start-end`, to resume. A malformed header is ignored and the whole file
+is sent.
 
 ## Errors
 
 | Code | When |
 | --- | --- |
-| `import_too_large` | `sizeBytes` is above the `diskGiB` limit, or the uploaded object is bigger than declared |
-| `import_checksum_mismatch` | Returned by complete when the uploaded size is not the declared one. A sha256 mismatch found by the host while booting returns no code: the dock goes to `error` |
+| `import_too_large` | 413: the file is bigger than the `diskGiB` disk, either the declared `sizeBytes` at start or the uploaded object at complete. In `proxy` mode also a disk whose part size would pass 128 MiB |
+| `import_checksum_mismatch` | 400, from complete: the uploaded size is not the declared one and is not above the disk size (that case is `import_too_large`). A sha256 mismatch found by the host while booting returns no code: the dock goes to `error` |
 | `part_too_large` | A proxy part is bigger than `partSize` |
-| `runtime_unsupported` | No online microVM host has a docklet that verifies imported disks, or the dock to export is not a microVM dock |
+| `runtime_unsupported` | 409: no online microVM host has a docklet that verifies imported disks (checked only with `RUNTIME_DRIVER=restate`), or the dock to export is not a microVM dock |
+| `dock_name_taken` | 409: the import's `name` is already used in the workspace, at start or at complete. Retryable at complete |
+| `dock_not_running` | 409: the dock to export is not `ready`, `idle` or `running` |
+| `conflict` | 409: a part is sent to an import that is closed, expired or direct; complete on an import that failed, expired or is already being completed; an export already in progress for the dock; a download of an export that is not `ready` |
+| `environment_secrets_admin_only` | 403: a member starts or completes an import while the default Environment passes admins-only secrets, or exports or downloads a dock that holds an admins-only environment's secrets (only its creator or an admin may) |
+| `connector_admin_only` | 403: a member exports or downloads a dock with connectors that someone else created |
+| `no_host_capacity`, `capacity_exhausted` | Complete found no host to place the dock on; retryable without uploading again |
 | `export_base_unsupported` | The exported dock's base is not a Dockyard image (reported as the export's `error`) |
 | `import_not_found`, `export_not_found` | Unknown, expired, or not yours to read |
 | `import_limit_reached`, `export_limit_reached` | Too many open imports or live exports |
