@@ -3,8 +3,8 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { getDefaultApi, type Environment, type EnvironmentVersion, type RevealedSecrets } from '@/lib/dock-api';
-import { formatBytes, formatDate, messageOf } from '@/lib/format';
+import { getDefaultApi, type Environment, type EnvironmentVersion, type RevealedSecrets, type UpgradeSkippedDock } from '@/lib/dock-api';
+import { describeSkippedDocks, formatBytes, formatDate, messageOf } from '@/lib/format';
 import { useOrg } from '@/components/dashboard/org-context';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { Badge } from '@/components/ui/badge';
@@ -63,6 +63,7 @@ function EnvironmentDetail() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [skipped, setSkipped] = useState<UpgradeSkippedDock[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const [repoProvider, setRepoProvider] = useState('github');
@@ -107,6 +108,7 @@ function EnvironmentDetail() {
   async function runAction(fn: () => Promise<unknown>, failure: string, done?: string) {
     setActionError(null);
     setNotice(null);
+    setSkipped([]);
     try {
       await fn();
       if (done) setNotice(done);
@@ -159,6 +161,19 @@ function EnvironmentDetail() {
       />
       {actionError ? <ErrorNote message={actionError} /> : null}
       {notice ? <p className="text-sm text-muted-foreground">{notice}</p> : null}
+      {skipped.length ? (
+        <div role="alert" className="rounded-md border border-destructive/40 px-4 py-3 text-sm">
+          <p>
+            {skipped.length} dock(s) were not moved because they are bound to an earlier environment with this name.
+            Resume each one onto this environment to rebind it; resuming also moves it to the latest version.
+          </p>
+          <ul className="mt-2 list-disc pl-5 font-mono text-xs">
+            {describeSkippedDocks(skipped).map((d) => (
+              <li key={d.id}>{d.text}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {!selectedOrgId ? (
         <EmptyNote title="Pick an organization." />
       ) : error ? (
@@ -576,9 +591,12 @@ function EnvironmentDetail() {
                 disabled={!outdated.length}
                 onClick={() =>
                   runAction(
-                    () => api.upgradeEnvironment(name, selectedOrgId),
+                    async () => {
+                      const result = await api.upgradeEnvironment(name, selectedOrgId);
+                      setSkipped(result.skipped ?? []);
+                    },
                     'Could not upgrade',
-                    `Docks moved to v${env.currentVersion}.`,
+                    `Upgrade to v${env.currentVersion} started.`,
                   )
                 }
               >

@@ -58,3 +58,8 @@ export function messageOf(e: unknown, fallback: string): string {
   }
   return e instanceof Error ? e.message : fallback;
 }
+
+/** One line per dock an upgrade skipped: the name (or id when unnamed) and why. */
+export function describeSkippedDocks(skipped: { id: string; name: string | null; reason: string }[]): { id: string; text: string }[] {
+  return skipped.map((d) => ({ id: d.id, text: `${d.name ? `${d.name} (${d.id})` : d.id}: ${d.reason}` }));
+}

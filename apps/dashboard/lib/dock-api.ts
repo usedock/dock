@@ -191,6 +191,18 @@ export interface EnvironmentVersion {
   dockCount: number;
 }
 
+/** A dock an Environment upgrade did not move (bound to a deleted Environment of the same name). */
+export interface UpgradeSkippedDock {
+  id: string;
+  name: string | null;
+  reason: string;
+}
+
+export interface EnvironmentUpgradeResult {
+  operation: unknown;
+  skipped: UpgradeSkippedDock[];
+}
+
 export interface RevealedSecrets {
   envContents: string;
   secretFiles: { path: string; size: number; contents: string }[];
@@ -444,7 +456,7 @@ export interface DockApi {
   updateEnvironment: (ref: string, organizationId: string, input: Record<string, unknown>) => Promise<unknown>;
   deleteEnvironment: (ref: string, organizationId: string) => Promise<unknown>;
   listEnvironmentVersions: (ref: string, organizationId: string) => Promise<EnvironmentVersion[]>;
-  upgradeEnvironment: (ref: string, organizationId: string) => Promise<unknown>;
+  upgradeEnvironment: (ref: string, organizationId: string) => Promise<EnvironmentUpgradeResult>;
   addRepo: (ref: string, organizationId: string, input: Record<string, unknown>) => Promise<unknown>;
   removeRepo: (ref: string, repoId: string, organizationId: string) => Promise<unknown>;
   revealSecrets: (ref: string, organizationId: string) => Promise<RevealedSecrets>;
@@ -645,7 +657,7 @@ export function createDockApi({ baseUrl = '', fetchImpl = fetch, headers = {} }:
     listEnvironmentVersions: (ref: string, organizationId: string) =>
       get<EnvironmentVersion[]>(`/v1/environments/${enc(ref)}/versions?organizationId=${enc(organizationId)}`),
     upgradeEnvironment: (ref: string, organizationId: string) =>
-      post<unknown>(`/v1/environments/${enc(ref)}/upgrade?organizationId=${enc(organizationId)}`),
+      post<EnvironmentUpgradeResult>(`/v1/environments/${enc(ref)}/upgrade?organizationId=${enc(organizationId)}`),
     addRepo: (ref: string, organizationId: string, input: Record<string, unknown>) =>
       post<unknown>(`/v1/environments/${enc(ref)}/repos?organizationId=${enc(organizationId)}`, input),
     removeRepo: (ref: string, repoId: string, organizationId: string) =>
