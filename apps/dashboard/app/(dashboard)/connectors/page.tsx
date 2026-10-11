@@ -256,10 +256,10 @@ function ConnectorsView() {
                 ) : null}
                 {connected && c.credentialType && ACTS_AS_PERSON.has(c.credentialType) ? (
                   <Alert>
-                    <AlertTitle>Acts as {c.accountLabel ?? 'the token owner'}</AlertTitle>
+                    <AlertTitle>Acts as the token owner</AlertTitle>
                     <AlertDescription>
-                      Runs and agents act as {c.accountLabel ?? 'the token owner'}; anything the agent does is attributed to that person. Prefer OAuth or a
-                      bot/app token.{' '}
+                      Runs and agents use this person&apos;s token, so what they do is attributed to that person. Prefer OAuth or a bot or
+                      organization token.{' '}
                       <a
                         className="text-foreground underline underline-offset-4"
                         href={`${DOCS_URL}/connectors#credential-types`}

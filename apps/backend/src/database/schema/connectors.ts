@@ -22,7 +22,7 @@ export const connectors = pgTable(
     kind: text('kind').notNull().$type<ConnectorKind>(),
     status: text('status').notNull().$type<ConnectorStatus>().default('connected'),
     credentials: jsonb('credentials').notNull().$type<SealedValue>(),
-    /** Null on rows from before this column; filled from the sealed credential the first time they are listed. */
+    /** Null on rows from before this column; filled from the sealed credential by a pass at API boot. */
     credentialType: text('credential_type').$type<ConnectorCredentialType>(),
     accountLabel: text('account_label'),
     scopes: jsonb('scopes').notNull().$type<string[]>().default([]),

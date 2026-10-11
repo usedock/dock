@@ -69,28 +69,50 @@ describe('ConnectorsService', () => {
       expect(orgs.requireMembership).not.toHaveBeenCalledWith('o1', 'u1', 'admin');
     });
 
-    it('derives and stores the credential type of rows from before the column existed', async () => {
-      const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
-      db.update.mockReturnValue({ set });
-      const sealed = (cred: ConnectorCredential) => sealValue(KEY, JSON.stringify(cred));
+    it('lists a legacy row it cannot open without opening it or writing', async () => {
       db.select
-        .mockReturnValueOnce(
-          selectQ([
-            { id: 'a', kind: 'linear', status: 'connected', credentialType: null, scopes: [], credentials: sealed({ type: 'oauth', access: 'a', refresh: 'r', expiresAt: 1 }), updatedAt: new Date() },
-            { id: 'b', kind: 'slack', status: 'connected', credentialType: null, scopes: [], credentials: sealed({ type: 'token', access: 'xoxb-1' }), updatedAt: new Date() },
-          ]),
-        )
+        .mockReturnValueOnce(selectQ([{ id: 'a', kind: 'linear', status: 'connected', credentialType: null, scopes: [], credentials: { iv: 'x', tag: 'y', data: 'TAMPERED' }, updatedAt: new Date() }]))
         .mockReturnValueOnce(selectQ([]))
         .mockReturnValueOnce(selectQ([]));
       const out = await service.list('u1', 'w1');
-      expect(out.find((c) => c.kind === 'linear')?.credentialType).toBe('oauth');
-      expect(out.find((c) => c.kind === 'slack')?.credentialType).toBe('bot_token');
-      expect(set.mock.calls.map((c) => c[0])).toEqual([{ credentialType: 'oauth' }, { credentialType: 'bot_token' }]);
+      expect(out.find((c) => c.kind === 'linear')).toMatchObject({ status: 'connected', credentialType: null });
+      expect(db.update).not.toHaveBeenCalled();
     });
 
     it('hides workspaces the caller cannot see', async () => {
       workspaces.getById.mockRejectedValue(new WorkspaceNotFoundException());
       await expect(service.list('u1', 'w1')).rejects.toMatchObject({ status: 404 });
+    });
+  });
+
+  describe('backfillCredentialTypes', () => {
+    it('derives and stores the type of rows from before the column existed, skipping rows it cannot open', async () => {
+      const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      db.update.mockReturnValue({ set });
+      const sealed = (cred: ConnectorCredential) => sealValue(KEY, JSON.stringify(cred));
+      db.select.mockReturnValueOnce(
+        selectQ([
+          { id: 'a', kind: 'linear', credentials: sealed({ type: 'oauth', access: 'a', refresh: 'r', expiresAt: 1 }) },
+          { id: 'bad', kind: 'figma', credentials: { iv: 'x', tag: 'y', data: 'TAMPERED' } },
+          { id: 'notjson', kind: 'sentry', credentials: sealValue(KEY, 'sntryu_SECRETPLAINTEXT') },
+          { id: 'b', kind: 'slack', credentials: sealed({ type: 'token', access: 'xoxb-1' }) },
+        ]),
+      );
+      const warn = vi.spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn').mockImplementation(() => undefined);
+      await service.backfillCredentialTypes();
+      expect(set.mock.calls.map((c) => c[0])).toEqual([{ credentialType: 'oauth' }, { credentialType: 'bot_token' }]);
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('SECRETPLAINTEXT');
+    });
+
+    it('never throws out of boot when the query fails', async () => {
+      db.select.mockImplementation(() => {
+        throw new Error('column "credential_type" does not exist');
+      });
+      const warn = vi.spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn').mockImplementation(() => undefined);
+      expect(() => service.onApplicationBootstrap()).not.toThrow();
+      await new Promise((r) => setImmediate(r));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Credential type backfill failed'));
     });
   });
 

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { and, eq, isNull, lt } from 'drizzle-orm';
@@ -78,7 +78,8 @@ export function connectorView(row: Connector, oauthAvailable: boolean): Connecto
 
 /** Workspace tool connections, sealed at rest; the plaintext is opened only for the gateway. */
 @Injectable()
-export class ConnectorsService {
+export class ConnectorsService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(ConnectorsService.name);
   private readonly key: Buffer;
   private readonly fetchFn: typeof fetch;
 
@@ -95,7 +96,7 @@ export class ConnectorsService {
 
   async list(callerId: string, workspaceId: string): Promise<ConnectorView[]> {
     const ws = await this.workspaces.getById(callerId, workspaceId);
-    const rows = await this.backfillCredentialTypes(await this.db.select().from(connectors).where(eq(connectors.workspaceId, ws.id)));
+    const rows = await this.db.select().from(connectors).where(eq(connectors.workspaceId, ws.id));
     const byKind = new Map(rows.map((r) => [r.kind as string, r]));
     const tools = CONNECTOR_KINDS.map((kind): ConnectorView => {
       const row = byKind.get(kind);
@@ -134,17 +135,25 @@ export class ConnectorsService {
     ];
   }
 
-  /** Rows from before credential_type existed get it derived from their sealed credential once, then it is stored. */
-  private async backfillCredentialTypes(rows: Connector[]): Promise<Connector[]> {
-    return Promise.all(
-      rows.map(async (row) => {
-        if (row.credentialType) return row;
-        const cred = JSON.parse(openValue(this.key, row.credentials)) as ConnectorCredential;
-        const credentialType = deriveCredentialType(row.kind, cred);
+  onApplicationBootstrap(): void {
+    this.backfillCredentialTypes().catch((err) => this.logger.warn(`Credential type backfill failed: ${(err as Error).message}`));
+  }
+
+  /** Rows from before credential_type existed get it derived from their sealed credential, once at boot, off the request path. */
+  async backfillCredentialTypes(): Promise<void> {
+    const rows = await this.db
+      .select({ id: connectors.id, kind: connectors.kind, credentials: connectors.credentials })
+      .from(connectors)
+      .where(isNull(connectors.credentialType));
+    for (const row of rows) {
+      try {
+        const credentialType = deriveCredentialType(row.kind, JSON.parse(openValue(this.key, row.credentials)) as ConnectorCredential);
         await this.db.update(connectors).set({ credentialType }).where(and(eq(connectors.id, row.id), isNull(connectors.credentialType)));
-        return { ...row, credentialType };
-      }),
-    );
+      } catch (err) {
+        // An unreadable row stays null instead of failing the pass; only the error class is logged since parse errors quote the plaintext.
+        this.logger.warn(`Credential type backfill skipped connector ${row.id}: ${(err as Error).name}`);
+      }
+    }
   }
 
   /** Stores a personal or bot token after checking it against the vendor. */
