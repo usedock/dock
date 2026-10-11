@@ -75,9 +75,12 @@ What the isolation is, stated plainly:
   network entirely. A host-enforced fix is tracked in
   [docklet#98](https://github.com/usedock/docklet/issues/98). The guest agent's
   port is forwarded to `127.0.0.1` on the host only.
-- A copied dock (`dock branch`, `dock pull`, or a dock started from a saved
-  template) gets fresh SSH host keys on its first boot, from the images that
-  `dock` v0.3.4 uses.
+- A local dock copied with `dock branch` or `dock pull` gets fresh SSH host
+  keys on its first boot and keeps them across stop and resume, if its image
+  comes from the Dockyard release that `dock` v0.3.4 pins
+  (`images-2026.10.11.4`). Copies of docks made from older images keep their
+  source's keys. Fleet hosts (docklet v0.3.4) do this with any image for
+  branches, docks started from a Template and imported docks.
 - The guest agent's config, including its token, is passed through a QEMU
   `fw_cfg` file with mode 0600, not on the QEMU command line, which other users
   on the machine can read.
