@@ -1,0 +1,238 @@
+---
+title: CLI
+description: "The dock command line client: install, contexts, commands, dock.toml, and exit codes."
+---
+
+`dock` is a command line client for the Dock control plane `/v1` API. It works
+against your own control plane ([Self-hosting](/self-hosting)) or Dock Cloud
+(coming soon). It runs on Linux, macOS, and Windows, and it is early: the
+source is in [usedock/docklet](https://github.com/usedock/docklet) under
+`cmd/dock`.
+
+## Install
+
+macOS and Linux:
+
+```sh
+curl -fsSL https://usedock.io/install | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://usedock.io/install.ps1 | iex
+```
+
+These URLs redirect to `scripts/install.sh` and `scripts/install.ps1` in the
+docklet repository; you can also run them from
+`https://raw.githubusercontent.com/usedock/docklet/main/scripts/`. Release
+binaries exist for Linux and macOS (amd64, arm64) and Windows (amd64, arm64).
+
+Both installers download the release binary, `checksums.txt`, and their cosign
+signature bundles, then check that the signatures come from the docklet release
+workflow for that tag and that the checksum matches. They stop on any missing or
+bad file. If cosign v2.4.1 is not installed, they fetch that version and check
+its pinned SHA-256 first.
+
+| Variable | Effect |
+| --- | --- |
+| `DOCK_VERSION` | Release tag to install, such as `v0.1.0`. Default: the latest release |
+| `DOCK_INSTALL_DIR` | Install directory. Default: `~/.local/bin`, or `%LOCALAPPDATA%\dock\bin` on Windows |
+| `DOCK_NO_MODIFY_PATH` | Windows only. `1` leaves your user `PATH` alone |
+
+On Windows the installer adds the directory to your user `PATH`; open a new
+terminal afterwards. On macOS and Linux it prints the `export PATH=...` line to
+add when the directory is not on your `PATH`.
+
+Check the installed version:
+
+```sh
+dock version
+dock --version
+```
+
+Both print the release tag, or `dev` for a binary built from source.
+
+To build from source instead, you need Go 1.25:
+
+```sh
+git clone https://github.com/usedock/docklet
+cd docklet
+go build -o dock ./cmd/dock
+```
+
+## Contexts
+
+A context is a named control plane: a URL, an API key, and an optional default
+workspace. The CLI keeps them in `dock/config.toml` under your user config
+directory (`os.UserConfigDir()`), written with mode 0600.
+
+The `cloud` context is built in and points at `https://api.usedock.io`. It is
+the active context until you switch. For a self-hosted control plane, add one
+and make it active:
+
+```sh
+dock context add home --url https://dock.example.com --workspace <workspace-id>
+dock context use home
+dock context ls
+dock context rm home
+```
+
+`--workspace` sets the default workspace for `dock new`. `dock context use
+<name> --workspace <id>` changes it later; an empty value clears it. The
+`cloud` context cannot be removed or re-added.
+
+## Log in
+
+`dock login` stores an API key for the active context (or `--context <name>`).
+The key is read from stdin. On a terminal the prompt does not echo it:
+
+```sh
+dock login
+echo "$DOCK_API_KEY" | dock login --context home
+```
+
+Create the key in the dashboard under Developers > API keys. It starts with
+`dock_`. `DOCK_API_URL`, `DOCK_API_KEY`, and `DOCK_WORKSPACE` override the
+active context for one invocation, which suits CI.
+
+## Commands
+
+Every command except `version` takes `--json`, which prints the API's `data`
+as JSON instead of text. `<dock>` is a Dock name or id; a name shared by several Docks fails with
+`ambiguous_dock`, so use the id.
+
+### new
+
+```sh
+dock new web --cpus 4 --memory 8gb --disk 40gb --env staging
+```
+
+`dock new [name]` creates a Dock and returns once the host has started it.
+Flags: `--cpus N`, `--memory SIZE`, `--disk SIZE`, `--image NAME`, `--env NAME`
+(environment name), `--workspace ID`. It reads [`dock.toml`](#docktoml) in the
+current directory; flags override it. Sizes are `8gb`, `8g`, or `8192mb`; a
+plain number is MiB for memory and GiB for disk.
+
+The workspace is the first of: `--workspace`, `DOCK_WORKSPACE`, the context's
+default, or your only workspace. If you have several and none is chosen, the
+command fails and lists them.
+
+### ls
+
+```sh
+dock ls --all
+```
+
+Lists Docks in a table. By default it shows running Docks. `--all` includes
+stopped ones. `--filter` takes state group letters: `r` running, `s` stopped,
+`p` provisioning, `t` archiving, `e` error.
+
+### exec
+
+```sh
+dock exec web --cwd /home/user/work --timeout 120 -- npm test
+```
+
+Runs a command in a ready Dock and prints its stdout and stderr. Everything
+after `--` is the command. Several arguments are quoted for you; one argument is
+passed through as a shell script (`-- 'make && make test'`). Flags: `--timeout
+SECONDS` (1 to 600) and `--cwd DIR` (absolute path). Each stream keeps its first
+1 MiB and the CLI warns when it was clipped. Output arrives when the command
+ends; it is not streamed.
+
+### ssh
+
+```sh
+dock ssh web
+dock ssh web --print
+```
+
+Runs `ssh` against the control plane's SSH gateway as `<dock id>@<host>`.
+`--print` shows the command instead. It needs the `ssh` client, a public key
+added to your account, and a gateway on the control plane (`ssh_unavailable`
+otherwise). See [Docks](/concepts/docks).
+
+### port
+
+```sh
+dock port web 3000
+dock port web 3000 --rm
+```
+
+Exposes a Dock port and prints its public URL. `--rm` stops exposing it. When
+the deployment has no ports domain the port is registered but has no URL.
+
+### stop, resume
+
+```sh
+dock stop web --force
+dock resume web
+```
+
+`stop` archives the disk and releases compute; `--force` stops a busy Dock.
+`resume` boots the same Dock from its latest Snapshot. Both return when the
+host has finished.
+
+### branch
+
+```sh
+dock branch web --count 2
+dock branch web --name web-copy --cpus 4
+```
+
+Starts independent Docks from a Dock's state. Flags: `--count N` (1 to 50,
+default 1), `--name NAME` (needs `--count 1`), `--cpus`, `--memory`, `--disk`,
+`--env`. With `--json`, one branch prints an object and several print an array.
+
+### rm
+
+```sh
+dock rm web
+```
+
+Deletes a Dock. The CLI sends the required `x-confirm-delete` header for you,
+so there is no prompt: the delete is immediate.
+
+### login, context, version
+
+Described above.
+
+## dock.toml
+
+`dock new` reads `dock.toml` from the current directory. All keys are optional:
+
+```toml
+name = "web"
+image = "ubuntu-24.04"
+cpus = 4
+memory = "8gb"
+disk = "40gb"
+environment = "staging"
+```
+
+Precedence for `dock new` is, highest first: flags, then `dock.toml`, then the
+API defaults (2 CPUs, 4096 MiB, 20 GiB, `ubuntu-24.04`). A `[name]` argument
+beats `name` in the file. Unknown keys are an error (`invalid_dock_toml`).
+`memory` and `disk` accept a string with a unit or a plain integer. `dock
+branch` does not read the file.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | An API error or other failure. The CLI prints `error: <code>: <message>` to stderr |
+| 2 | A usage error: unknown command, bad flag, wrong argument count |
+| N | `exec` exits with the remote command's exit code |
+| 128+N | `exec` for a command killed by signal N, as a shell reports it |
+
+`dock ssh` exits with the ssh client's exit code.
+
+## Not available yet
+
+- `dock cp`. The API has no file endpoint for live Docks; use `exec`, or the
+  [SDK file helpers](/sdks), which run over `exec`.
+- Streaming `exec` output.
+- A local engine that runs Docks on your machine without a control plane. It is
+  planned. Today the CLI always talks to a control plane.

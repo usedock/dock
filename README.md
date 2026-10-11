@@ -6,7 +6,7 @@ A dock is a Linux machine with a persistent disk, a stable ID and an optional na
 
 This repo is the open core: the control plane API, the dashboard, the self-host deploy and the documentation. Dock Cloud is coming soon; self-hosting is free.
 
-> **Status:** pre-release. Interfaces may change until the first public release; from then on `/v1` only grows. The `dock` CLI and the SDKs are not built yet.
+> **Status:** pre-release. Interfaces may change until the first public release; from then on `/v1` only grows. The `dock` CLI and the TypeScript, Python and Go SDKs are early.
 
 ## Layout
 
@@ -30,7 +30,7 @@ Docks run on hosts driven by the [docklet](https://github.com/usedock/docklet), 
 | Snapshot, Branch | A saved disk, and new docks started from it |
 | Connector | An integration that lets agents in a dock work in another tool (GitHub first), with credentials kept outside the dock |
 | Host | A machine that runs docks and dials out to the control plane |
-| Context | Where commands go: local, cloud, or a self-hosted URL |
+| Context | Where CLI commands go: Dock Cloud or a self-hosted control plane URL |
 
 ## Self-host
 
@@ -46,25 +46,29 @@ cd dock/deploy/self-host
 
 `setup.sh` writes `.env` with fresh secrets, starts Postgres, Redis, Restate, MinIO, the API, the dashboard and Caddy on one origin, and waits until the API is healthy. `--host` also enrolls the machine as a host. More hosts join with one command each; see the [docklet](https://github.com/usedock/docklet) repo and `deploy/self-host/README.md`.
 
-## Planned CLI
+## CLI and SDKs
 
-The `dock` CLI and the SDKs are not built yet. They will talk to any control plane: your own, or Dock Cloud (coming soon). The commands below are a proposal, not a working interface.
+The `dock` CLI and the SDKs talk to a control plane: your own, or Dock Cloud (coming soon). Running docks on your machine without a control plane is planned, not built.
 
 ```sh
-# PLANNED: these commands do not exist yet
-dock login --url https://dock.example.com
+curl -fsSL https://usedock.io/install | sh     # macOS, Linux; Windows: irm https://usedock.io/install.ps1 | iex
+dock context add home --url https://dock.example.com
+dock context use home
+dock login                                     # paste an API key from Developers > API keys
 dock new api --cpus 4 --memory 8gb
 dock exec api -- bun test
 dock stop api
 dock branch api --count 3
 ```
 
-| Client (planned) | Repo |
-| --- | --- |
-| `dock` CLI | [usedock/docklet](https://github.com/usedock/docklet) |
-| TypeScript SDK | [usedock/dock-js](https://github.com/usedock/dock-js) |
-| Python SDK | [usedock/dock-python](https://github.com/usedock/dock-python) |
-| Go SDK | [usedock/dock-go](https://github.com/usedock/dock-go) |
+| Client | Repo | Install |
+| --- | --- | --- |
+| `dock` CLI | [usedock/docklet](https://github.com/usedock/docklet) | signed release binaries, via the installer above |
+| TypeScript SDK | [usedock/dock-js](https://github.com/usedock/dock-js) | `npm install github:usedock/dock-js` |
+| Python SDK | [usedock/dock-python](https://github.com/usedock/dock-python) | `pip install git+https://github.com/usedock/dock-python` |
+| Go SDK | [usedock/dock-go](https://github.com/usedock/dock-go) | `go get github.com/usedock/dock-go` |
+
+The SDKs are not on npm or PyPI yet. See the [CLI](https://docs.usedock.io/cli) and [SDK](https://docs.usedock.io/sdks) docs.
 
 ## Development
 

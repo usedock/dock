@@ -1,0 +1,144 @@
+---
+title: Go
+description: The github.com/usedock/dock-go module for Go 1.22 and newer.
+---
+
+The Go client uses only the standard library and needs Go 1.22 or newer. Source:
+[usedock/dock-go](https://github.com/usedock/dock-go).
+
+## Install
+
+There is no tagged release yet, so `go get` resolves to the latest commit on the
+default branch:
+
+```sh
+go get github.com/usedock/dock-go
+```
+
+Import it as `dock`:
+
+```go
+import dock "github.com/usedock/dock-go"
+```
+
+## Configure
+
+```go
+client := dock.NewClient() // reads DOCK_API_KEY and DOCK_API_URL
+```
+
+Options override the environment: `dock.WithAPIKey`, `dock.WithBaseURL`, and
+`dock.WithHTTPClient`. The default HTTP client has no timeout, so bound calls
+with the context. A missing key is reported by the first call as an error with
+code `missing_api_key`. Printing the client never shows the key.
+
+## Quickstart
+
+Errors are ignored below for brevity; check them in real code.
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	dock "github.com/usedock/dock-go"
+)
+
+func main() {
+	ctx := context.Background()
+	client := dock.NewClient()
+
+	d, err := client.Docks.Create(ctx, dock.CreateParams{
+		WorkspaceID:    "<workspace-id>",
+		Name:           "demo",
+		CPUs:           2,
+		MemoryMiB:      4096,
+		IdempotencyKey: "demo-1",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	res, _ := client.Docks.Exec(ctx, d.ID, dock.ExecParams{Command: "echo hello", Cwd: "/home/user/work"})
+	fmt.Println(res.ExitCode, res.Stdout)
+
+	_ = client.Files.Write(ctx, d.ID, "/home/user/work/notes/hello.txt", []byte("hello\n"))
+	b, _ := client.Files.Read(ctx, d.ID, "/home/user/work/notes/hello.txt")
+	fmt.Print(string(b))
+
+	client.Docks.Stop(ctx, d.ID, nil)   // only ID and State are filled
+	client.Docks.Resume(ctx, d.ID, nil) // same
+
+	cp, _ := client.Docks.Branch(ctx, d.ID, &dock.BranchParams{Name: "demo-copy"})
+
+	op, _ := client.Docks.Delete(ctx, d.ID)
+	st, _ := client.Operations.Get(ctx, op.ID)
+	fmt.Println(st.Status)
+	client.Docks.Delete(ctx, cp.ID)
+}
+```
+
+## Methods
+
+Every call takes a `context.Context`.
+
+| Call | Route |
+| --- | --- |
+| `Docks.Create`, `List`, `Get`, `Update` | `POST /v1/docks`, `GET /v1/docks`, `GET` and `PATCH /v1/docks/{id}` |
+| `Docks.Exec` | `POST /v1/docks/{id}/exec` |
+| `Docks.Stop`, `Resume`, `Branch` | `POST /v1/docks/{id}/stop`, `/resume`, `/branch` |
+| `Docks.Delete` | `DELETE /v1/docks/{id}`, returns an `*Operation` |
+| `Operations.Get` | `GET /v1/operations/{id}` |
+| `Files.Write`, `Read`, `List` | built on exec |
+
+Zero values in the params structs are left out of the request, so the API
+defaults apply. `Stop`, `Resume`, and `Branch` take a params pointer that may be
+nil, and so does `Docks.List`.
+
+## Errors
+
+API failures are `*dock.Error` with `Code`, `Status`, and `Message`:
+
+```go
+_, err := client.Docks.Get(ctx, id)
+var apiErr *dock.Error
+if errors.As(err, &apiErr) && apiErr.Code == "dock_not_found" {
+	// apiErr.Status == 404
+}
+```
+
+When the response is not a Dock envelope the code is `http_<status>`, or
+`bad_response` for a 2xx. SDK codes are `missing_api_key`, `invalid_argument`,
+`file_too_large`, `file_command_failed`, and `output_truncated`. Network
+failures and cancelled contexts are returned as ordinary errors, so
+`errors.Is(err, context.DeadlineExceeded)` works. A non-zero `ExitCode` from
+`Exec` is not an error.
+
+## File helpers
+
+See [File helpers](/sdks#file-helpers) for the limits. In this SDK `Write` takes
+`[]byte` and `Read` returns `[]byte`. A write above about 48 KB fails with
+`file_too_large` before anything is sent. A read of a file over about 768 KB
+fails with `output_truncated`. A non-zero exit is `file_command_failed`.
+
+## Turn off auto-stop
+
+Auto-stop is off unless you set `TTLSeconds`. To clear one you set earlier, use
+`ClearTTL` on update, which sends `ttlSeconds: null`:
+
+```go
+_, err := client.Docks.Update(ctx, d.ID, dock.UpdateParams{ClearTTL: true})
+```
+
+Set `TTLSeconds` or `ClearTTL`, not both; both fails with `invalid_argument`.
+`CreateParams` and `BranchParams` have no clear option because the default
+already never stops the Dock.
+
+## Idempotency keys
+
+`CreateParams.IdempotencyKey` and `BranchParams.IdempotencyKey` set the
+`idempotency-key` header. Use a stable key per intended Dock, so a retry after a
+crash returns the original.

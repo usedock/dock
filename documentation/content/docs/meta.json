@@ -1,4 +1,4 @@
 {
   "title": "Dock Docs",
-  "pages": ["index", "quickstart", "concepts", "self-hosting", "threat-model", "telemetry", "api"]
+  "pages": ["index", "quickstart", "cli", "sdks", "concepts", "self-hosting", "threat-model", "telemetry", "api"]
 }
