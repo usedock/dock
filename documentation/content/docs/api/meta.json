@@ -1,5 +1,5 @@
 {
   "title": "API reference",
   "description": "Envelopes, authentication, errors, and lifecycle conventions for the Dock API.",
-  "pages": ["v1"]
+  "pages": ["v1", "routes"]
 }

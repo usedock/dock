@@ -1,0 +1,253 @@
+---
+title: Route reference
+description: Every public Dock v1 route with its purpose, inputs, authorization, and notable errors.
+---
+
+Every route below lives under `/v1` and follows the conventions in the
+[API guide](/api/v1): the `{ ok, data }` envelope, `snake_case` error codes, and
+API-key or session authentication. A backend test checks this documentation:
+each public route must appear somewhere under these docs written as
+`METHOD /v1/path`, with path parameters as `:name`.
+
+Conventions used below:
+
+- **Org role** is the lowest organization role that may call the route:
+  `member`, `admin`, or `owner`. A caller who is not a member of the owning
+  organization gets `404` (not `403`), so ids never leak across organizations.
+- **Session only** routes refuse API keys with `session_required` (403); they
+  need the signed-in dashboard session.
+- Routes that take `organizationId` read it from the query string, or from the
+  body where noted.
+- Unknown body fields are rejected with `validation_error` (400).
+
+## Instance
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/config` | Public instance facts for the dashboard (sign-in providers, URLs, ports and SSH settings). No credentials needed, no secrets. |
+| `GET /v1/me` | The caller: `id`, `email`, `emailVerified`, linked login `providers`, and `instanceAdmin`. |
+| `POST /v1/contact` | Public contact-form intake, no credentials. Body: `name` (1-100), `email`, optional `company` (max 120), `topic` (`request-access`, `pricing-plans`, `business`, `cloud-waitlist`), `message` (1-4000). Throttled per client address. |
+
+## Account and profile
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/me/profile` | Read your profile. |
+| `PATCH /v1/me/profile` | Update `displayName` (1-60), `avatarUrl` (URL with protocol), `bio` (max 280). |
+| `GET /v1/me/connections` | Linked login methods: `id` (`provider:identifier`), `provider`, `identifier`, `primary`, `linkedAt`. |
+| `DELETE /v1/me/connections/:id` | Unlink a login method. Returns `{ removed }`; fails with `last_login_method` (409) if it is your only remaining way to sign in. The primary password method is never removed. |
+| `POST /v1/account/close` | Close your account (202). Session only. |
+| `POST /v1/account/reopen` | Reopen a closed account. |
+| `POST /v1/account/erase` | Erase a closed account's data (202). Session only. Body: `confirmation`, the exact phrase `erase my account data`, otherwise `confirm_required`. |
+
+Account responses are sent with `Cache-Control: no-store`.
+
+## SSH keys
+
+Public keys the SSH gateway accepts for you.
+
+| Route | Purpose |
+|---|---|
+| `POST /v1/ssh-keys` | Add a key (201). Body: `name` (1-100), `publicKey` (one OpenSSH public key, max 16384). |
+| `GET /v1/ssh-keys` | List your keys. |
+| `DELETE /v1/ssh-keys/:id` | Remove a key. |
+
+## API keys
+
+| Route | Purpose |
+|---|---|
+| `POST /v1/api-keys` | Create a key (201). Body: `name` (1-100), optional `expiresAt` (ISO date). The raw `dock_...` value is returned only in this response. |
+| `GET /v1/api-keys` | List your keys. Secrets are never returned. |
+| `DELETE /v1/api-keys/:id` | Revoke a key. |
+
+## Organizations and members
+
+| Route | Org role | Purpose |
+|---|---|---|
+| `POST /v1/organizations` | none | Create an organization (201). Body: `name` (1-100), optional `slug` (3-63 lowercase letters, digits, hyphens), optional `seats` (integer, at least 1). |
+| `GET /v1/organizations` | none | Organizations you belong to. |
+| `GET /v1/organizations/:id` | member | One organization, with your role. |
+| `PATCH /v1/organizations/:id` | admin | Update `name`, `slug`, or `seats`. `slug_taken` (409) on a clash; `seats` cannot go below members plus pending invitations. |
+| `DELETE /v1/organizations/:id` | owner | Delete the organization. |
+| `GET /v1/organizations/:id/members` | member | List members and roles. |
+| `POST /v1/organizations/:id/members` | admin | Invite a person (201). Body: `email` or `userId`, and optional `role` (`owner`, `admin`, `member`; default `member`). Inviting an owner needs an owner. `seats_exceeded` (409) when no seat is free. |
+| `PATCH /v1/organizations/:id/members/:userId` | admin | Change a member's role with `role`. Changes involving owners need an owner. |
+| `DELETE /v1/organizations/:id/members/:userId` | admin | Remove a member. Removing an owner needs an owner; `cannot_remove_owner` (400) if they are the last one. |
+
+## Invitations
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/organizations/:id/invitations` | List the organization's invitations. Org role `admin`. |
+| `DELETE /v1/organizations/:id/invitations/:invitationId` | Revoke an invitation. Org role `admin`. |
+| `POST /v1/organizations/:id/invitations/:invitationId/resend` | Send the invitation again. Org role `admin`. |
+| `GET /v1/me/invitations` | Pending invitations addressed to you. |
+| `POST /v1/me/invitations/:invitationId/accept` | Accept one of your invitations by id. |
+| `POST /v1/me/invitations/:invitationId/decline` | Decline one of your invitations by id. |
+| `GET /v1/invitations/:token` | Preview an invitation from the token in its link. |
+| `POST /v1/invitations/:token/accept` | Accept an invitation by token. |
+| `POST /v1/invitations/:token/decline` | Decline an invitation by token. |
+
+Dock-bound keys cannot reach invitation routes.
+
+## Workspaces
+
+| Route | Org role | Purpose |
+|---|---|---|
+| `GET /v1/organizations/:orgId/workspaces` | member | List workspaces. A new organization gets a `default` workspace. |
+| `POST /v1/organizations/:orgId/workspaces` | admin | Create a workspace (201). Body: `name` (1-100), optional `slug`. `slug_taken` (409) on a clash. |
+| `GET /v1/workspaces/:id` | member | One workspace. |
+| `PATCH /v1/workspaces/:id` | admin | Update `name` or `slug`. |
+| `DELETE /v1/workspaces/:id` | admin | Delete a workspace. |
+
+## Docks
+
+Creating, branching, and deleting are covered in the [API guide](/api/v1) and
+[Docks](/concepts/docks). The other Dock routes:
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/docks` | List Docks across your organizations. Query: `filter`, any of the state group letters `r` (ready, cloning, idle, running), `s` (archived), `p` (provisioning), `t` (archiving), `e` (error, unreachable), default `r`; `all=true` includes every state. |
+| `GET /v1/docks/:id` | One Dock (the explicit allowlist in the API guide). |
+| `PATCH /v1/docks/:id` | Update `name`, `ttlSeconds` (60 to 2592000, or `null` for no auto-stop), and size (`cpus`, `memoryMiB`, `diskGiB`). |
+| `POST /v1/docks/:id/stop` | Stop and snapshot a Dock (202). Optional body: `force`. |
+| `POST /v1/docks/:id/resume` | Boot a stopped Dock from its latest Snapshot (202). Optional body: `ttlSeconds`, size fields, `environment`, `noEnv`. |
+| `POST /v1/docks/:id/terminal` | Issue a single-use terminal ticket (201): `ticket` and `expiresAt`, valid 30 seconds. Open the terminal WebSocket at `GET /v1/docks/:id/terminal?ticket=...`. |
+| `GET /v1/docks/:id/ports` | List exposed ports: `port`, `url` (null while hosted ports are off), `createdAt`. |
+
+Dock-bound keys may call only `GET /v1/docks/:id`, the three port routes, and
+`GET /v1/docks/:id/stats`, and only for their own Dock.
+
+## Snapshots and templates
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/snapshots` | List your Snapshots. Query: `cursor`, `limit` (1 to 100). |
+| `GET /v1/docks/:id/snapshots` | List a Dock's Snapshots, same paging. |
+| `GET /v1/docks/:id/snapshots/latest` | A Dock's latest Snapshot. |
+| `GET /v1/snapshots/:id/tree` | The Snapshot's file tree. |
+| `GET /v1/snapshots/:id/files` | Raw bytes of one file. Query: `path`. Returned as `application/octet-stream`, not enveloped. |
+| `GET /v1/snapshots/:id/download` | Download details for the Snapshot. |
+| `POST /v1/templates` | Freeze a Dock as a named Template (202). Body: `dockId`, `name` (max 64). Org role `admin`. |
+| `GET /v1/templates` | List Templates. |
+| `GET /v1/templates/:name` | One ready Template. Query: `organizationId`. |
+| `DELETE /v1/templates/:name` | Delete a Template. Query: `organizationId`. Org role `admin`. |
+
+To create a Dock from a Template, pass its name as `from` to
+`POST /v1/docks`.
+
+## Environments
+
+An Environment is a versioned bundle of variables, secret files, and repos; see
+[Environments](/concepts/environments). Routes take `:ref` (id or name) and
+`organizationId` as a query parameter. Writes need org role `admin`; reads need
+`member`.
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/environments` | List an organization's Environments. Query: `organizationId` (required). |
+| `POST /v1/environments` | Create one (201). Body: `organizationId`, `name` (2-64 lowercase letters, digits, dash, underscore), optional `secretsAccess` (`members` or `admins`). |
+| `GET /v1/environments/:ref` | One Environment. Secret values are never included. |
+| `PATCH /v1/environments/:ref` | Update `name`, `isDefault`, `secretsAccess`, `safeForThirdParties`, `passGithub`, `passSecrets`, `passDockCredentials`, `passAgentsCredentials`. |
+| `DELETE /v1/environments/:ref` | Delete an Environment. |
+| `GET /v1/environments/:ref/versions` | List its versions. |
+| `POST /v1/environments/:ref/upgrade` | Move Docks on older versions to the current version (202). Optional body: `dockIds` to limit the move; omitted moves every older Dock. |
+| `GET /v1/environments/:ref/repos` | List repos. |
+| `POST /v1/environments/:ref/repos` | Add a repo (201). Body: `provider` (`github` or `gitlab`), `repositoryId`, `fullName` (`owner/name`), optional `baseBranch`, `setupScript` (max 65536). |
+| `DELETE /v1/environments/:ref/repos/:repoId` | Remove a repo. |
+| `PUT /v1/environments/:ref/secrets` | Replace all secrets: `envContents` (dotenv text) and `secretFiles` (list of `path`, `contents`). |
+| `POST /v1/environments/:ref/vars` | Set one variable: `key`, `value`. |
+| `DELETE /v1/environments/:ref/vars/:key` | Remove a variable. |
+| `POST /v1/environments/:ref/files` | Set one secret file: `path`, `contents`. |
+| `DELETE /v1/environments/:ref/files/:path` | Remove a secret file. |
+| `POST /v1/environments/:ref/secrets:reveal` | Return the plaintext secrets. Needs admin rights. |
+
+## Provider keys and ChatGPT sign-in
+
+Provider keys are organization-wide model-provider keys (`anthropic`,
+`openai`, `openrouter`, `opencode`), sealed at rest. Only the reveal route returns a
+stored value.
+
+| Route | Org role | Purpose |
+|---|---|---|
+| `GET /v1/agent-credentials` | member | Which providers have a key set. Query: `organizationId`. |
+| `PUT /v1/agent-credentials` | admin | Set a key. Body: `organizationId`, `provider`, `key` (1-512). |
+| `GET /v1/agent-credentials/:provider/reveal` | admin | Return the stored key. Query: `organizationId`. |
+| `DELETE /v1/agent-credentials/:provider` | admin | Remove the key. Query: `organizationId`. |
+
+The ChatGPT connection is your own subscription sign-in, never visible to
+other members.
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/chatgpt/connection` | Connection status. |
+| `POST /v1/chatgpt/connection/device` | Start the device sign-in flow. |
+| `POST /v1/chatgpt/connection/device/poll` | Poll the device flow until it completes. |
+| `DELETE /v1/chatgpt/connection` | Disconnect. |
+
+## GitHub
+
+The GitHub App turns issues into pull requests. Run objects are described in
+the [API guide](/api/v1).
+
+| Route | Purpose |
+|---|---|
+| `POST /v1/github/app-setup/start` | Begin registering the GitHub App from a manifest. Body: optional `organization` (GitHub login). Instance admins with a verified email, session only. |
+| `POST /v1/github/app-setup/conversion` | Finish registration. Body: `code` and `state` as returned by GitHub. Instance admins, session only. |
+| `POST /v1/github/installations/start` | Get a link to install or authorize the app. Body: `workspaceId`, optional `mode` (`install` or `authorize`). Org role `admin`, session only. |
+| `POST /v1/github/installations/complete` | Link an installation after GitHub redirects back (201). Body: the optional `installationId`, `code`, and `state` GitHub appended to the redirect. Session only. |
+| `GET /v1/github/installations` | List a workspace's installations. Query: `workspaceId`. |
+| `PATCH /v1/github/installations/:id` | Update `repos` (list of `owner/name`), `agent`, `testCommand` (max 500). Org role `admin`, session only. |
+| `DELETE /v1/github/installations/:id` | Unlink an installation. Org role `admin`, session only. |
+
+## Webhooks
+
+Outbound dock lifecycle webhooks. Event types: `dock.ready`, `dock.error`,
+`dock.archived`, `dock.hydrated`. Creating and deleting need org role `admin`
+and a session.
+
+| Route | Purpose |
+|---|---|
+| `POST /v1/webhooks/endpoints` | Create an endpoint (201). Body: `organizationId`, `name` (1-100), `url` (https, max 2000), `events` (at least one). The signing secret is shown once. |
+| `GET /v1/webhooks/endpoints` | List endpoints. Query: `organizationId`. |
+| `GET /v1/webhooks/endpoints/:id` | One endpoint. Query: `organizationId`. |
+| `DELETE /v1/webhooks/endpoints/:id` | Delete an endpoint. Query: `organizationId`. |
+| `GET /v1/webhooks/endpoints/:id/deliveries` | Recent deliveries. Query: `organizationId`. |
+
+## Notifications
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/notifications` | Your inbox. Query: `cursor`, `limit` (1 to 100). |
+| `POST /v1/notifications/read-all` | Mark everything read. |
+| `POST /v1/notifications/:id/read` | Mark one read. |
+| `GET /v1/notifications/preferences` | Preferences. Query: `organizationId`. |
+| `PUT /v1/notifications/preferences/organization` | Turn an alert on or off for the organization. Body: `organizationId`, `type`, `enabled`. Org role `admin`, session only. |
+| `PUT /v1/notifications/preferences/personal` | Turn email for an alert on or off for you. Body: `type`, `emailEnabled`. |
+
+Alert `type` is one of `stopped_responding`, `stop_refused`, `disk_warning`,
+`disk_full`, `auto_recovered`, `held_after_loss`.
+
+## Retention
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/account/retention` | The organization's retention policy. Query: `organizationId` (required). Org role `member`. |
+| `PATCH /v1/account/retention` | Set `enabled`. Query: `organizationId` (required). Body also needs `confirmation`, the exact phrase `delete archived dock data`, otherwise `confirm_required`. Org role `owner`, session only. |
+
+## Hosts
+
+Instance admins only.
+
+| Route | Purpose |
+|---|---|
+| `GET /v1/hosts` | List hosts. |
+| `GET /v1/hosts/:id` | One host. |
+| `POST /v1/hosts/:id/reset-credential` | Replace the host's fleet credential. The new one is shown once and must be installed on the host. Session only. |
+
+## Not documented here
+
+Some routes are not public API: the docklet fleet API (`/v1/fleet/*`), health
+and readiness probes, the proxy TLS check, the GitHub webhook receiver, the
+run completion callback used by run Docks, the LLM gateway, and a
+development-only mail preview.
