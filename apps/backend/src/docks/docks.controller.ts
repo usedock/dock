@@ -1,11 +1,13 @@
 import { AllowDockKey } from '../common/allow-dock-key.decorator';
-import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, NotFoundException, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, NotFoundException, Param, ParseIntPipe, Patch, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiHeader, ApiResponse } from '@nestjs/swagger';
 
 const OPTIONAL_IDEMPOTENCY_KEY = { name: 'idempotency-key', required: false, description: 'Replays return the first result for the same key.' };
 import type { RequestUser } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../common/public.decorator';
+import { DockPortAccessService, type PortAuthResult } from './dock-port-access.service';
 import { DockPortsService } from './dock-ports.service';
 import { DockPortDto, ExposePortDto } from './dto/port.dto';
 import { DockExecService } from './dock-exec.service';
@@ -26,6 +28,7 @@ export class DocksController {
     private readonly execs: DockExecService,
     private readonly terminals: DockTerminalService,
     private readonly ports: DockPortsService,
+    private readonly portAccess: DockPortAccessService,
   ) {}
 
   @Post('docks')
@@ -118,13 +121,13 @@ export class DocksController {
     return this.ports.list(user.id, id);
   }
 
-  /** Exposes a dock port at a public URL; exposing it again returns the same URL. */
+  /** Exposes a dock port (private by default); exposing it again returns the same URL. */
   @AllowDockKey()
   @Post('docks/:id/ports')
   @HttpCode(HttpStatus.CREATED)
   @ApiResponse({ status: HttpStatus.CREATED, type: DockPortDto })
   exposePort(@CurrentUser() user: RequestUser, @Param('id') id: string, @Body() dto: ExposePortDto) {
-    return this.ports.expose(user.id, id, dto.port);
+    return this.ports.expose(user.id, id, dto.port, dto.visibility);
   }
 
   @AllowDockKey()
@@ -142,5 +145,45 @@ export class DocksController {
       throw new NotFoundException({ code: 'port_not_found', message: 'No exposed port at this hostname' });
     }
     return { exposed: true };
+  }
+
+  /** Edge forward-auth: 200 lets the request through, 302 or 401 is relayed to the client. */
+  @Public()
+  @Get('ports/auth')
+  async portAuth(
+    @Headers('x-forwarded-host') host: string | undefined,
+    @Headers('x-forwarded-uri') uri: string | undefined,
+    @Headers('cookie') cookie: string | undefined,
+    @Headers('authorization') authorization: string | undefined,
+    @Headers('accept') accept: string | undefined,
+    @Res() res: Response,
+  ) {
+    const result = await this.portAccess.authorize({ host, uri, cookie, authorization, wantsHtml: (accept ?? '').includes('text/html') });
+    return this.sendPortResult(res, result);
+  }
+
+  /** Browser landing for private ports: signed-in members are sent on to the port host. */
+  @Public()
+  @Get('ports/access')
+  async portAccessLanding(
+    @Query('host') host: string | undefined,
+    @Query('next') next: string | undefined,
+    @Headers('cookie') cookie: string | undefined,
+    @Res() res: Response,
+  ) {
+    return this.sendPortResult(res, await this.portAccess.access(host, next, cookie));
+  }
+
+  private sendPortResult(res: Response, result: PortAuthResult): void {
+    res.setHeader('Cache-Control', 'no-store');
+    if (result.status === 404) throw new NotFoundException({ code: 'port_not_found', message: 'No private port at this hostname' });
+    if (result.status === 401) throw new UnauthorizedException({ code: 'unauthorized', message: 'This port is private; sign in or use a dock API key' });
+    if (result.status === 302) {
+      if (result.setCookie) res.setHeader('Set-Cookie', result.setCookie);
+      res.redirect(302, result.location);
+      return;
+    }
+    for (const [name, value] of Object.entries(result.headers)) res.setHeader(name, value);
+    res.status(200).end();
   }
 }

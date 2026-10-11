@@ -9,6 +9,8 @@ import { dockPorts, docks, type DockPort } from '../database/schema';
 import { EXEC_STATES } from './dock-exec.service';
 import { DockTunnelService, TunnelOpenException, type TunnelFailure } from './dock-tunnel.service';
 import { DocksService } from './docks.service';
+import { API_KEY_PREFIX } from '../api-keys/api-keys.service';
+import { EDGE_PROOF_HEADER, edgeProofValid, PORT_COOKIE } from './port-access-token';
 
 export const MAX_PORTS_PER_DOCK = 10;
 /** The guest agent's own port is never reachable from outside. */
@@ -18,9 +20,13 @@ const LABEL_RANDOM_CHARS = 16;
 const MAX_HEAD_BYTES = 64 * 1024;
 const HEAD_TIMEOUT_MS = 30_000;
 const MAX_CONNECTIONS = 4096;
+const CRLF = '\r\n';
+
+export type PortVisibility = 'public' | 'private';
 
 export interface DockPortView {
   port: number;
+  visibility: PortVisibility;
   /** Null while hosted ports are off on this deployment. */
   url: string | null;
   createdAt: Date;
@@ -28,6 +34,7 @@ export interface DockPortView {
 
 const STATUS_TEXT: Record<number, string> = {
   400: 'Bad Request',
+  403: 'Forbidden',
   404: 'Not Found',
   431: 'Request Header Fields Too Large',
   502: 'Bad Gateway',
@@ -52,6 +59,53 @@ export function hostHeader(head: string): string | null {
     .filter((line) => /^host:/i.test(line))
     .map((line) => line.slice(5).trim());
   return hosts.length === 1 ? hosts[0] : null;
+}
+
+/** The single value of a request-head header; null when missing or repeated. */
+function headerValue(head: string, name: string): string | null {
+  const values = head
+    .split(CRLF)
+    .slice(1)
+    .filter((line) => line.toLowerCase().startsWith(`${name}:`))
+    .map((line) => line.slice(name.length + 1).trim());
+  return values.length === 1 ? values[0] : null;
+}
+
+/** `Bearer dock_...`: a Dock API key used as the port credential. */
+function isDockKey(value: string): boolean {
+  const [type, token] = value.trim().split(/\s+/);
+  return type?.toLowerCase() === 'bearer' && !!token?.startsWith(API_KEY_PREFIX);
+}
+
+/** Drops the port cookie from one Cookie header line; null when nothing else is left. */
+function withoutPortCookie(line: string): string | null {
+  const colon = line.indexOf(':');
+  const kept = line
+    .slice(colon + 1)
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part && part.split('=')[0].trim() !== PORT_COOKIE);
+  return kept.length ? `${line.slice(0, colon)}: ${kept.join('; ')}` : null;
+}
+
+/** The request as the dock sees it: no edge proof, no port cookie, and no dock key on a private port. */
+export function forUpstream(buffered: Buffer, isPrivate: boolean): Buffer {
+  const end = buffered.indexOf(CRLF + CRLF);
+  if (end === -1) return buffered;
+  const [first, ...lines] = buffered.subarray(0, end).toString('latin1').split(CRLF);
+  const kept: string[] = [];
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    if (lower.startsWith(`${EDGE_PROOF_HEADER}:`)) continue;
+    if (isPrivate && lower.startsWith('authorization:') && isDockKey(line.slice(line.indexOf(':') + 1))) continue;
+    if (lower.startsWith('cookie:')) {
+      const cookie = withoutPortCookie(line);
+      if (cookie) kept.push(cookie);
+      continue;
+    }
+    kept.push(line);
+  }
+  return Buffer.concat([Buffer.from([first, ...kept].join(CRLF), 'latin1'), buffered.subarray(end)]);
 }
 
 function respond(client: Socket, status: number, text: string): void {
@@ -87,8 +141,8 @@ export class DockPortsService implements OnModuleDestroy {
     return rows.map((row) => this.view(row));
   }
 
-  /** Exposes a port; exposing it again returns the existing URL. */
-  async expose(callerId: string, dockId: string, port: number): Promise<DockPortView> {
+  /** Exposes a port (private unless asked otherwise); exposing it again returns the existing URL and applies an explicit visibility. */
+  async expose(callerId: string, dockId: string, port: number, visibility?: PortVisibility): Promise<DockPortView> {
     if (!this.domain()) {
       throw new ServiceUnavailableException({ code: 'ports_unavailable', message: 'Hosted ports are not configured on this deployment' });
     }
@@ -97,14 +151,18 @@ export class DockPortsService implements OnModuleDestroy {
     }
     const { dock } = await this.docks.loadReadableDock(callerId, dockId);
     const existing = await this.findPort(dock.id, port);
-    if (existing) return this.view(existing);
+    if (existing && (!visibility || visibility === existing.visibility)) return this.view(existing);
+    if (existing) {
+      const [changed] = await this.db.update(dockPorts).set({ visibility }).where(eq(dockPorts.id, existing.id)).returning();
+      return this.view(changed ?? existing);
+    }
     const [{ total }] = await this.db.select({ total: count() }).from(dockPorts).where(eq(dockPorts.dockId, dock.id));
     if (total >= MAX_PORTS_PER_DOCK) {
       throw new ConflictException({ code: 'port_limit_reached', message: `A dock exposes at most ${MAX_PORTS_PER_DOCK} ports` });
     }
     const [row] = await this.db
       .insert(dockPorts)
-      .values({ dockId: dock.id, port, label: randomLabel(port) })
+      .values({ dockId: dock.id, port, label: randomLabel(port), visibility: visibility ?? 'private' })
       .onConflictDoNothing({ target: [dockPorts.dockId, dockPorts.port] })
       .returning();
     // A concurrent expose of the same port won the insert.
@@ -154,10 +212,17 @@ export class DockPortsService implements OnModuleDestroy {
   }
 
   private view(row: DockPort): DockPortView {
-    const domain = this.domain();
-    // Port names are served on the same scheme and edge port as the public URL.
+    return { port: row.port, visibility: row.visibility, url: this.domain() ? this.originFor(row.label) : null, createdAt: row.createdAt };
+  }
+
+  /** Port names are served on the same scheme and edge port as the public URL. */
+  originFor(label: string): string {
     const { protocol, port } = new URL(publicApiUrl(this.config));
-    return { port: row.port, url: domain ? `${protocol}//${row.label}.${domain}${port ? `:${port}` : ''}` : null, createdAt: row.createdAt };
+    return `${protocol}//${this.hostFor(label)}${port ? `:${port}` : ''}`;
+  }
+
+  hostFor(label: string): string {
+    return `${label}.${this.domain()}`;
   }
 
   private async findPort(dockId: string, port: number): Promise<DockPort | null> {
@@ -170,7 +235,7 @@ export class DockPortsService implements OnModuleDestroy {
   }
 
   /** The label of `<label>.<domain>`, or null for any other hostname. */
-  private labelFor(hostname: string): string | null {
+  labelFor(hostname: string): string | null {
     const domain = this.domain();
     const name = hostname.toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
     if (!domain || !name.endsWith(`.${domain}`)) return null;
@@ -209,13 +274,17 @@ export class DockPortsService implements OnModuleDestroy {
     const label = this.labelFor(hostname);
     const [target] = label
       ? await this.db
-          .select({ port: dockPorts.port, dockId: docks.id, state: docks.state, hostId: docks.hostId, billingPausedAt: docks.billingPausedAt })
+          .select({ port: dockPorts.port, visibility: dockPorts.visibility, dockId: docks.id, state: docks.state, hostId: docks.hostId, billingPausedAt: docks.billingPausedAt })
           .from(dockPorts)
           .innerJoin(docks, eq(docks.id, dockPorts.dockId))
           .where(eq(dockPorts.label, label))
           .limit(1)
       : [];
     if (!target) return respond(client, 404, 'No dock port is exposed at this address');
+    // Private ports are served only for requests the edge's access check vouched for.
+    if (target.visibility === 'private' && !edgeProofValid(this.config, label as string, headerValue(head, EDGE_PROOF_HEADER))) {
+      return respond(client, 403, 'This port is private; the edge access check did not approve the request');
+    }
     const running = EXEC_STATES.includes(target.state) && !target.billingPausedAt && target.hostId && this.config.get<string>('RUNTIME_DRIVER') === 'restate';
     if (!running) return respond(client, 503, `This dock is not running; resume it to reach port ${target.port}`);
     let host;
@@ -229,6 +298,6 @@ export class DockPortsService implements OnModuleDestroy {
       host.close();
       return;
     }
-    this.tunnels.bridge(client, host, buffered);
+    this.tunnels.bridge(client, host, forUpstream(buffered, target.visibility === 'private'));
   }
 }

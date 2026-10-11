@@ -164,9 +164,10 @@ services:
 
   # One origin for the dashboard and API, so no CORS; automatic HTTPS for public names.
   caddy:
-    image: caddy:2
+    image: '${DOCK_CADDY_IMAGE:-caddy:2}'
     environment:
       DOCK_SITE_ADDRESS: '${DOCK_SITE_ADDRESS:?set DOCK_SITE_ADDRESS}'
+      DOCK_PORTS_WILDCARD_TLS: '${DOCK_PORTS_WILDCARD_TLS:-0}'
       DOCK_PORTS_SITE_ADDRESS: '${DOCK_PORTS_SITE_ADDRESS:-*.${DOCK_PORTS_DOMAIN:-ports.invalid}}'
     # Host and container ports match so a site address with a port (http://localhost:8088) works.
     ports:
@@ -174,6 +175,7 @@ services:
       - '${DOCK_HTTPS_PORT:-443}:${DOCK_HTTPS_PORT:-443}'
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./ports-tls:/etc/caddy/ports-tls:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:

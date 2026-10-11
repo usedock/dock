@@ -82,10 +82,30 @@ connection's vendor scopes allow, but cannot read the vendor credential. Only
 the Dock's creator or an admin can open its shell, run commands in it, manage
 its ports, read files from its Snapshots, resume it or branch it.
 
-**Hosted ports.** An exposed port is reachable by anyone who has its URL until
-you remove it. The hostname has a random label, but it gets its own public TLS
-certificate, so it shows up in Certificate Transparency logs ([#40](https://github.com/usedock/dock/issues/40)). Treat the URL as
-public, not as a secret.
+**Hosted ports.** An exposed port is `private` (the default for new ports) or
+`public`. A public port is reachable by anyone who has its URL until you remove
+it; treat that URL as public, not as a secret. A private port needs a credential
+at the edge: a cookie obtained by signing in as a member of the Dock's
+organization (a 60-second token in a redirect, traded for an 8-hour cookie bound
+to that one port host, rechecked against membership and account closure on every
+request), or an API key bound to that Dock as a bearer token, accepted only while
+its owner is still a member. The edge proxy asks the API before
+each request, and the ports proxy refuses private ports unless the API's answer
+reached it in a signed header, so an edge without the check fails closed with
+`403`. The ports proxy removes the port cookie and a `Bearer dock_...`
+`Authorization` header before the request reaches the service in the Dock, so a
+service cannot collect members' port credentials. Ports exposed
+before this setting existed stay public.
+
+Port hostnames carry 80 bits of randomness, but by default each name gets its
+own public TLS certificate, so it appears in Certificate Transparency logs
+([#40](https://github.com/usedock/dock/issues/40)). That leaks the name, not
+access to a private port. Operators can serve ports under one wildcard
+certificate instead (`DOCK_PORTS_WILDCARD_TLS=1`, DNS challenge; see
+[self-hosting](/docs/self-hosting#wildcard-certificate-for-ports)), which keeps
+new names out of the logs; it needs a Caddy build with a DNS provider module and
+does not remove names that were already logged. Public ports remain reachable
+by anyone who learns the name.
 
 ## What a Dock cannot reach
 

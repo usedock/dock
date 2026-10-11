@@ -67,8 +67,17 @@ Open `DOCK_PUBLIC_URL` and sign up. On a self-hosted instance:
   set `SSH_HOST_KEY` in `.env` to pin your own.
 - Hosted ports work on a local install at `*.ports.localhost`. On a public
   install, run `./setup.sh --ports-domain ports.example.com` with a wildcard
-  DNS record `*.ports.example.com` pointing at the server. Caddy issues each certificate on first use, only for
-  exposed names.
+  DNS record `*.ports.example.com` pointing at the server. Caddy issues each
+  certificate on first use, only for exposed names. New ports are private: the
+  edge asks the API before every request, and only members of the Dock's
+  organization (through a sign-in redirect) or a Dock-bound API key get
+  through. A port set to `public` is open to anyone with the URL. Port names are
+  random (16 characters from a 32-letter alphabet, 80 bits) but each name gets
+  its own certificate, which is public in Certificate Transparency logs. To keep
+  names out of those logs, see [Wildcard certificate for ports](#wildcard-certificate-for-ports).
+  Ports already exposed stay public. A Caddyfile from before private ports does
+  not run the access check, so private ports answer `403` until you `git pull`
+  and recreate the caddy service (`docker compose up -d caddy`).
 
 Upgrade from `deploy/self-host/`: run `git pull` (compose and Caddyfile changes
 ship with the release), then `./setup.sh --upgrade <version>`, for example
@@ -204,6 +213,68 @@ OAuth sign-in for a tool, create an OAuth app with it, register
 `<DOCK_PUBLIC_URL>/v1/connectors/<kind>/oauth/callback` as the redirect URL and
 set `<KIND>_CLIENT_ID` and `<KIND>_CLIENT_SECRET` (for example `LINEAR_CLIENT_ID`)
 in `.env`. See [Connectors](/docs/connectors).
+
+## Wildcard certificate for ports
+
+By default Caddy issues one certificate per exposed port name on first use, and
+every certificate is public in Certificate Transparency logs. With
+`DOCK_PORTS_WILDCARD_TLS=1` Caddy instead obtains one `*.ports.example.com`
+certificate through the ACME DNS challenge, so individual port names never get a
+certificate of their own. Let's Encrypt issues wildcard certificates only
+through the DNS challenge, and Caddy needs a DNS provider module for it, which
+the stock `caddy:2` image does not include, so the shipped image is unchanged
+and you switch to your own. Certificates already issued for earlier port names
+stay in the logs.
+
+1. Build a Caddy image with your provider's module from the
+   [`caddy-dns`](https://github.com/caddy-dns) repositories. This follows the
+   custom-build pattern on the official Caddy image page; `cloudflare` is only
+   an example, so use your provider's module:
+
+   ```dockerfile
+   FROM caddy:2-builder AS builder
+   RUN xcaddy build --with github.com/caddy-dns/cloudflare
+
+   FROM caddy:2
+   COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+   ```
+
+   Build it with `docker build -t registry.example.com/dock-caddy:2 .` and push
+   it. `./setup.sh --upgrade` and `docker compose pull` pull every image, so a
+   local-only tag makes the pull fail.
+2. In `.env`, set `DOCK_CADDY_IMAGE=registry.example.com/dock-caddy:2` and
+   `DOCK_PORTS_WILDCARD_TLS=1`. `DOCK_PORTS_DOMAIN` and
+   `DOCK_PORTS_SITE_ADDRESS` stay as `setup.sh --ports-domain` wrote them
+   (`*.ports.example.com`).
+3. Edit `deploy/self-host/ports-tls/1.caddy` for your provider. The `dns`
+   subdirective takes the provider name and that module's own parameters:
+
+   ```text
+   tls {
+   	dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+   }
+   ```
+
+   `propagation_delay`, `propagation_timeout` and `resolvers` can go in the same
+   `tls` block.
+4. Give the caddy service the credential, for example in
+   `docker-compose.override.yml`, then restart it:
+
+   ```yaml
+   services:
+     caddy:
+       environment:
+         CLOUDFLARE_API_TOKEN: your-token
+   ```
+
+   Run `docker compose up -d caddy`. The token needs permission to edit DNS
+   records in the zone, and the wildcard DNS record must still point at the
+   server.
+
+With the flag set on the stock image, Caddy refuses to start (`module not
+registered: dns.providers.cloudflare`, or your provider), which takes the whole
+site down until you set the flag back to `0`. Wildcard mode hides which names
+exist, not who can open them: keep new ports private.
 
 ## Network notes
 

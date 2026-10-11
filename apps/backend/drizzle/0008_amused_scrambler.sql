@@ -1,0 +1,1 @@
+ALTER TABLE "dock_ports" ADD COLUMN "visibility" text DEFAULT 'public' NOT NULL;

@@ -1,0 +1,7 @@
+# DOCK_PORTS_WILDCARD_TLS=1: one *.ports-domain certificate by the DNS challenge, so
+# port names never get their own certificate. Needs a Caddy image built with your DNS
+# provider module (see self-hosting docs). Replace cloudflare and its token variable
+# with your provider; the variable must reach the caddy service environment.
+tls {
+	dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+}

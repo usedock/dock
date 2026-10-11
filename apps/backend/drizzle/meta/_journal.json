@@ -57,6 +57,13 @@
       "when": 1791684415436,
       "tag": "0007_dark_wong",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791685252575,
+      "tag": "0008_amused_scrambler",
+      "breakpoints": true
     }
   ]
 }
