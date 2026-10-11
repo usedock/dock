@@ -3,13 +3,18 @@ title: Sentry
 description: Read Sentry issues and events from a dock through the API or MCP.
 ---
 
-Connect with an auth token (`PUT /v1/workspaces/:workspaceId/connectors/sentry` with
-`{ "token": "sntrys_..." }`) or with OAuth when `SENTRY_CLIENT_ID` and
+Connect with a user auth token (`PUT /v1/workspaces/:workspaceId/connectors/sentry`
+with `{ "token": "sntryu_..." }`) or with OAuth when `SENTRY_CLIENT_ID` and
 `SENTRY_CLIENT_SECRET` are set. See [Connectors](/docs/connectors) for the routes.
+
+Create the token under User settings, Personal tokens, with the scopes below. A
+user token (`sntryu_`) acts with your own access. An organization token
+(`sntrys_`) is meant for CI and carries only release and source map scopes, so
+it cannot read issues.
 
 | | |
 |---|---|
-| OAuth scopes requested | `org:read`, `project:read`, `event:read` |
+| OAuth scopes requested | `org:read`, `project:read`, `event:read`, `event:write` |
 | REST API in a dock | `$DOCK_SENTRY_API_URL/0/...` |
 | MCP in a dock | `$DOCK_SENTRY_MCP_URL`, listed in `~/.config/dock/mcp.json` |
 
@@ -18,3 +23,33 @@ The REST path must start with `0/`, the API version.
 ```bash
 curl -H "Authorization: Bearer $DOCK_CONNECTOR_TOKEN" $DOCK_SENTRY_API_URL/0/organizations/
 ```
+
+## Region and self-hosted
+
+sentry.io is the default. For an organization on another region, or a
+self-hosted Sentry, pass `host` when connecting with a token:
+
+```bash
+curl -X PUT $DOCK_API/v1/workspaces/$WORKSPACE_ID/connectors/sentry \
+  -H "Authorization: Bearer $DOCK_API_KEY" -H "content-type: application/json" \
+  -d '{"token":"sntryu_...","host":"de.sentry.io"}'
+```
+
+`host` is `sentry.io`, `de.sentry.io`, `us.sentry.io` or the `https://` origin of
+a self-hosted instance (no path, no credentials). The gateway, the connect check
+and replies all use it. A self-hosted name must resolve to public addresses, so
+an instance on a private network cannot be reached; the check runs when you
+connect and again before each call. The Sentry MCP server (`mcp.sentry.dev`) is
+the hosted one and reaches sentry.io organizations.
+
+## Triggers
+
+A new issue or an issue alert from your integration can start a run, and the
+result is added as a note on the issue. Sentry triggers are off until an admin
+sets `triggersEnabled: true` on the webhook configuration, because event text can
+come from end users of your app. Notes are posted with
+`POST /api/0/organizations/{org}/issues/{id}/comments/`, using the organization
+read when the token was connected (or the one in the issue URL). They need the
+`event:write` scope and a user token (`sntryu_`) or OAuth: Sentry refuses notes
+from organization and internal-integration tokens. See
+[Triggers and replies](/docs/connectors/triggers) for the webhook setup.

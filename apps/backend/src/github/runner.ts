@@ -119,7 +119,7 @@ function chatgptAuthEnv(): string {
 }
 
 /** Bare model id for agents that take no provider prefix. */
-function modelId(model: string): string {
+export function modelId(model: string): string {
   return model.slice(providerOf(model).length + 1);
 }
 
@@ -275,12 +275,12 @@ export interface RunnerScriptInput {
   gitHost?: string;
 }
 
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 /** Untrusted text never meets a heredoc or a quote: it travels as base64 only. */
-function writeFile(path: string, content: string): string {
+export function writeFile(path: string, content: string): string {
   return `printf '%s' '${Buffer.from(content, 'utf8').toString('base64')}' | base64 -d > ${path}`;
 }
 

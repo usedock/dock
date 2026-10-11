@@ -1,15 +1,24 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common';
-import { CONNECTOR_SPECS, upstreamAuth, type ConnectorCredential, type ConnectorKind } from './connector-kinds';
+import { apiBase, upstreamAuth, type ConnectorCredential, type ConnectorKind } from './connector-kinds';
 
-/** Cheap vendor identity call; returns an account label or throws a typed error. */
-export async function verifyCredential(fetchFn: typeof fetch, kind: ConnectorKind, cred: ConnectorCredential): Promise<string | null> {
-  const base = CONNECTOR_SPECS[kind].api.base;
+/** What a vendor identity call tells us: a label, the id inbound webhooks route by and the connected vendor user. */
+export interface VerifiedIdentity {
+  label: string | null;
+  externalId: string | null;
+  userId: string | null;
+  /** Sentry organization slug. */
+  org?: string | null;
+}
+
+/** Cheap vendor identity call; returns who the credential is or throws a typed error. */
+export async function verifyCredential(fetchFn: typeof fetch, kind: ConnectorKind, cred: ConnectorCredential, host?: string | null): Promise<VerifiedIdentity> {
+  const base = apiBase(kind, host);
   const auth = upstreamAuth(kind, 'api', cred);
   const call: Record<ConnectorKind, [string, RequestInit]> = {
     figma: [`${base}/v1/me`, { headers: auth }],
     linear: [
       `${base}/graphql`,
-      { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ viewer { name organization { name } } }' }) },
+      { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ viewer { id name organization { id name } } }' }) },
     ],
     slack: [`${base}/auth.test`, { method: 'POST', headers: auth }],
     sentry: [`${base}/0/organizations/`, { headers: auth }],
@@ -27,15 +36,18 @@ export async function verifyCredential(fetchFn: typeof fetch, kind: ConnectorKin
   if (!json) throw unreachable();
   switch (kind) {
     case 'figma':
-      return json.handle ?? json.email ?? null;
-    case 'linear':
-      if (json.errors || !json.data?.viewer) throw invalidToken();
-      return json.data.viewer.organization?.name ?? json.data.viewer.name ?? null;
+      return { label: json.handle ?? json.email ?? null, externalId: null, userId: json.id ? String(json.id) : null };
+    case 'linear': {
+      const viewer = json.data?.viewer;
+      if (json.errors || !viewer) throw invalidToken();
+      return { label: viewer.organization?.name ?? viewer.name ?? null, externalId: viewer.organization?.id ?? null, userId: viewer.id ?? null };
+    }
     case 'slack':
       if (json.ok !== true) throw invalidToken();
-      return json.team ?? null;
+      return { label: json.team ?? null, externalId: json.team_id ?? null, userId: json.user_id ?? null };
     case 'sentry':
-      return Array.isArray(json) ? (json[0]?.slug ?? null) : null;
+      const slug = Array.isArray(json) ? (json[0]?.slug ?? null) : null;
+      return { label: slug, externalId: null, userId: null, org: slug };
   }
 }
 

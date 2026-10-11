@@ -9,13 +9,22 @@ with `{ "token": "figd_..." }`) or with OAuth when `FIGMA_CLIENT_ID` and
 
 | | |
 |---|---|
-| OAuth scopes requested | `current_user:read`, `file_content:read`, `file_comments:read` |
+| OAuth scopes requested | `current_user:read`, `file_content:read`, `file_comments:read`, `file_comments:write` |
 | REST API in a dock | `$DOCK_FIGMA_API_URL/v1/...` (also `/v2/...`) |
-| MCP in a dock | `$DOCK_FIGMA_MCP_URL`, listed in `~/.config/dock/mcp.json` |
+| MCP in a dock | not available |
 
-Personal tokens are sent to the REST API as `X-Figma-Token`; OAuth tokens and the
-MCP server get a bearer header. Figma OAuth tokens expire and are refreshed by
-the control plane.
+Personal tokens are sent to the REST API as `X-Figma-Token`; OAuth tokens get a
+bearer header. Figma OAuth tokens expire and are refreshed by the control plane.
+
+There is no MCP target. Figma's remote MCP server (`mcp.figma.com`) accepts only
+OAuth clients from Figma's MCP catalog: not personal access tokens and not tokens
+from an ordinary Figma OAuth app. Through the gateway it would answer with an
+authorization error, so Dock does not offer it. Use the REST API.
+
+A file comment that mentions the connected user or writes `@dock`, from an
+allowlisted Figma user, starts a run and is answered in its thread. The allowlist
+starts with the Figma user of the connected token and is edited with
+`allowedUsers`; see [Triggers and replies](/docs/connectors/triggers).
 
 ```bash
 curl -H "Authorization: Bearer $DOCK_CONNECTOR_TOKEN" $DOCK_FIGMA_API_URL/v1/files/FILE_KEY

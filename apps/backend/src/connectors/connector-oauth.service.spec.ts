@@ -52,7 +52,7 @@ describe('ConnectorOauthService', () => {
     fetchFn.mockResolvedValueOnce(json({ data: { viewer: { name: 'Pat', organization: { name: 'Acme' } } } }));
     const target = await service.callback('linear', { code: 'abc', state: state() }, 'session=u1');
     expect(Object.fromEntries(fetchFn.mock.calls[0][1].body)).toMatchObject({ code: 'abc', code_verifier: 'verifier-1' });
-    expect(connectors.store).toHaveBeenCalledWith('w1', 'linear', expect.objectContaining({ type: 'oauth', access: 'at' }), 'Acme', ['read'], 'u1');
+    expect(connectors.store).toHaveBeenCalledWith('w1', 'linear', expect.objectContaining({ type: 'oauth', access: 'at' }), { label: 'Acme', externalId: null, userId: null }, ['read'], 'u1');
     expect(target).toBe('https://app.example.test/connectors?kind=linear&status=connected');
   });
 

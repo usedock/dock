@@ -10,7 +10,7 @@ describe('ConnectorsController', () => {
     await ctrl.connect(user, 'w1', 'linear', { token: 'lin_api_x' });
     await ctrl.disconnect(user, 'w1', 'linear');
     expect(svc.list).toHaveBeenCalledWith('u1', 'w1');
-    expect(svc.connect).toHaveBeenCalledWith('u1', 'w1', 'linear', 'lin_api_x');
+    expect(svc.connect).toHaveBeenCalledWith('u1', 'w1', 'linear', 'lin_api_x', undefined);
     expect(svc.disconnect).toHaveBeenCalledWith('u1', 'w1', 'linear');
   });
 });

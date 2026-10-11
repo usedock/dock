@@ -38,7 +38,7 @@ describe('authorizeUrl', () => {
     const slack = new URL(authorizeUrl('slack', 'cid', 'https://api.example/cb', 'st', null));
     expect(slack.origin + slack.pathname).toBe('https://slack.com/oauth/v2/authorize');
     expect(slack.searchParams.has('code_challenge')).toBe(false);
-    expect(new URL(authorizeUrl('sentry', 'c', 'r', 's', null)).searchParams.get('scope')).toBe('org:read project:read event:read');
+    expect(new URL(authorizeUrl('sentry', 'c', 'r', 's', null)).searchParams.get('scope')).toBe('org:read project:read event:read event:write');
     expect(new URL(authorizeUrl('figma', 'c', 'r', 's', null)).origin).toBe('https://www.figma.com');
   });
 });
