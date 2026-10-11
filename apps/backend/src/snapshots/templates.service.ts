@@ -70,7 +70,7 @@ export class TemplatesService {
   async save(callerId: string, dockId: string, rawName: string): Promise<Template> {
     const name = rawName?.trim() ?? '';
     if (!TEMPLATE_RE.test(name)) {
-      throw validationError('Template name must be 2-64 lowercase letters, digits, dash, or underscore');
+      throw validationError('Template name must be 3-64 lowercase letters, digits, dash, or underscore');
     }
     const { dock, orgId } = await this.docks.loadDock(callerId, dockId, 'admin');
     if (await this.retention.policyOn(this.db, orgId)) throw new TemplatesBlockedException();

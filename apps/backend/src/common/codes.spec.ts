@@ -31,7 +31,6 @@ describe('DOCK_ERROR_CODES', () => {
       idempotency_in_progress: 409,
       idempotency_key_reused: 409,
       confirm_required: 400,
-      image_unavailable: 400,
       session_required: 403,
       zdr_blocks_templates: 403,
       account_closed: 403,
