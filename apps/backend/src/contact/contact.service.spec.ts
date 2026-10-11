@@ -90,3 +90,72 @@ describe('ContactService.submit', () => {
     });
   });
 });
+
+describe('ContactService waitlist confirmation', () => {
+  const waitlist = { ...submission, topic: 'cloud-waitlist' as const, email: ' Ada@Acme.dev ' };
+
+  it('sends the team mail then one confirmation without the submitted text', async () => {
+    const { service, mail, limits } = makeService();
+
+    await expect(service.submit(waitlist)).resolves.toEqual({ sent: true });
+
+    expect(mail.send).toHaveBeenCalledTimes(2);
+    const confirm = (mail.send as Mock).mock.calls[1][0];
+    expect(confirm.template).toBe('waitlist-confirmation');
+    expect(confirm.to).toBe(waitlist.email);
+    expect(JSON.stringify(confirm)).not.toContain(waitlist.message);
+    expect(JSON.stringify(confirm)).not.toContain('Acme"');
+    const key = (limits.hit as Mock).mock.calls[1];
+    expect(key[0]).toMatch(/^rl:contact-confirm:[0-9a-f]{64}$/);
+    expect(key.slice(1)).toEqual([1, 86400]);
+  });
+
+  it('hashes the trimmed lowercased address', async () => {
+    const { service, limits } = makeService();
+    await service.submit(waitlist);
+    await service.submit({ ...waitlist, email: 'ada@acme.dev' });
+    const calls = (limits.hit as Mock).mock.calls;
+    expect(calls[1][0]).toBe(calls[3][0]);
+  });
+
+  it('sends no second confirmation inside the window', async () => {
+    const { service, mail, limits } = makeService();
+    (limits.hit as Mock)
+      .mockResolvedValueOnce({ allowed: true, count: 1 })
+      .mockResolvedValueOnce({ allowed: false, count: 2 });
+
+    await expect(service.submit(waitlist)).resolves.toEqual({ sent: true });
+
+    expect(mail.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends no confirmation for other topics', async () => {
+    const { service, mail, limits } = makeService();
+
+    await service.submit(submission);
+
+    expect(mail.send).toHaveBeenCalledTimes(1);
+    expect(limits.hit).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips the confirmation and still succeeds when Redis errors', async () => {
+    const { service, mail, limits } = makeService();
+    (limits.hit as Mock)
+      .mockResolvedValueOnce({ allowed: true, count: 1 })
+      .mockRejectedValueOnce(new Error('redis down'));
+
+    await expect(service.submit(waitlist)).resolves.toEqual({ sent: true });
+
+    expect(mail.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fail the request when the confirmation cannot be delivered', async () => {
+    const { service, mail } = makeService();
+    (mail.send as Mock)
+      .mockResolvedValueOnce({ messageId: 'm1' })
+      .mockRejectedValueOnce(new Error('smtp'));
+
+    await expect(service.submit(waitlist)).resolves.toEqual({ sent: true });
+  });
+});
+
