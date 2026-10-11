@@ -9,7 +9,7 @@ on:
         default: "50"
       dock_version:
         description: Release tag of the dock CLI to install (empty is the latest release)
-        default: v0.3.1
+        default: v0.3.2
   schedule:
     - cron: "17 4 1 * *"
   pull_request:
@@ -30,8 +30,9 @@ jobs:
     timeout-minutes: 75
     env:
       ITERATIONS: ${{ inputs.iterations || '50' }}
-      BRANCH_ITERATIONS: "20"
-      DOCK_VERSION: ${{ inputs.dock_version || 'v0.3.1' }}
+      # Branching to 10 copies takes about a minute per iteration on this runner, so it gets fewer iterations.
+      BRANCH_ITERATIONS: "10"
+      DOCK_VERSION: ${{ inputs.dock_version || 'v0.3.2' }}
       DOCK_DATA_DIR: ${{ github.workspace }}/../dockdata
       DOCK_BENCH_MEMORY_MIB: "1024"
     steps:
@@ -77,10 +78,14 @@ jobs:
         timeout-minutes: 25
         working-directory: bench
         run: bun run bench --provider dock-local --scenario resume --iterations "$ITERATIONS" --concurrency 1
-      - name: branch
+      - name: branch to 3
         timeout-minutes: 20
         working-directory: bench
-        run: bun run bench --provider dock-local --scenario branch --iterations "$BRANCH_ITERATIONS"
+        run: bun run bench --provider dock-local --scenario branch-3 --iterations "$BRANCH_ITERATIONS"
+      - name: branch to 10
+        timeout-minutes: 25
+        working-directory: bench
+        run: bun run bench --provider dock-local --scenario branch-10 --iterations "$BRANCH_ITERATIONS"
       - name: leftover docks
         if: always()
         timeout-minutes: 2
