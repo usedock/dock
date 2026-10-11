@@ -1,0 +1,77 @@
+---
+title: Local docks
+description: Run docks on your own machine with the dock CLI and QEMU, no account and no control plane.
+---
+
+The `dock` CLI carries its own engine. With no account and no control plane it
+runs each dock as a QEMU virtual machine on your machine. This is the built-in
+`local` context; see [CLI](/cli#contexts) for how it is selected. For a first
+run, follow the [Quickstart](/quickstart).
+
+Local docks need `dock` v0.2.0 or later ([Install](/cli#install); run the
+installer again to update). The CLI is early; its source is in
+[usedock/docklet](https://github.com/usedock/docklet).
+
+## What you need
+
+QEMU, and your machine's hardware accelerator. The engine never falls back to
+software emulation on its own.
+
+| Machine | Accelerator | Status |
+| --- | --- | --- |
+| Linux x86_64 | KVM (`/dev/kvm`) | Available |
+| Windows x86_64 | Windows Hypervisor Platform (WHPX) | Available. See [Windows](/local-docks/windows) |
+| macOS | Hypervisor.framework (HVF) | Built, not yet tested |
+
+[Dockyard](/dockyard) publishes amd64 images only today, so an arm64 machine
+(Apple silicon, Linux arm64) has no image to boot yet.
+
+On Linux, install QEMU (for example `sudo apt install qemu-system-x86
+qemu-utils`) and make sure your user can read and write `/dev/kvm` (for example
+`sudo usermod -aG kvm $USER`, then log in again). On macOS, `brew install qemu`.
+Set `DOCK_QEMU` to use a `qemu-system` binary somewhere else.
+
+Run `dock doctor` to see what is missing:
+
+```sh
+dock doctor
+```
+
+It checks QEMU and `qemu-img`, the accelerator, free disk space (at least 5 GiB
+in the data directory) and that the Dockyard image index is reachable. It
+prints a fix for each missing item and exits 1 when something is missing.
+
+## Where things live
+
+Local docks and cached [Dockyard](/dockyard) images are stored under:
+
+| Machine | Directory |
+| --- | --- |
+| Linux | `$XDG_DATA_HOME/dock` (default `~/.local/share/dock`) |
+| macOS | `~/Library/Application Support/dock` |
+| Windows | `%LOCALAPPDATA%\dock` |
+
+`DOCK_DATA_DIR` overrides it. Each dock is a qcow2 overlay on the cached base
+image, plus its agent token, forwarded port and process id. The first
+`dock new` downloads the image once; `dock images pull <name>` does it ahead of
+time.
+
+## How it differs from a control plane
+
+A local dock reports `runtime` as `qemu`, and a stopped dock shows as
+`archived` in `--json` output. Defaults are 2 CPUs, 2048 MiB of memory and a
+10 GiB disk. The differences from a dock on a control plane:
+
+- **No live fork.** `dock branch` copies a stopped disk. A running dock is
+  stopped, copied and resumed.
+- **`dock stop`** powers the guest off and keeps the disk.
+- **`dock new --network off`** blocks the dock's network. It is local only.
+- **`dock port <dock> <port>`** forwards the dock's port to `127.0.0.1` in the
+  foreground until you press Ctrl+C. There is no public URL, and `--rm` is
+  rejected.
+- **`dock ssh`** opens a shell through the guest agent, not an SSH gateway.
+  `--print` and `--json` do not apply.
+- **`dock ls --filter`** is not supported; use `--all` to include stopped docks.
+- **`dock exec`** prints the command's output when it ends; it is not streamed.
+
+Isolation is described in [Runtimes and images](/concepts/runtimes#local-engine).

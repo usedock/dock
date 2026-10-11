@@ -155,7 +155,8 @@ and the database holds the secrets.
 |---|---|---|
 | `microvm` | Firecracker on Linux KVM, under the jailer | Strongest. Each Dock has its own guest kernel behind hardware virtualization. An attacker needs a hypervisor or VMM escape. |
 | `gvisor` | `runsc` on Linux with Docker | Strong without a hypervisor. A user-space kernel handles the Dock's system calls, so the host kernel sees far fewer of them. The attack surface is larger than a VM's: the sandbox is a complex program, and a bug in it exposes the host. |
-| libkrun on Windows and macOS | Planned | Not shipped. It is not equal to Firecracker until it has been reviewed. |
+| `dock` CLI local engine | QEMU with KVM (Linux), WHPX (Windows) or Hypervisor.framework (macOS, not yet tested) | A hardware VM per dock, on your own machine. QEMU's device model is larger than Firecracker's and there is no jailer. With the network on, a dock can reach services listening on your machine. See [Runtimes](/concepts/runtimes#local-engine). |
+| libkrun on Windows and macOS fleet hosts | Planned | Not shipped. It is not equal to Firecracker until it has been reviewed. |
 
 Prefer `microvm` for hostile or multi-tenant workloads. Use `gvisor` when KVM is
 unavailable and you accept the larger attack surface.

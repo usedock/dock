@@ -1,0 +1,77 @@
+---
+title: Windows
+description: Run local docks on Windows with Windows Hypervisor Platform and QEMU.
+---
+
+Local docks run on Windows x86_64 with QEMU and the Windows Hypervisor Platform
+(WHPX). You need no account.
+
+## 1. Enable Windows Hypervisor Platform
+
+In an elevated PowerShell (run as administrator):
+
+```powershell
+Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform
+```
+
+Then reboot. Also check that virtualization is enabled in your firmware (BIOS
+or UEFI settings).
+
+## 2. Install QEMU
+
+```powershell
+winget install SoftwareFreedomConservancy.QEMU
+```
+
+or use the installer from [qemu.org/download](https://www.qemu.org/download/#windows). Use the
+official QEMU for Windows build: other builds may lack the `whpx` accelerator.
+
+`dock` looks for `qemu-system-x86_64.exe` on `PATH`, then in `C:\Program
+Files\qemu`, `C:\Program Files (x86)\qemu` and `%LOCALAPPDATA%\Programs\qemu`.
+`qemu-img.exe` is taken from the same directory when it is there
+(`DOCK_QEMU_IMG` overrides it). To use QEMU from anywhere else, set
+`DOCK_QEMU`:
+
+```powershell
+$env:DOCK_QEMU = 'D:\tools\qemu\qemu-system-x86_64.exe'
+```
+
+## 3. Install dock and check the machine
+
+```powershell
+irm https://usedock.io/install.ps1 | iex
+dock doctor
+```
+
+Open a new terminal after the install so `dock` is on your `PATH`. When
+`dock doctor` shows no missing items:
+
+```powershell
+dock new web
+dock exec web -- uname -a
+dock ssh web
+```
+
+The data directory is `%LOCALAPPDATA%\dock` (`DOCK_DATA_DIR` overrides it). See
+[Local docks](/local-docks) for what is stored there and what differs from a
+control plane.
+
+## Troubleshooting
+
+| `dock doctor` says | What to do |
+| --- | --- |
+| `qemu` missing | Install QEMU, or set `DOCK_QEMU` to the full path of `qemu-system-x86_64.exe`. A `DOCK_QEMU` path that does not exist is an error. |
+| `accelerator`: QEMU could not start a Windows Hypervisor Platform machine | `dock doctor` boots a short probe machine to test the platform. Run the `Enable-WindowsOptionalFeature` command above as administrator and reboot. If the feature is already on, check that virtualization is enabled in firmware. |
+| `accelerator`: this QEMU build has no whpx accelerator | Install the official QEMU for Windows build. |
+| `disk space` low | Free at least 5 GiB, or set `DOCK_DATA_DIR` to a larger drive. |
+| `dockyard` unreachable | Check your network. See [Dockyard](/dockyard). |
+
+WHPX has no in-kernel interrupt controller and cannot expose the host CPU model,
+so on Windows the guest runs with the generic `qemu64` CPU model.
+
+## Windows as a fleet host
+
+This page is about local docks. Running a Windows machine as a host in a
+control plane fleet is planned and tracked in
+[usedock/docklet#37](https://github.com/usedock/docklet/issues/37). Fleet hosts
+today are Linux ([Self-hosting](/self-hosting)).
