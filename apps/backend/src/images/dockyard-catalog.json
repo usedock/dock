@@ -1,0 +1,32 @@
+{
+  "images": [
+    {
+      "name": "ubuntu-24.04",
+      "description": "Minimal Ubuntu 24.04: systemd, openssh-server, git, curl, python3",
+      "arch": ["amd64"],
+      "sizeMiB": 1536,
+      "contents": "Ubuntu 24.04 with systemd, openssh-server, git, curl and python3"
+    },
+    {
+      "name": "node-22",
+      "description": "ubuntu-24.04 with Node.js 22",
+      "arch": ["amd64"],
+      "sizeMiB": 2048,
+      "contents": "ubuntu-24.04 plus Node.js 22"
+    },
+    {
+      "name": "python-3.12",
+      "description": "ubuntu-24.04 with Python 3.12, pip and venv",
+      "arch": ["amd64"],
+      "sizeMiB": 2048,
+      "contents": "ubuntu-24.04 plus Python 3.12, pip and venv"
+    },
+    {
+      "name": "browser",
+      "description": "ubuntu-24.04 with Chromium and its dependencies",
+      "arch": ["amd64"],
+      "sizeMiB": 3072,
+      "contents": "ubuntu-24.04 plus Chromium and its dependencies"
+    }
+  ]
+}

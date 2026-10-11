@@ -1,0 +1,22 @@
+name: list-images
+description: The image list reports the four Dockyard images, and a Dock create with an unknown image is refused with image_unknown.
+steps:
+  - id: list
+    op: images.list
+    expect:
+      status: 200
+      ok: true
+      data:
+        - name: ubuntu-24.04
+        - name: node-22
+        - name: python-3.12
+        - name: browser
+  - id: create-unknown
+    op: docks.create
+    args:
+      workspaceId: "${workspaceId}"
+      image: debian-12
+    expect:
+      status: 400
+      ok: false
+      code: image_unknown

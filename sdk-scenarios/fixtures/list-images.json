@@ -1,0 +1,75 @@
+{
+  "scenario": "list-images",
+  "variables": {
+    "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "run": "fixture"
+  },
+  "exchanges": [
+    {
+      "step": "list",
+      "request": {
+        "method": "GET",
+        "path": "/v1/images"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": [
+        {
+          "name": "ubuntu-24.04",
+          "description": "Minimal Ubuntu 24.04: systemd, openssh-server, git, curl, python3",
+          "arch": ["amd64"],
+          "sizeMiB": 1536,
+          "contents": "Ubuntu 24.04 with systemd, openssh-server, git, curl and python3",
+          "available": true
+        },
+        {
+          "name": "node-22",
+          "description": "ubuntu-24.04 with Node.js 22",
+          "arch": ["amd64"],
+          "sizeMiB": 2048,
+          "contents": "ubuntu-24.04 plus Node.js 22",
+          "available": false
+        },
+        {
+          "name": "python-3.12",
+          "description": "ubuntu-24.04 with Python 3.12, pip and venv",
+          "arch": ["amd64"],
+          "sizeMiB": 2048,
+          "contents": "ubuntu-24.04 plus Python 3.12, pip and venv",
+          "available": false
+        },
+        {
+          "name": "browser",
+          "description": "ubuntu-24.04 with Chromium and its dependencies",
+          "arch": ["amd64"],
+          "sizeMiB": 3072,
+          "contents": "ubuntu-24.04 plus Chromium and its dependencies",
+          "available": false
+        }
+          ]
+        }
+      }
+    },
+    {
+      "step": "create-unknown",
+      "request": {
+        "method": "POST",
+        "path": "/v1/docks",
+        "body": {
+          "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "image": "debian-12"
+        }
+      },
+      "response": {
+        "status": 400,
+        "body": {
+          "ok": false,
+          "code": "image_unknown",
+          "message": "Unknown image. Valid images: ubuntu-24.04, node-22, python-3.12, browser"
+        }
+      }
+    }
+  ]
+}

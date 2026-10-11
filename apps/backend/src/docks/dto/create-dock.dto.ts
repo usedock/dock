@@ -15,7 +15,7 @@ export class CreateDockDto extends DockSizeDto {
 
   @IsOptional()
   @IsString()
-  @ApiProperty({ required: false, default: DEFAULT_IMAGE, description: 'Only ubuntu-24.04 is available' })
+  @ApiProperty({ required: false, default: DEFAULT_IMAGE, description: 'A Dockyard image name from GET /v1/images' })
   image?: string;
 
   @IsOptional()

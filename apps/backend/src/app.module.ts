@@ -28,6 +28,7 @@ import { RetentionModule } from './retention/retention.module';
 import { SshKeysModule } from './ssh-keys/ssh-keys.module';
 import { SnapshotsModule } from './snapshots/snapshots.module';
 import { FleetModule } from './fleet/fleet.module';
+import { ImagesModule } from './images/images.module';
 import { HostsModule } from './hosts/hosts.module';
 import { StatsModule } from './stats/stats.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
@@ -64,6 +65,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     SnapshotsModule,
     HostsModule,
     FleetModule,
+    ImagesModule,
     StatsModule,
     RetentionModule,
     AccountClosureModule,
