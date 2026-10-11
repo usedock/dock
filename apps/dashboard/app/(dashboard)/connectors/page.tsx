@@ -135,8 +135,14 @@ function ConnectorsView() {
     if (notice) router.replace('/connectors');
   }, [notice, router]);
 
+  // The live workspace, so an action that finishes after a switch cannot reload the old one (declared before the load effect).
+  const workspaceRef = useRef(selectedWorkspaceId);
+  useEffect(() => {
+    workspaceRef.current = selectedWorkspaceId;
+  }, [selectedWorkspaceId]);
+
   const refresh = useCallback(() => {
-    if (!selectedWorkspaceId) return;
+    if (!selectedWorkspaceId || selectedWorkspaceId !== workspaceRef.current) return;
     const seq = ++loadSeq.current;
     const workspaceId = selectedWorkspaceId;
     api
