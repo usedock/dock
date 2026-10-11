@@ -633,6 +633,41 @@ describe('DocksService', () => {
     expect(metering.moveToCompute).toHaveBeenCalledWith(expect.objectContaining({ cpus: 4, memoryMiB: 8192, diskGiB: 20 }));
   });
 
+  describe('resume ttlSeconds', () => {
+    async function resumeWith(opts: Record<string, unknown>) {
+      db.select
+        .mockReturnValueOnce(selectQ([dockRow({ state: 'archived', ttlSeconds: 3600 })]))
+        .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
+        .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1' }]));
+      const sets: Record<string, unknown>[] = [];
+      db.update.mockImplementation(() => ({ set: (v: Record<string, unknown>) => { sets.push(v); return { where: () => ({ returning: () => Promise.resolve([dockRow({ state: 'ready' })]) }) }; } }));
+      await service.resume('u1', dockId, opts);
+      return sets.find((v) => v.state === 'ready')!;
+    }
+
+    it('sets a number on the ready transition', async () => {
+      expect(await resumeWith({ ttlSeconds: 120 })).toMatchObject({ ttlSeconds: 120 });
+    });
+
+    it('clears auto-stop with null', async () => {
+      expect(await resumeWith({ ttlSeconds: null })).toHaveProperty('ttlSeconds', null);
+    });
+
+    it('leaves the stored value when absent', async () => {
+      expect(await resumeWith({})).not.toHaveProperty('ttlSeconds');
+    });
+
+    it('rejects an out-of-range ttl before anything changes', async () => {
+      db.select
+        .mockReturnValueOnce(selectQ([dockRow({ state: 'archived' })]))
+        .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
+        .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1' }]));
+      const err = await catchErr(service.resume('u1', dockId, { ttlSeconds: 5 }));
+      expect(err).toMatchObject({ status: 400 });
+      expect(db.update).not.toHaveBeenCalled();
+    });
+  });
+
   it('swaps the storage window for compute in one step on resume', async () => {
     db.select
       .mockReturnValueOnce(selectQ([dockRow({ state: 'archived' })]))
@@ -761,6 +796,23 @@ describe('DocksService', () => {
     const err = await catchErr(service.resume('u1', dockId));
     expect(err.body).toMatchObject({ code: 'base_image_unavailable' });
     expect(hosts.placeForDock).toHaveBeenLastCalledWith(expect.objectContaining({ excludeHostIds: ['host-a', 'host-b'] }));
+    spy.mockRestore();
+  });
+
+  it('reports 400 image_unavailable naming the dock image when no host serves it on resume', async () => {
+    config.get.mockReturnValue('restate');
+    hosts.placeForDock.mockResolvedValueOnce({ id: 'host-a' }).mockResolvedValueOnce(null);
+    hosts.anyOnlineWithHeadroom.mockResolvedValue(true);
+    const spy = vi.spyOn(provider, 'resume').mockRejectedValueOnce(new DockletException('image_unavailable', 'image_unavailable: "node-22"'));
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow({ state: 'archived', image: 'node-22' })]))
+      .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
+      .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1', cpuFamily: 'x86_64-v4', baseFingerprint: null }]));
+    db.update.mockReturnValue(updateQ([dockRow({ state: 'provisioning' })]));
+    const err = await catchErr(service.resume('u1', dockId));
+    expect(err.status).toBe(400);
+    expect(err.body).toMatchObject({ code: 'image_unavailable' });
+    expect(err.body.message).toContain('node-22');
     spy.mockRestore();
   });
 

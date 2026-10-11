@@ -34,7 +34,7 @@ Accepts `idempotency-key`.
 |---|---|---|---|---|
 | `workspaceId` | uuid | yes | | Workspace that owns the Dock. |
 | `name` | string | no | max 100, unique per workspace | Generated when omitted. |
-| `image` | string | no | default `ubuntu-24.04` | The only image today. |
+| `image` | string | no | default `ubuntu-24.04`; a name from the [Dockyard catalog](/dockyard#list-images) | Image to boot from. List names with `GET /v1/images`. |
 | `cpus`, `memoryMiB`, `diskGiB` | integer | no | see above | Size. |
 | `ttlSeconds` | integer or null | no | 60 to 2592000, default `null` | Seconds after the Dock becomes ready before it stops automatically; `null` disables auto-stop. |
 | `environment` | string | no | max 100 | Environment name; the organization default when omitted. |
@@ -45,8 +45,12 @@ Accepts `idempotency-key`.
 
 Response: the [Dock object](/api/objects#dock).
 
-Errors: `validation_error` (including an unknown `image`, or a size larger than
-every online host), `dock_not_found` (unknown workspace),
+An `image` outside the catalog fails with `image_unknown` (400). A catalog image
+that no online host serves fails with `image_unavailable` (400); retry later or
+pick an available image from `GET /v1/images`.
+
+Errors: `validation_error` (including a size larger than every online host),
+`image_unknown`, `image_unavailable`, `dock_not_found` (unknown workspace),
 `environment_not_found`, `environment_secrets_admin_only`, `template_not_found`,
 `template_source_missing`, `dock_name_taken`, `capacity_exhausted`,
 `no_host_capacity`, `base_image_unavailable`, `subscription_required`,
@@ -121,15 +125,16 @@ Boot an archived Dock from its latest Snapshot (202).
 
 | Field | Type | Required | Limits / default | Description |
 |---|---|---|---|---|
-| `ttlSeconds` | integer or null | no | 60 to 2592000 | Auto-stop timer. |
+| `ttlSeconds` | integer or null | no | 60 to 2592000 | Auto-stop timer, counted from when the Dock is ready again. A number replaces the stored value, `null` clears auto-stop, and omitting it keeps the stored value. |
 | `cpus`, `memoryMiB`, `diskGiB` | integer | no | see above | Size for this boot. |
 | `environment` | string | no | max 100 | Environment to bind. |
 | `noEnv` | boolean | no | | Skip the Environment. |
 
-Response: `{ "id": "...", "state": "..." }`. Errors: `validation_error`,
-`dock_not_found`, `environment_not_found`, `conflict` (the Dock is not archived,
+Response: `{ "id": "...", "state": "..." }`. Errors: `validation_error`
+(including a `ttlSeconds` out of range), `dock_not_found`, `environment_not_found`, `conflict` (the Dock is not archived,
 or has no completed Snapshot), `environment_secrets_admin_only`,
-`capacity_exhausted`, `no_host_capacity`, `base_image_unavailable`, `dock_busy`,
+`capacity_exhausted`, `no_host_capacity`, `base_image_unavailable`,
+`image_unavailable` (no online host serves the Dock's image), `dock_busy`,
 `subscription_required`, `concurrency_exceeded`, `budget_exceeded`.
 
 ### `POST /v1/docks/:id/branch`
@@ -142,7 +147,7 @@ Accepts `idempotency-key`.
 | Field | Type | Required | Limits / default | Description |
 |---|---|---|---|---|
 | `name` | string | no | max 100 | Generated when omitted. |
-| `image` | string | no | default the source's image | `ubuntu-24.04`. |
+| `image` | string | no | default the source's image | Must equal the source's image; another catalog image fails with `validation_error`. |
 | `cpus`, `memoryMiB`, `diskGiB` | integer | no | see above | Size; defaults to the source's. |
 | `ttlSeconds` | integer or null | no | 60 to 2592000, default `null` | Auto-stop timer. |
 | `environment` | string | no | max 100 | Environment; defaults to the source's. |
@@ -150,7 +155,8 @@ Accepts `idempotency-key`.
 | `env` | object of strings | no | as for `POST /v1/docks` | Merged over the source's variables. |
 
 Response: the [Dock object](/api/objects#dock). Errors: as for
-`POST /v1/docks`, plus `dock_not_found` and `dock_busy`.
+`POST /v1/docks` (an `image` outside the catalog is `image_unknown`; a different
+catalog image is `validation_error`), plus `dock_not_found` and `dock_busy`.
 
 ### `POST /v1/docks/:id/exec`
 

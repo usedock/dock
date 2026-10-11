@@ -88,6 +88,8 @@ specific to an operation.
 | `dock_key_forbidden` | 403 | A Dock-bound key called a route it may not use. |
 | `account_closed` | 403 (410 once erased) | The account is closed or erased. |
 | `confirm_required` | 400 | A destructive call lacked its exact confirmation. |
+| `image_unknown` | 400 | The `image` is not in the [Dockyard catalog](/dockyard#list-images). |
+| `image_unavailable` | 400 | The image is in the catalog but no online host serves it. |
 | `idempotency_key_reused` | 409 | An `idempotency-key` was reused with a different body. |
 | `idempotency_in_progress` | 409 | The first request with this key is still running. |
 | `dock_not_found` | 404 | No such Dock, or it is not yours. |
