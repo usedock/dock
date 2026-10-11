@@ -103,8 +103,10 @@ The dock receives these environment variables (and nothing of the real token):
 | `DOCK_<KIND>_MCP_URL` | `<api>/v1/connectors/gateway/<kind>/mcp` (kinds with an MCP endpoint) |
 | `DOCK_MCP_CONFIG` | `/home/user/.config/dock/mcp.json` |
 
-That file lists the MCP servers with the bearer header, in the common
-`mcpServers` format:
+That file is managed by Dock: every apply rewrites it on a dock with connectors
+and deletes it on a dock without them (for example one created from a Template
+or branch of a connector dock), so keep your own MCP config elsewhere. It lists
+the MCP servers with the bearer header, in the common `mcpServers` format:
 
 ```json
 { "mcpServers": { "linear": { "type": "http", "url": "https://api.example.com/v1/connectors/gateway/linear/mcp", "headers": { "Authorization": "Bearer <dock token>" } } } }

@@ -103,6 +103,14 @@ Errors: `validation_error`, `forbidden` (not an admin), `dock_not_found`,
 `zdr_blocks_templates`, `conflict` (the same name is being saved, or an archived
 Dock has no completed Snapshot), `service_unavailable` (the capture failed).
 
+When the Dock has connectors, a running Dock is re-applied after the capture so its
+connector gateway token is replaced: the copy held by the Template stops working,
+and the Template is marked as coming from a connector Dock. Processes already
+running in the source Dock keep the old token until they reload
+`~/.config/dock/mcp.json` or the environment. The rotation is best effort: if the
+apply fails before the token is replaced, the save still succeeds and the captured
+token works until the source Dock is applied again or stops.
+
 ### `GET /v1/templates`
 
 List Templates in all your organizations, newest first. Templates still
@@ -136,4 +144,7 @@ Errors: `validation_error`, `organization_not_found`, `forbidden` (not an
 admin), `template_not_found`.
 
 To start a Dock from a Template, pass its name as `from` to
-[`POST /v1/docks`](/api/docks#post-v1docks).
+[`POST /v1/docks`](/api/docks#post-v1docks). A Template saved from a Dock with
+connectors (or whose source Dock is unknown, such as a Template that predates this
+record and whose Dock is gone) can be used only by organization admins; members get
+`403 connector_admin_only`.

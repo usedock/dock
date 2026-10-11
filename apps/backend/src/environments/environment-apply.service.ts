@@ -9,7 +9,7 @@ import { apiKeys, docks, githubInstallations, workspaces, type Dock, type EnvRep
 import { API_KEY_PREFIX } from '../api-keys/api-keys.service';
 import { CHATGPT_DOCK_AGENTS, chatgptDockBundle } from '../chatgpt/chatgpt-dock';
 import { DEFAULT_DOCK_AGENTS } from '../github/run-agents';
-import { connectorDockBundle } from '../connectors/connector-dock';
+import { MCP_CONFIG_PATH, connectorDockBundle } from '../connectors/connector-dock';
 import { isConnectorKind } from '../connectors/connector-kinds';
 import { ChatgptService } from '../chatgpt/chatgpt.service';
 import { publicApiUrl } from '../config/instance';
@@ -171,6 +171,7 @@ export class EnvironmentApplyService implements OnModuleInit, OnModuleDestroy {
       vars: { ...connectors.vars, ...chatgpt.vars, ...resolved.vars, ...neutral, ...(credential ? { DOCK_API_KEY: credential } : {}) },
       files: [...resolved.files, ...chatgpt.files, ...connectors.files],
       repos: resolved.repos,
+      removeFiles: connectors.files.length ? [] : [MCP_CONFIG_PATH],
       execEnv: await this.cloneTokens(orgId, resolved.repos),
     };
   }

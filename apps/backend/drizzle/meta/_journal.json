@@ -36,6 +36,13 @@
       "when": 1791682704966,
       "tag": "0004_watery_the_spike",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791683519439,
+      "tag": "0005_petite_squirrel_girl",
+      "breakpoints": true
     }
   ]
 }

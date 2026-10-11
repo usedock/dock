@@ -119,6 +119,15 @@ describe.skipIf(process.platform === 'win32')('buildApplyScripts', () => {
     expect(calls).not.toContain('tok ');
   });
 
+  it('removes listed files the bundle does not write', () => {
+    mkdirSync(join(home, '.config/dock'), { recursive: true });
+    writeFileSync(join(home, '.config/dock/mcp.json'), 'stale');
+    run({ vars: {}, files: [], repos: [], removeFiles: ['.config/dock/mcp.json'] });
+    expect(existsSync(join(home, '.config/dock/mcp.json'))).toBe(false);
+    run({ vars: {}, files: [{ path: '.config/dock/mcp.json', contents: 'fresh' }], repos: [], removeFiles: ['.config/dock/mcp.json'] });
+    expect(readFileSync(join(home, '.config/dock/mcp.json'), 'utf8')).toBe('fresh');
+  });
+
   it('reports done at once when nothing runs in the background', () => {
     const out = buildApplyScripts({ vars: {}, files: [], repos: [] });
     expect(out.background).toBe(false);

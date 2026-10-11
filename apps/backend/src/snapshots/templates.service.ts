@@ -43,6 +43,11 @@ function savingMarker(tpl: Template): Date | null {
   return tpl.savingSince ?? (tpl.status === 'saving' ? tpl.updatedAt : null);
 }
 
+/** A dock with connectors holds a gateway token on its disk. */
+function hasConnectors(dock: Dock): boolean {
+  return (dock.connectors ?? []).length > 0;
+}
+
 function saveInFlight(tpl: Template): boolean {
   const marker = savingMarker(tpl);
   if (!marker) return false;
@@ -92,7 +97,7 @@ export class TemplatesService {
         await this.releaseGeneration(existing.storeSnapshotId);
         const [updated] = await tx
           .update(templates)
-          .set({ ...this.referenced(latest), sourceDockId: dock.id, status: 'ready', savingSince: null, updatedAt: new Date() })
+          .set({ ...this.referenced(latest), sourceDockId: dock.id, hadConnectors: hasConnectors(dock), status: 'ready', savingSince: null, updatedAt: new Date() })
           .where(eq(templates.id, existing.id))
           .returning();
         return updated;
@@ -103,6 +108,7 @@ export class TemplatesService {
           organizationId: orgId,
           name,
           sourceDockId: dock.id,
+          hadConnectors: hasConnectors(dock),
           status: 'ready',
           ...this.referenced(latest),
         })
@@ -130,7 +136,7 @@ export class TemplatesService {
       }
       const [created] = await tx
         .insert(templates)
-        .values({ organizationId: orgId, name, sourceDockId: dock.id, status: 'saving', savingSince: reservedAt })
+        .values({ organizationId: orgId, name, sourceDockId: dock.id, hadConnectors: hasConnectors(dock), status: 'saving', savingSince: reservedAt })
         .returning();
       return { id: created.id, previous: null, reservedAt, latestId: latest?.id ?? null };
     });
@@ -146,7 +152,7 @@ export class TemplatesService {
       [saved] = await this.db.transaction((tx) =>
         tx
           .update(templates)
-          .set({ ...fresh, sourceDockId: dock.id, status: 'ready', savingSince: null, updatedAt: new Date() })
+          .set({ ...fresh, sourceDockId: dock.id, hadConnectors: hasConnectors(dock), status: 'ready', savingSince: null, updatedAt: new Date() })
           .where(and(eq(templates.id, reservation.id), eq(templates.savingSince, reservation.reservedAt)))
           .returning(),
       );
@@ -163,6 +169,8 @@ export class TemplatesService {
       await this.releaseGenerationQuietly(fresh.storeSnapshotId);
       throw new TemplateNotFoundException();
     }
+    // The capture holds the source's gateway token; re-applying replaces it so the copy is dead.
+    if (hasConnectors(dock)) await this.docks.reapply(dock, orgId).catch((err) => this.log.warn(`Could not rotate connector token of dock ${dock.id}: ${(err as Error).message}`));
     // Re-saving replaces the generation, so the old one is released; a failure only leaks it.
     await this.releaseGenerationQuietly(reservation.previous?.storeSnapshotId ?? null);
     return saved;

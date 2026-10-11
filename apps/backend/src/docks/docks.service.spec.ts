@@ -840,6 +840,52 @@ describe('DocksService', () => {
     expect(dock.fromTemplate).toBe('web-stack');
   });
 
+  it('re-applies the current row, not the one read before a template capture', async () => {
+    db.select.mockReturnValueOnce(selectQ([dockRow({ envVersionPin: 'v2' })]));
+    await service.reapply(dockRow({ envVersionPin: 'v1' }) as never, orgId);
+    expect(applier.apply).toHaveBeenCalledWith(expect.objectContaining({ id: dockId, envVersionPin: 'v2' }), orgId);
+  });
+
+  it('skips the re-apply when the dock is gone', async () => {
+    db.select.mockReturnValueOnce(selectQ([]));
+    await service.reapply(dockRow() as never, orgId);
+    expect(applier.apply).not.toHaveBeenCalled();
+  });
+
+  describe('create from a template that had connectors', () => {
+    const arrange = (tpl: Record<string, unknown>, sourceRows: any[]) => {
+      db.select.mockReturnValueOnce(selectQ([{ name: 'web-stack', status: 'ready', sourceDockId: dockId, ...tpl }])).mockReturnValueOnce(selectQ(sourceRows));
+      db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null })]));
+      db.update.mockReturnValueOnce(updateQ([dockRow({ fromTemplate: 'web-stack' })]));
+    };
+
+    it('refuses members with the connector admin code', async () => {
+      arrange({ hadConnectors: true }, [dockRow({ connectors: ['linear'] })]);
+      const err = await catchErr(service.create('u1', { workspaceId: wsId, from: 'web-stack' }));
+      expect(err.status).toBe(403);
+      expect(err.body.code).toBe('connector_admin_only');
+    });
+
+    it('refuses members when the source dock is gone', async () => {
+      arrange({ hadConnectors: true }, []);
+      const err = await catchErr(service.create('u1', { workspaceId: wsId, from: 'web-stack' }));
+      expect(err.status).toBe(403);
+    });
+
+    it('allows admins', async () => {
+      orgs.requireMembership.mockResolvedValue({ role: 'admin' });
+      arrange({ hadConnectors: true }, [dockRow({ connectors: ['linear'] })]);
+      const dock = await service.create('u1', { workspaceId: wsId, from: 'web-stack' });
+      expect(dock.fromTemplate).toBe('web-stack');
+    });
+
+    it('lets members use templates saved without connectors', async () => {
+      arrange({ hadConnectors: false }, [dockRow()]);
+      const dock = await service.create('u1', { workspaceId: wsId, from: 'web-stack' });
+      expect(dock.fromTemplate).toBe('web-stack');
+    });
+  });
+
   it('looks template names up only in the workspace org', async () => {
     const wheres: unknown[] = [];
     const p = Promise.resolve([{ name: 'web-stack', status: 'ready' }]);
