@@ -98,11 +98,15 @@ export interface GithubRun {
   updatedAt?: string;
 }
 
+export type ConnectorCredentialType = 'oauth' | 'personal_token' | 'bot_token' | 'org_token' | 'user_token' | 'token';
+
 export interface Connector {
   kind: string;
   type: 'tool' | 'github' | 'model-keys';
   status: 'connected' | 'not_connected' | 'reauth_required';
   accountLabel: string | null;
+  /** How the connection authenticated; null when not connected or not a tool. */
+  credentialType: ConnectorCredentialType | null;
   scopes: string[];
   oauthAvailable: boolean;
   readOnly: boolean;

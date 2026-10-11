@@ -43,7 +43,7 @@ reached the answer is `502 connector_unreachable` and nothing is stored.
 - `GET /v1/workspaces/:workspaceId/connectors` lists `figma`, `linear`, `slack`
   and `sentry` plus the read-only `github` and `model-keys` entries. Each entry has
   `kind`, `type` (`tool`, `github` or `model-keys`), `status` (`connected`,
-  `not_connected` or `reauth_required`), `accountLabel`, `scopes`,
+  `not_connected` or `reauth_required`), `accountLabel`, `credentialType`, `scopes`,
   `oauthAvailable`, `readOnly` and `updatedAt`. It never contains a token.
 - `PUT /v1/workspaces/:workspaceId/connectors/:kind` connects with
   `{ "token": "...", "host"?: "..." }`. Reconnecting replaces the stored credential and makes the reconnecting admin the owner of the connector's docks and runs. Admins only. A vendor account can be connected to one workspace at a time (`409 connector_account_in_use`).
@@ -54,6 +54,26 @@ reached the answer is `502 connector_unreachable` and nothing is stored.
 
 Events from a connected tool can also start runs; see
 [Triggers and replies](/docs/connectors/triggers).
+
+## Credential types
+
+Each connected tool reports how it authenticated as `credentialType`. It is
+decided when you connect, from the method and the token's vendor prefix, and is
+`null` for tools that are not connected and for GitHub and model keys.
+
+| `credentialType` | What it is | Acts as |
+| --- | --- | --- |
+| `oauth` | Sign in with OAuth | The account that approved |
+| `personal_token` | Figma `figd_` or Linear `lin_api_` personal token | That person |
+| `bot_token` | Slack `xoxb-` bot token | The Slack app |
+| `org_token` | Sentry `sntrys_` organization token | The organization |
+| `user_token` | Slack `xoxp-` or Sentry `sntryu_` user token | That person |
+| `token` | A token whose kind could not be told from its shape | Unknown |
+
+Dock cannot limit what a personal or user token may do, and everything a run or
+agent does with one is attributed to its owner. The dashboard warns on those
+connections; prefer OAuth or a bot or organization token. Connections made
+before this field existed get it filled in the next time the list is read.
 
 ## Sign in with OAuth
 

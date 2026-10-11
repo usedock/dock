@@ -1,8 +1,8 @@
 import { ForbiddenException } from '@nestjs/common';
 import { vi, type Mock } from 'vitest';
-import { openValue } from '../environments/secrets';
+import { openValue, sealValue } from '../environments/secrets';
 import { WorkspaceNotFoundException } from '../workspaces/workspaces.service';
-import { ConnectorAccountInUseException, ConnectorNotConnectedException, ConnectorNotFoundException, ConnectorsService } from './connectors.service';
+import { ConnectorAccountInUseException, ConnectorNotConnectedException, ConnectorNotFoundException, ConnectorsService, deriveCredentialType } from './connectors.service';
 import type { ConnectorCredential } from './connector-kinds';
 
 type Row = Record<string, unknown>;
@@ -46,7 +46,7 @@ describe('ConnectorsService', () => {
   describe('list', () => {
     it('reports every tool plus github and model-keys as read-only entries, without credentials', async () => {
       db.select
-        .mockReturnValueOnce(selectQ([{ kind: 'linear', status: 'connected', accountLabel: 'Acme', scopes: ['read'], credentials: { iv: 'i', tag: 't', data: 'SECRET-BLOB' }, updatedAt: new Date('2026-01-01') }]))
+        .mockReturnValueOnce(selectQ([{ kind: 'linear', status: 'connected', accountLabel: 'Acme', credentialType: 'personal_token', scopes: ['read'], credentials: { iv: 'i', tag: 't', data: 'SECRET-BLOB' }, updatedAt: new Date('2026-01-01') }]))
         .mockReturnValueOnce(selectQ([{ updatedAt: new Date('2026-02-01') }]))
         .mockReturnValueOnce(selectQ([{ provider: 'openai', updatedAt: new Date('2026-03-01') }, { provider: 'anthropic', updatedAt: new Date('2026-01-01') }]));
       config.LINEAR_CLIENT_ID = 'x';
@@ -60,11 +60,32 @@ describe('ConnectorsService', () => {
         ['github', 'connected'],
         ['model-keys', 'connected'],
       ]);
-      expect(out.find((c) => c.kind === 'linear')).toMatchObject({ accountLabel: 'Acme', oauthAvailable: true, readOnly: false });
+      expect(out.find((c) => c.kind === 'linear')).toMatchObject({ accountLabel: 'Acme', credentialType: 'personal_token', oauthAvailable: true, readOnly: false });
+      expect(out.find((c) => c.kind === 'figma')?.credentialType).toBeNull();
+      expect(db.update).not.toHaveBeenCalled();
       expect(out.find((c) => c.kind === 'figma')?.oauthAvailable).toBe(false);
       expect(out.find((c) => c.kind === 'model-keys')).toMatchObject({ scopes: ['anthropic', 'openai'], readOnly: true });
       expect(JSON.stringify(out)).not.toContain('SECRET-BLOB');
       expect(orgs.requireMembership).not.toHaveBeenCalledWith('o1', 'u1', 'admin');
+    });
+
+    it('derives and stores the credential type of rows from before the column existed', async () => {
+      const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      db.update.mockReturnValue({ set });
+      const sealed = (cred: ConnectorCredential) => sealValue(KEY, JSON.stringify(cred));
+      db.select
+        .mockReturnValueOnce(
+          selectQ([
+            { id: 'a', kind: 'linear', status: 'connected', credentialType: null, scopes: [], credentials: sealed({ type: 'oauth', access: 'a', refresh: 'r', expiresAt: 1 }), updatedAt: new Date() },
+            { id: 'b', kind: 'slack', status: 'connected', credentialType: null, scopes: [], credentials: sealed({ type: 'token', access: 'xoxb-1' }), updatedAt: new Date() },
+          ]),
+        )
+        .mockReturnValueOnce(selectQ([]))
+        .mockReturnValueOnce(selectQ([]));
+      const out = await service.list('u1', 'w1');
+      expect(out.find((c) => c.kind === 'linear')?.credentialType).toBe('oauth');
+      expect(out.find((c) => c.kind === 'slack')?.credentialType).toBe('bot_token');
+      expect(set.mock.calls.map((c) => c[0])).toEqual([{ credentialType: 'oauth' }, { credentialType: 'bot_token' }]);
     });
 
     it('hides workspaces the caller cannot see', async () => {
@@ -87,6 +108,14 @@ describe('ConnectorsService', () => {
       expect(JSON.parse(openValue(KEY, row.credentials))).toEqual({ type: 'token', access: 'lin_api_secret' });
       expect(JSON.stringify(out)).not.toMatch(/lin_api_secret|credentials|SEALED/);
       expect(orgs.requireMembership).toHaveBeenCalledWith('o1', 'u1', 'admin');
+    });
+
+    it('records the credential type derived from the token', async () => {
+      const { values, onConflictDoUpdate } = mockUpsert();
+      fetchFn.mockResolvedValue(json({ data: { viewer: { name: 'Pat' } } }));
+      await service.connect('u1', 'w1', 'linear', 'lin_api_x');
+      expect(values.mock.calls[0][0].credentialType).toBe('personal_token');
+      expect(onConflictDoUpdate.mock.calls[0][0].set.credentialType).toBe('personal_token');
     });
 
     it('uses each vendor identity call (Figma header, Slack auth.test, Sentry organizations)', async () => {
@@ -388,5 +417,24 @@ describe('ConnectorsService', () => {
       expect(set.mock.calls[0][0]).not.toHaveProperty('webhookSecret');
       expect(out.secret).toBeUndefined();
     });
+  });
+});
+
+describe('deriveCredentialType', () => {
+  const token = (access: string) => ({ type: 'token' as const, access });
+  it('calls any OAuth credential oauth, even one that looks like a bot token', () => {
+    expect(deriveCredentialType('slack', { type: 'oauth', access: 'xoxb-1' })).toBe('oauth');
+  });
+  it('tells token kinds apart by vendor prefix', () => {
+    expect(deriveCredentialType('figma', token('figd_a'))).toBe('personal_token');
+    expect(deriveCredentialType('linear', token('lin_api_a'))).toBe('personal_token');
+    expect(deriveCredentialType('slack', token('xoxb-a'))).toBe('bot_token');
+    expect(deriveCredentialType('slack', token('xoxp-a'))).toBe('user_token');
+    expect(deriveCredentialType('sentry', token('sntrys_a'))).toBe('org_token');
+    expect(deriveCredentialType('sentry', token('sntryu_a'))).toBe('user_token');
+  });
+  it('falls back to a plain token for unrecognised shapes', () => {
+    expect(deriveCredentialType('sentry', token('abcdef'))).toBe('token');
+    expect(deriveCredentialType('slack', token('xapp-1'))).toBe('token');
   });
 });
