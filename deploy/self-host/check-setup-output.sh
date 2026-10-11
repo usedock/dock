@@ -69,4 +69,19 @@ for dir in "$WORK/docklet" "$WORK/missing"; do
   remote_block="$(printf '%s\n' "$out" | sed -n '/silent prompt:/,$p' | sed '1d')"
   run_block "another machine" "$WORK/docklet" "$remote_block" "$TOKEN"
 done
+
+# setup.sh --host: enroll_host passes the token in the environment, not argv, as a
+# non-root user (through sudo) and as root (no sudo).
+for uid in 1000 0; do
+  rm -f "$WORK/got-env" "$WORK/got-argv"
+  FAKE_UID=$uid DOCK_SETUP_SOURCE_ONLY=1 PATH="$WORK/bin:$PATH" bash -c '
+    . "$1/setup.sh"
+    id() { echo "$FAKE_UID"; }
+    FLEET_TOKEN="$2" PUBLIC_URL=https://dock.example.com
+    HOST_CMD=(bash "$3/docklet/scripts/bootstrap-host.sh" --fleet-url "$PUBLIC_URL" --runtime gvisor --pool-size 0)
+    enroll_host
+  ' _ "$SELF_DIR" "$TOKEN" "$WORK" <<< "" || fail "--host (uid $uid): enroll_host failed"
+  [ "$(cat "$WORK/got-env" 2>/dev/null)" = "$TOKEN" ] || fail "--host (uid $uid): token not in DOCKLET_FLEET_TOKEN"
+  case "$(cat "$WORK/got-argv")" in *"$TOKEN"*|*--fleet-token*) fail "--host (uid $uid): token passed in argv" ;; esac
+done
 printf 'check-setup-output: ok\n'
