@@ -54,7 +54,7 @@ services:
     environment:
       MINIO_ROOT_USER: '${SNAPSHOT_STORE_ACCESS_KEY:?set SNAPSHOT_STORE_ACCESS_KEY}'
       MINIO_ROOT_PASSWORD: '${SNAPSHOT_STORE_SECRET_KEY:?set SNAPSHOT_STORE_SECRET_KEY}'
-      MINIO_KMS_SECRET_KEY: '${MINIO_KMS_SECRET_KEY:?set MINIO_KMS_SECRET_KEY (run ./setup.sh, or see .env.example)}'
+      MINIO_KMS_SECRET_KEY: '${MINIO_KMS_SECRET_KEY:?run ./setup.sh (or ./setup.sh --upgrade <version>) to add the snapshot encryption key to .env, then back up .env}'
     volumes:
       - minio-data:/data
     healthcheck:
@@ -111,6 +111,8 @@ services:
       SNAPSHOT_STORE_ACCESS_KEY: '${SNAPSHOT_STORE_ACCESS_KEY}'
       SNAPSHOT_STORE_SECRET_KEY: '${SNAPSHOT_STORE_SECRET_KEY}'
       SNAPSHOT_STORE_PUBLIC_ENDPOINT: '${SNAPSHOT_STORE_PUBLIC_ENDPOINT:-}'
+      # env_file passes all of .env; only minio needs the snapshot encryption key.
+      MINIO_KMS_SECRET_KEY: ''
       # SSH gateway; published directly since Caddy only proxies HTTP.
       SSH_GATEWAY_PORT: 2222
       SSH_PUBLIC_PORT: '${DOCK_SSH_PORT:-2222}'

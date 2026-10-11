@@ -92,6 +92,16 @@ in `.env`, then `docker compose pull && docker compose up -d`. Back up the
 makes stored provider keys and environment secrets unreadable, and losing
 `MINIO_KMS_SECRET_KEY` makes every snapshot unreadable).
 
+Upgrading to the release with snapshot encryption, `docker compose up` stops with
+`required variable MINIO_KMS_SECRET_KEY is missing a value` until `.env` has the
+key. `./setup.sh --upgrade <version>` (or plain `./setup.sh`) adds it once. By hand,
+append it yourself, then back up `.env`:
+
+```bash
+printf 'MINIO_KMS_SECRET_KEY=dock-snapshots:%s
+' "$(openssl rand -base64 32)" >> .env
+```
+
 Release images are cosign-signed. Verify one with:
 
 ```bash
@@ -140,8 +150,11 @@ never replaces it, on new installs and on upgrades of installs that lack one.
   encryption headers, so it works with whatever the bucket enforces. On start the
   API checks the bucket and logs a warning when no default encryption is set; it
   never refuses to boot over it.
-- Backups of the `minio-data` volume hold ciphertext only; the key lives in
-  `.env`, so store the two apart.
+- **What it protects.** The key sits in `.env` on the same machine as the data, so
+  SSE-S3 protects a stolen disk or a copied `minio-data` volume or backup, not a
+  compromised host: anyone who can read `.env` or reach MinIO with its credentials
+  reads every snapshot. Object names, sizes and objects from before the upgrade are
+  not encrypted. Store `minio-data` backups apart from `.env`.
 
 ## Register the GitHub App (issue-to-PR runs)
 
