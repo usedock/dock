@@ -129,7 +129,8 @@ exports at once (`export_limit_reached`, HTTP 429), and a dock one in progress.
 `export_failed` or `export_interrupted`.
 
 `url` is a fresh presigned download for `rootfs.ext4.zst` on every call, valid
-for 15 minutes (`urlExpiresAt`); it supports `Range` requests, so a download
+until `urlExpiresAt` (15 minutes by default; self-hosters set
+`SNAPSHOT_STORE_PRESIGN_TTL_SECONDS`); it supports `Range` requests, so a download
 resumes. Check the downloaded file against `sha256`. `baseImage` names the
 Dockyard image whose kernel boots the disk. The export itself, and its object,
 are removed at `expiresAt`, 24 hours after the export starts.
@@ -146,10 +147,12 @@ resume.
 | Code | When |
 | --- | --- |
 | `import_too_large` | `sizeBytes` is above the `diskGiB` limit, or the uploaded object is bigger than declared |
-| `import_checksum_mismatch` | The uploaded size is not the declared one, or the host found a sha256 mismatch while booting the disk |
+| `import_checksum_mismatch` | Returned by complete when the uploaded size is not the declared one. A sha256 mismatch found by the host while booting returns no code: the dock goes to `error` |
+| `part_too_large` | A proxy part is bigger than `partSize` |
 | `runtime_unsupported` | No online microVM host has a docklet that verifies imported disks, or the dock to export is not a microVM dock |
 | `export_base_unsupported` | The exported dock's base is not a Dockyard image (reported as the export's `error`) |
 | `import_not_found`, `export_not_found` | Unknown, expired, or not yours to read |
 | `import_limit_reached`, `export_limit_reached` | Too many open imports or live exports |
+| `zdr_blocks_exports` | 403: exports are disabled while the organization's zero data retention is on |
 
 Every error uses the usual `{ "ok": false, "code", "message" }` envelope.
