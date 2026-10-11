@@ -69,6 +69,7 @@ Secret values are never included; names and sizes are. Returned by the
 | `passSecrets` | boolean | Posture flag of the current version. |
 | `passDockCredentials` | boolean | Posture flag of the current version. |
 | `passAgentsCredentials` | boolean | Posture flag of the current version. |
+| `providerKeys` | string | `gateway` or `plain`: how provider keys reach Docks on the current version. |
 | `egressAllow` | array of strings or null | Hosts Docks on the current version may reach over HTTPS; `null` means open outbound internet. |
 | `connections` | object | `{ "github": { "connected": boolean }, "gitlab": { "connected": boolean } }`. |
 | `varNames` | array of strings | Names of the variables, sorted. |
