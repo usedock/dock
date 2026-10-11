@@ -276,7 +276,8 @@ export class DocksService {
       ...(source.feature ? { feature: source.feature } : {}),
     });
     if (host) return host;
-    await this.assertFeatureNotTheCause(source, dock);
+    // After a docklet refusal the excluded hosts still look placeable, so only a first miss can blame the feature.
+    if (!excludeHostIds.length) await this.assertFeatureNotTheCause(source, dock);
     const fit = await this.hosts.sizeFit({ cpus: dock.cpus, memoryMiB: dock.memoryMiB });
     if (fit === 'none_online') throw new NoHostCapacityException();
     if (fit === 'too_large') throw validationError(`Requested size (${dock.cpus} cpus, ${dock.memoryMiB} MiB) exceeds the total capacity of every online host`);

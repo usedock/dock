@@ -270,6 +270,19 @@ describe('DocksService', () => {
       expect(err.body).toMatchObject({ code: 'host_egress_unsupported' });
     });
 
+    it('reports capacity, not the feature, when the only feature host refuses at its docklet', async () => {
+      config.get.mockReturnValue('restate');
+      envs.egressAllowFor.mockResolvedValueOnce(['github.com']);
+      hosts.placeForDock.mockResolvedValueOnce({ id: 'host-1' }).mockResolvedValueOnce(null);
+      hosts.sizeFit.mockResolvedValueOnce('ok');
+      hosts.anyOnlineWithHeadroom.mockResolvedValueOnce(false);
+      hosts.canPlace.mockResolvedValue(true); // host-1 still looks placeable once excluded
+      vi.spyOn(provider, 'resume').mockRejectedValueOnce(Object.assign(new Error('full'), { code: 'capacity_exhausted' }));
+      archivedResume();
+      const err = await catchErr(service.resume('u1', dockId));
+      expect(err.body).toMatchObject({ code: 'capacity_exhausted' });
+    });
+
     it('does not ask for the feature when the environment has no list', async () => {
       config.get.mockReturnValue('restate');
       hosts.placeForDock.mockResolvedValueOnce({ id: 'host-2' });
