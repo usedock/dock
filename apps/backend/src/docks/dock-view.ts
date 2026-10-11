@@ -15,6 +15,8 @@ export interface DockView {
   state: DockState;
   ttlSeconds: number | null;
   environment: string;
+  /** Connector kinds the dock may use through the gateway. */
+  connectors: string[];
   fromTemplate: string | null;
   ip: string | null;
   hostId: string | null;
@@ -41,6 +43,7 @@ export function dockView(dock: Dock): DockView {
     state: dock.state,
     ttlSeconds: dock.ttlSeconds,
     environment: dock.environment,
+    connectors: dock.connectors,
     fromTemplate: dock.fromTemplate,
     ip: dock.ip,
     hostId: dock.hostId,

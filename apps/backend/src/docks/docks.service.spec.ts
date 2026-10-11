@@ -25,6 +25,7 @@ describe('DocksService', () => {
   let webhooks: any;
   let notifications: any;
   let applier: any;
+  let connectors: any;
   let service: DocksService;
 
   const orgId = '11111111-1111-4111-8111-111111111111';
@@ -107,7 +108,8 @@ describe('DocksService', () => {
     webhooks = { record: vi.fn().mockResolvedValue({ id: 'evt-1' }) };
     notifications = { dockStopRefused: vi.fn().mockResolvedValue(null) };
     applier = { apply: vi.fn().mockImplementation(async (dock: unknown) => dock) };
-    service = new DocksService(db as never, orgs as never, wsSvc as never, retention as never, ops as never, provider as never, envs as never, metering as never, spendGate as never, hosts as never, config as never, webhooks as never, notifications as never, applier as never);
+    connectors = { assertConnected: vi.fn().mockImplementation(async (_ws: string, kinds: string[]) => kinds) };
+    service = new DocksService(db as never, orgs as never, wsSvc as never, retention as never, ops as never, provider as never, envs as never, metering as never, spendGate as never, hosts as never, config as never, webhooks as never, notifications as never, applier as never, connectors as never);
   });
 
   it('creates a ready dock with defaults', async () => {
@@ -118,6 +120,26 @@ describe('DocksService', () => {
     expect(dock).toMatchObject({ workspaceId: wsId, cpus: 2, memoryMiB: 4096, diskGiB: 20, image: 'ubuntu-24.04', ttlSeconds: 3600, state: 'ready' });
     expect(dock.ip).toMatch(/^10\.0\.0\.\d+$/);
     expect(webhooks.record).toHaveBeenCalledWith({ type: 'dock.ready', dockId: dock.id, organizationId: orgId, workspaceId: wsId, state: 'ready' });
+  });
+
+  it('checks requested connectors against the workspace and stores them on the dock', async () => {
+    db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null })]));
+    const values = vi.fn().mockReturnValue({ returning: () => Promise.resolve([dockRow({ state: 'provisioning', ip: null })]) });
+    db.insert.mockReset();
+    db.insert.mockReturnValue({ values });
+    db.update.mockReturnValue(updateQ([dockRow()]));
+    orgs.requireMembership.mockResolvedValue({ role: 'admin' });
+    await service.create('u1', { workspaceId: wsId, connectors: ['linear', 'figma'] });
+    expect(connectors.assertConnected).toHaveBeenCalledWith(wsId, ['linear', 'figma']);
+    expect(values.mock.calls[0][0].connectors).toEqual(['linear', 'figma']);
+  });
+
+  it('refuses to create a dock when a connector is not connected, before inserting anything', async () => {
+    const { ConnectorNotConnectedException } = await import('../connectors/connectors.service');
+    connectors.assertConnected.mockRejectedValueOnce(new ConnectorNotConnectedException(['slack']));
+    const err = await catchErr(service.create('u1', { workspaceId: wsId, connectors: ['slack'] }));
+    expect(err).toMatchObject({ status: 409, body: { code: 'connector_not_connected' } });
+    expect(db.insert).not.toHaveBeenCalled();
   });
 
   it('applies the environment after ready, skipping egress-confined run docks', async () => {
@@ -1581,6 +1603,26 @@ describe('DocksService', () => {
     db.insert.mockReturnValueOnce({ values: (v: any) => ({ returning: () => Promise.resolve([dockRow({ state: 'provisioning', ip: null, ...v })]) }) });
     db.update.mockReturnValueOnce(updateQ([dockRow()]));
     await expect(service.create('u1', { workspaceId: wsId, noEnv: true, from: 'web-stack' })).resolves.toBeDefined();
+  });
+
+  it('refuses members a dock with connectors, before inserting anything', async () => {
+    orgs.requireMembership.mockResolvedValue({ role: 'member' });
+    const err = await catchErr(service.create('u1', { workspaceId: wsId, connectors: ['slack'] }));
+    expect(err).toMatchObject({ status: 403, body: { code: 'connector_admin_only' } });
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('loadReadableDock refuses members a dock with connectors they did not create, but not its creator or admins', async () => {
+    const row = dockRow({ createdBy: 'admin-1', connectors: ['slack'] });
+    const load = () => db.select.mockReturnValueOnce(selectQ([row])).mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]));
+    orgs.requireMembership.mockResolvedValue({ role: 'member' });
+    load();
+    expect(await catchErr(service.loadReadableDock('u1', dockId))).toMatchObject({ status: 403, body: { code: 'connector_admin_only' } });
+    load();
+    await expect(service.loadReadableDock('admin-1', dockId)).resolves.toEqual({ dock: row, orgId });
+    orgs.requireMembership.mockResolvedValue({ role: 'admin' });
+    load();
+    await expect(service.loadReadableDock('u1', dockId)).resolves.toEqual({ dock: row, orgId });
   });
 
   it('loadReadableDock asks the guard with the loaded dock', async () => {

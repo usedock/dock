@@ -122,6 +122,24 @@ describe('EnvironmentApplyService', () => {
 
   });
 
+  it('wires connectors to the gateway with a fresh dock token and writes the MCP config', async () => {
+    await service.apply(dock({ connectors: ['linear', 'slack'] }) as never, orgId);
+    const envFile = decodeEnvFile(provider.exec.mock.calls[0][1].script);
+    const token = /export DOCK_CONNECTOR_TOKEN='([0-9a-f]{64})'/.exec(envFile)?.[1] ?? '';
+    expect(token).not.toBe('');
+    expect(sets).toContainEqual({ connectorTokenHash: hashToken(token) });
+    expect(envFile).toContain("export DOCK_LINEAR_API_URL='https://api.example.test/v1/connectors/gateway/linear/api'");
+    expect(envFile).toContain("export DOCK_LINEAR_MCP_URL='https://api.example.test/v1/connectors/gateway/linear/mcp'");
+    expect(envFile).not.toContain('DOCK_SLACK_MCP_URL');
+    expect(provider.exec.mock.calls[0][1].script).toContain('.config/dock/mcp.json');
+  });
+
+  it('mints no connector token for docks without connectors', async () => {
+    await service.apply(dock() as never, orgId);
+    expect(sets.some((s) => 'connectorTokenHash' in s)).toBe(false);
+    expect(decodeEnvFile(provider.exec.mock.calls[0][1].script)).not.toContain('DOCK_CONNECTOR_TOKEN');
+  });
+
   it('withholds the key and deletes any previous one when the posture says so', async () => {
     envs.resolveBundle.mockResolvedValueOnce(bundle({ passDockCredentials: false }));
     await service.apply(dock() as never, orgId);

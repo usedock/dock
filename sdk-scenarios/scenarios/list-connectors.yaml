@@ -1,0 +1,35 @@
+name: list-connectors
+description: The connector list reports the four tools plus the read-only github and model-keys entries, and read-only kinds cannot be connected by token.
+steps:
+  - id: list
+    op: connectors.list
+    args:
+      workspaceId: "${workspaceId}"
+    expect:
+      status: 200
+      ok: true
+      data:
+        - kind: figma
+          type: tool
+        - kind: linear
+          type: tool
+        - kind: slack
+          type: tool
+        - kind: sentry
+          type: tool
+        - kind: github
+          type: github
+          readOnly: true
+        - kind: model-keys
+          type: model-keys
+          readOnly: true
+  - id: connect-read-only
+    op: connectors.connect
+    args:
+      workspaceId: "${workspaceId}"
+      kind: github
+      token: not-a-token
+    expect:
+      status: 400
+      ok: false
+      code: validation_error

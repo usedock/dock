@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/validate-env';
 import { AccountClosureModule } from './account-closure/account-closure.module';
 import { AgentCredentialsModule } from './agent-credentials/agent-credentials.module';
+import { ConnectorsModule } from './connectors/connectors.module';
 import { ChatgptModule } from './chatgpt/chatgpt.module';
 import { ContactModule } from './contact/contact.module';
 import { ApiKeysModule } from './api-keys/api-keys.module';
@@ -56,6 +57,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     SshKeysModule,
     AgentCredentialsModule,
     ChatgptModule,
+    ConnectorsModule,
     ContactModule,
     WorkspacesModule,
     GithubModule,

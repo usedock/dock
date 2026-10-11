@@ -22,6 +22,8 @@ const row = {
   hostId: 'h1',
   createdBy: 'u1',
   llmTokenHash: 'deadbeef',
+  connectors: ['linear'],
+  connectorTokenHash: 'cafef00d',
   setupStatus: 'ready',
   setupError: null,
   lastSnapshotAt: null,
@@ -38,7 +40,7 @@ describe('dockView', () => {
     expect(Object.keys(dockView(row)).sort()).toEqual(
       [
         'id', 'workspaceId', 'name', 'image', 'cpus', 'memoryMiB', 'diskGiB', 'runtime', 'persistentPaths', 'state',
-        'ttlSeconds', 'environment', 'fromTemplate', 'ip', 'hostId', 'billingPausedAt', 'setupStatus', 'setupError',
+        'ttlSeconds', 'environment', 'connectors', 'fromTemplate', 'ip', 'hostId', 'billingPausedAt', 'setupStatus', 'setupError',
         'lastSnapshotAt', 'stateChangedAt', 'createdAt', 'updatedAt',
       ].sort(),
     );
@@ -46,9 +48,13 @@ describe('dockView', () => {
 
   it('never exposes env values, token hashes or other internal columns', () => {
     const json = JSON.stringify(dockView({ ...row, extraFutureColumn: 'x' } as Dock));
-    for (const leaked of ['super-secret-value', 'deadbeef', 'llmTokenHash', 'env"', 'envVersionPin', 'createdBy', 'extraFutureColumn']) {
+    for (const leaked of ['super-secret-value', 'deadbeef', 'cafef00d', 'connectorTokenHash', 'llmTokenHash', 'env"', 'envVersionPin', 'createdBy', 'extraFutureColumn']) {
       expect(json).not.toContain(leaked);
     }
+  });
+
+  it('lists connector names', () => {
+    expect(dockView(row).connectors).toEqual(['linear']);
   });
 
   it('derives persistentPaths from the runtime', () => {

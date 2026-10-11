@@ -1,0 +1,22 @@
+---
+title: Figma
+description: Read Figma files from a dock with a personal access token or OAuth.
+---
+
+Connect with a personal access token (`PUT /v1/workspaces/:workspaceId/connectors/figma`
+with `{ "token": "figd_..." }`) or with OAuth when `FIGMA_CLIENT_ID` and
+`FIGMA_CLIENT_SECRET` are set. See [Connectors](/docs/connectors) for the routes.
+
+| | |
+|---|---|
+| OAuth scopes requested | `current_user:read`, `file_content:read`, `file_comments:read` |
+| REST API in a dock | `$DOCK_FIGMA_API_URL/v1/...` (also `/v2/...`) |
+| MCP in a dock | `$DOCK_FIGMA_MCP_URL`, listed in `~/.config/dock/mcp.json` |
+
+Personal tokens are sent to the REST API as `X-Figma-Token`; OAuth tokens and the
+MCP server get a bearer header. Figma OAuth tokens expire and are refreshed by
+the control plane.
+
+```bash
+curl -H "Authorization: Bearer $DOCK_CONNECTOR_TOKEN" $DOCK_FIGMA_API_URL/v1/files/FILE_KEY
+```

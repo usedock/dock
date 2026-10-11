@@ -19,7 +19,7 @@ const method = (name: keyof EchoController) => Object.getOwnPropertyDescriptor(p
 Controller()(EchoController);
 Post(['docks', 'github/runs/:id/complete', 'docks/:id/exec', 'fleet/commands/:id/result'])(proto, 'echo', method('echo'));
 Body()(proto, 'echo', 0);
-Post('llm/anthropic')(proto, 'raw', method('raw'));
+Post(['llm/anthropic', 'connectors/gateway/linear/api/graphql'])(proto, 'raw', method('raw'));
 Req()(proto, 'raw', 0);
 
 class EchoModule {}
@@ -52,6 +52,7 @@ describe('registerBodyLimits', () => {
     const big = 'x'.repeat(2 * 1024 * 1024);
     expect(await post('/github/runs/r1/complete', JSON.stringify({ summary: big }))).toEqual({ body: { summary: big } });
     expect(await post('/llm/anthropic', '{"model":"m"}')).toEqual({ raw: '{"model":"m"}' });
+    expect(await post('/connectors/gateway/linear/api/graphql', '{"query":"{}"}')).toEqual({ raw: '{"query":"{}"}' });
   });
 
   it('takes 64KB exec commands and multi-MiB host exec results', async () => {

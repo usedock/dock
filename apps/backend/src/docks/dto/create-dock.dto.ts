@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsObject, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
-import { DEFAULT_IMAGE } from '../../database/schema';
+import { ArrayMaxSize, IsArray, IsBoolean, IsInt, IsObject, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { CONNECTOR_KINDS, DEFAULT_IMAGE } from '../../database/schema';
 import { DockSizeDto } from './dock-size.dto';
 
 export class CreateDockDto extends DockSizeDto {
@@ -42,6 +42,13 @@ export class CreateDockDto extends DockSizeDto {
   @IsString()
   @MaxLength(64)
   from?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(4)
+  @IsString({ each: true })
+  @ApiProperty({ required: false, type: [String], enum: CONNECTOR_KINDS, description: 'Connected tools the dock may use through the connector gateway' })
+  connectors?: string[];
 
   @IsOptional()
   @IsString()

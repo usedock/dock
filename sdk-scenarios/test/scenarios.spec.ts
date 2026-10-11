@@ -93,6 +93,7 @@ describe('scenarios', () => {
       'branch-copies-files.yaml',
       'create-exec-delete.yaml',
       'files-roundtrip.yaml',
+      'list-connectors.yaml',
       'not-found-errors.yaml',
       'size-validation-errors.yaml',
       'stop-resume-keeps-files.yaml',

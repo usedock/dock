@@ -1,0 +1,102 @@
+{
+  "scenario": "list-connectors",
+  "variables": {
+    "workspaceId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "run": "fixture"
+  },
+  "exchanges": [
+    {
+      "step": "list",
+      "request": {
+        "method": "GET",
+        "path": "/v1/workspaces/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/connectors"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "data": [
+            {
+              "kind": "figma",
+              "type": "tool",
+              "status": "not_connected",
+              "accountLabel": null,
+              "scopes": [],
+              "oauthAvailable": false,
+              "readOnly": false,
+              "updatedAt": null
+            },
+            {
+              "kind": "linear",
+              "type": "tool",
+              "status": "not_connected",
+              "accountLabel": null,
+              "scopes": [],
+              "oauthAvailable": false,
+              "readOnly": false,
+              "updatedAt": null
+            },
+            {
+              "kind": "slack",
+              "type": "tool",
+              "status": "not_connected",
+              "accountLabel": null,
+              "scopes": [],
+              "oauthAvailable": false,
+              "readOnly": false,
+              "updatedAt": null
+            },
+            {
+              "kind": "sentry",
+              "type": "tool",
+              "status": "not_connected",
+              "accountLabel": null,
+              "scopes": [],
+              "oauthAvailable": false,
+              "readOnly": false,
+              "updatedAt": null
+            },
+            {
+              "kind": "github",
+              "type": "github",
+              "status": "not_connected",
+              "accountLabel": null,
+              "scopes": [],
+              "oauthAvailable": false,
+              "readOnly": true,
+              "updatedAt": null
+            },
+            {
+              "kind": "model-keys",
+              "type": "model-keys",
+              "status": "not_connected",
+              "accountLabel": null,
+              "scopes": [],
+              "oauthAvailable": false,
+              "readOnly": true,
+              "updatedAt": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "step": "connect-read-only",
+      "request": {
+        "method": "PUT",
+        "path": "/v1/workspaces/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/connectors/github",
+        "body": {
+          "token": "not-a-token"
+        }
+      },
+      "response": {
+        "status": 400,
+        "body": {
+          "ok": false,
+          "code": "validation_error",
+          "message": "kind must be one of: figma, linear, slack, sentry"
+        }
+      }
+    }
+  ]
+}

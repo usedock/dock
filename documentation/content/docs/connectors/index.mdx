@@ -1,0 +1,128 @@
+---
+title: Connectors
+description: Give docks access to Figma, Linear, Slack and Sentry without putting the credential inside the dock.
+---
+
+A Connector links a workspace to a tool. The credential is encrypted at rest
+(AES-256-GCM, the same sealing as provider keys) and never returned by the API.
+A dock that is created with `connectors` gets a dock-scoped token instead; the
+control plane's connector gateway attaches the real credential and forwards the
+call to the tool.
+
+| Kind | API through the gateway | MCP through the gateway |
+|---|---|---|
+| `figma` | `api.figma.com` (`/v1/*`, `/v2/*`) | `mcp.figma.com/mcp` |
+| `linear` | `api.linear.app/graphql` | `mcp.linear.app/mcp` |
+| `slack` | `slack.com/api` | none |
+| `sentry` | `sentry.io/api/0/*` | `mcp.sentry.dev/mcp` |
+
+GitHub and model provider keys are separate features and appear in the same list
+as read-only entries: see [GitHub](/docs/connectors/github) and
+[Model keys](/docs/connectors/model-keys).
+
+## Connect a tool
+
+Organization admins connect and disconnect; members can list. Pass a personal
+or bot token; the control plane checks it against the tool before storing it.
+
+```bash
+curl -X PUT $DOCK_API/v1/workspaces/$WORKSPACE_ID/connectors/linear \
+  -H "Authorization: Bearer $DOCK_API_KEY" -H "content-type: application/json" \
+  -d '{"token":"lin_api_..."}'
+```
+
+An invalid token answers `400 connector_token_invalid`. If the tool cannot be
+reached the answer is `502 connector_unreachable` and nothing is stored.
+
+### Routes
+
+- `GET /v1/workspaces/:workspaceId/connectors` lists `figma`, `linear`, `slack`
+  and `sentry` plus the read-only `github` and `model-keys` entries. Each entry has
+  `kind`, `type` (`tool`, `github` or `model-keys`), `status` (`connected`,
+  `not_connected` or `reauth_required`), `accountLabel`, `scopes`,
+  `oauthAvailable`, `readOnly` and `updatedAt`. It never contains a token.
+- `PUT /v1/workspaces/:workspaceId/connectors/:kind` connects with
+  `{ "token": "..." }`. Reconnecting replaces the stored credential. Admins only.
+- `DELETE /v1/workspaces/:workspaceId/connectors/:kind` disconnects; docks that
+  used it get `409 connector_not_connected` from the gateway from then on. Admins
+  only. Answers `404 connector_not_found` when the kind was not connected.
+
+## Sign in with OAuth
+
+When an instance sets `<KIND>_CLIENT_ID` and `<KIND>_CLIENT_SECRET` for a tool
+(for example `LINEAR_CLIENT_ID`), `oauthAvailable` is `true` for it. Register
+`<PUBLIC_API_URL>/v1/connectors/<kind>/oauth/callback` as the redirect URL with
+the tool.
+
+- `GET /v1/connectors/:kind/oauth/start?workspaceId=...` returns `{ "url": "..." }`,
+  the tool's authorize URL. Admins only. The state in it is signed, expires in
+  10 minutes, is single use and is bound to the user and workspace. Figma and
+  Linear also use PKCE. Without a client id and secret it answers
+  `400 oauth_not_configured`.
+- `GET /v1/connectors/:kind/oauth/callback` is where the tool sends the browser
+  back. The browser must be signed in to Dock as the user who started the flow;
+  otherwise nothing is stored and the redirect carries `reason=session_mismatch`.
+  It exchanges the code, stores the token and redirects to the dashboard
+  with `kind` and `status` (`connected` or `error`) in the query. Tokens that
+  expire are refreshed by the gateway; if a refresh fails the connector shows
+  `reauth_required` until someone signs in again.
+
+## Use a connector in a dock
+
+```bash
+curl -X POST $DOCK_API/v1/docks \
+  -H "Authorization: Bearer $DOCK_API_KEY" -H "content-type: application/json" \
+  -d '{"workspaceId":"...","connectors":["linear","sentry"]}'
+```
+
+Every requested kind must be connected in the workspace, otherwise the create is
+refused with `409 connector_not_connected` before anything is provisioned. The
+dock response lists the kinds in `connectors`.
+
+A dock with connectors acts with the workspace's tool credentials, so, like an
+admins-only environment's secrets, it is for organization admins: members are
+refused with `403 connector_admin_only` when they create or branch a dock with
+connectors, or exec into, open ports on or connect to one they did not create.
+
+The dock receives these environment variables (and nothing of the real token):
+
+| Variable | Value |
+|---|---|
+| `DOCK_CONNECTOR_TOKEN` | Dock-scoped gateway token |
+| `DOCK_CONNECTORS_URL` | `<api>/v1/connectors/gateway` |
+| `DOCK_CONNECTORS` | Comma list of the dock's kinds |
+| `DOCK_<KIND>_API_URL` | `<api>/v1/connectors/gateway/<kind>/api` |
+| `DOCK_<KIND>_MCP_URL` | `<api>/v1/connectors/gateway/<kind>/mcp` (kinds with an MCP endpoint) |
+| `DOCK_MCP_CONFIG` | `/home/user/.config/dock/mcp.json` |
+
+That file lists the MCP servers with the bearer header, in the common
+`mcpServers` format:
+
+```json
+{ "mcpServers": { "linear": { "type": "http", "url": "https://api.example.com/v1/connectors/gateway/linear/mcp", "headers": { "Authorization": "Bearer <dock token>" } } } }
+```
+
+Call a tool API by sending the dock token to the per-kind URL, for example
+`curl -H "Authorization: Bearer $DOCK_CONNECTOR_TOKEN" -d '{"query":"{ viewer { name } }"}' $DOCK_LINEAR_API_URL/graphql`.
+
+## The gateway
+
+The gateway is for docks, not a client API, and is not part of the SDKs. It
+answers every method on `/v1/connectors/gateway/:kind/api/*` and
+`/v1/connectors/gateway/:kind/mcp[/*]`:
+
+- The token must be one a live dock holds; the dock must have been created with
+  that kind and the kind must still be connected.
+- Only the hosts and paths in the table above are reachable. Other paths answer
+  `400`, a kind without an MCP endpoint answers `404 connector_target_unsupported`.
+- Client credentials, cookies and proxy headers are dropped; the real
+  credential is added. Redirects from the tool are never followed or relayed
+  (`502 connector_upstream_redirect`).
+- Responses stream, including MCP event streams. Calls time out after 60 seconds
+  (10 minutes for MCP) and each dock may make 3000 calls an hour (`429`).
+
+The token rotates each time the dock's environment is applied (create, resume,
+branch, environment upgrade) and stops working when the dock is stopped or
+deleted. Anyone who can run commands in the dock can use the connected tools
+through it, with the permissions of the stored credential, so connect tools with
+the least access that works.

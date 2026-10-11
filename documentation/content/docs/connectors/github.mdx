@@ -1,0 +1,13 @@
+---
+title: GitHub
+description: The GitHub App shows up in the connector list as a read-only entry.
+---
+
+The GitHub App is installed and configured on its own, not through the connector
+routes. `GET /v1/workspaces/:workspaceId/connectors` reports it as the `github`
+entry, `connected` when the workspace has an installation, with `readOnly: true`.
+`PUT` and `DELETE` do not accept `github`.
+
+Setup is described in [Self-hosting](/docs/self-hosting). Docks never receive the
+App credentials; the only GitHub token a dock gets is a short-lived read-only
+installation token for repositories an Environment links.

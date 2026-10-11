@@ -24,6 +24,7 @@ export * from './webhooks';
 export * from './github';
 export * from './agent-credentials';
 export * from './chatgpt-connections';
+export * from './connectors';
 export * from './notifications';
 
 import * as usersModule from './users';
@@ -52,6 +53,7 @@ import * as webhooksModule from './webhooks';
 import * as githubModule from './github';
 import * as agentCredentialsModule from './agent-credentials';
 import * as chatgptConnectionsModule from './chatgpt-connections';
+import * as connectorsModule from './connectors';
 import * as notificationsModule from './notifications';
 
 export const schema = {
@@ -80,6 +82,7 @@ export const schema = {
   ...githubModule,
   ...agentCredentialsModule,
   ...chatgptConnectionsModule,
+  ...connectorsModule,
   ...notificationsModule,
   ...workspacesModule,
 };

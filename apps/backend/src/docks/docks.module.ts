@@ -7,6 +7,7 @@ import { FleetObjectsService } from '../fleet/fleet-objects.service';
 import { DOCKLETS, type DockletFactory } from '../hosts/docklets.factory';
 import { RestateComputeProvider } from '../runtime/runtime.provider';
 import { HostsModule } from '../hosts/hosts.module';
+import { ConnectorsModule } from '../connectors/connectors.module';
 import { EnvironmentsModule } from '../environments/environments.module';
 import { MeteringModule } from '../metering/metering.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
@@ -28,7 +29,7 @@ import { RateLimitService } from '../auth/rate-limit.service';
 
 /** Dock routes authorize through org membership; deletes flow through operations. */
 @Module({
-  imports: [OrganizationsModule, WorkspacesModule, RetentionModule, EnvironmentsModule, MeteringModule, WebhooksModule, NotificationsModule, RuntimeModule, HostsModule, FleetObjectsModule, HostCommandQueueModule, SshKeysModule, forwardRef(() => AccountClosureModule)],
+  imports: [OrganizationsModule, WorkspacesModule, ConnectorsModule, RetentionModule, EnvironmentsModule, MeteringModule, WebhooksModule, NotificationsModule, RuntimeModule, HostsModule, FleetObjectsModule, HostCommandQueueModule, SshKeysModule, forwardRef(() => AccountClosureModule)],
   controllers: [DocksController],
   providers: [
     DocksService,
