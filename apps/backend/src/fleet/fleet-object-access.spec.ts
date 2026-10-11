@@ -50,6 +50,31 @@ describe('FleetObjectAccess', () => {
     });
   });
 
+  describe('reads of a generation bound to an in-flight capture', () => {
+    const BOUND = { generationId: 'gen-1', hostId: 'host-a', commandId: 'cap1' };
+
+    it('allows the bound host while its command is claimed', async () => {
+      // not owned, no command names it, bound row found, bound command still claimed
+      const { access } = build([[], [], [BOUND], HIT]);
+      await expect(access.assertRead('host-a', 'gen-1')).resolves.toBeUndefined();
+    });
+
+    it('refuses another host', async () => {
+      const { access } = build([[], [], [BOUND]]);
+      await expect(access.assertRead('host-b', 'gen-1')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('refuses the bound host once its command finished or failed', async () => {
+      const { access } = build([[], [], [BOUND], []]);
+      await expect(access.assertRead('host-a', 'gen-1')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('refuses an id that is not bound', async () => {
+      const { access } = build([[], [], []]);
+      await expect(access.assertRead('host-a', 'gen-unbound')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
   describe('writes', () => {
     const BOUND = { generationId: 'gen-1', hostId: 'host-a', commandId: 'cap1' };
 

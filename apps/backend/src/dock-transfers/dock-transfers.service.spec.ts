@@ -138,7 +138,7 @@ describe('DockTransfersService', () => {
       loadReadableDock: vi.fn().mockResolvedValue({ dock: dockRow(), orgId }),
       reapply: vi.fn().mockResolvedValue(undefined),
     };
-    envs = { assertSecretsLaunchable: vi.fn().mockResolvedValue(undefined) };
+    envs = { assertSecretsLaunchable: vi.fn().mockResolvedValue(undefined), egressAllowFor: vi.fn().mockResolvedValue(null) };
     objects = {
       directTransfers: true,
       startUpload: vi.fn().mockResolvedValue('up-1'),
@@ -244,6 +244,26 @@ describe('DockTransfersService', () => {
       hosts.listOnline.mockResolvedValueOnce([{ id: 'm1', runtime: 'microvm', features: ['egress-on-resume'] }, { id: 'g1', runtime: 'gvisor', features: ['verified-imports'] }]);
       expect(await catchErr(start())).toMatchObject({ status: 409, body: { code: 'runtime_unsupported' } });
       expect(objects.startUpload).not.toHaveBeenCalled();
+      hosts.listOnline.mockResolvedValueOnce([{ id: 'm1', runtime: 'microvm', features: ['verified-imports'] }]);
+      queueSelects([{ open: 0 }]);
+      await expect(start()).resolves.toMatchObject({ upload: { mode: 'direct' } });
+    });
+
+    it('answers import_egress_unsupported before any upload when the default environment has an allowlist no verifying host can apply', async () => {
+      config.get.mockReturnValue('restate');
+      envs.egressAllowFor.mockResolvedValue(['api.github.com']);
+      hosts.listOnline.mockResolvedValueOnce([{ id: 'm1', runtime: 'microvm', features: ['verified-imports'] }, { id: 'm2', runtime: 'microvm', features: ['egress-on-resume'] }]);
+      expect(await catchErr(start())).toMatchObject({ status: 409, body: { code: 'import_egress_unsupported' } });
+      expect(envs.egressAllowFor).toHaveBeenCalledWith(orgId, undefined);
+      expect(objects.startUpload).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
+      hosts.listOnline.mockResolvedValueOnce([{ id: 'm1', runtime: 'microvm', features: ['verified-imports', 'egress-on-resume'] }]);
+      queueSelects([{ open: 0 }]);
+      await expect(start()).resolves.toMatchObject({ upload: { mode: 'direct' } });
+    });
+
+    it('does not ask for egress-on-resume when the default environment is open', async () => {
+      config.get.mockReturnValue('restate');
       hosts.listOnline.mockResolvedValueOnce([{ id: 'm1', runtime: 'microvm', features: ['verified-imports'] }]);
       queueSelects([{ open: 0 }]);
       await expect(start()).resolves.toMatchObject({ upload: { mode: 'direct' } });
@@ -402,6 +422,7 @@ describe('DockTransfersService', () => {
     it.each([
       ['capacity_exhausted', 'CapacityExhaustedException'],
       ['dock_name_taken', 'DockNameTakenException'],
+      ['host_egress_unsupported', 'HostEgressUnsupportedException'],
     ])('keeps the assembled upload on %s', async (code, cls) => {
       queueSelects([importRow()]);
       const errors: Record<string, new (arg: string) => Error> = (await import('../docks/dock-errors')) as never;
@@ -697,6 +718,15 @@ describe('DockTransfersService', () => {
       const handle = await service.openDownload('u1', exportId, 'bytes=100-');
       expect(handle).toMatchObject({ partial: true, start: 100, end: 1233, size: 1234, stream: 'stream' });
       expect(objects.getObjectRange).toHaveBeenCalledWith('gen-x', 'rootfs.ext4.zst', 100, 1134);
+    });
+
+    it('answers a range past the end with 416 carrying the size', async () => {
+      queueSelects([ready()], [{ id: dockId }]);
+      const err = await catchErr(service.openDownload('u1', exportId, 'bytes=1234-'));
+      expect(err).toMatchObject({ status: 416, body: { code: 'range_not_satisfiable' } });
+      queueSelects([ready()], [{ id: dockId }]);
+      await expect(service.openDownload('u1', exportId, 'bytes=5-3')).rejects.toMatchObject({ status: 416, size: 1234 });
+      expect(objects.getObjectRange).not.toHaveBeenCalled();
     });
 
     it('streams the whole object without a range, and refuses a pending export', async () => {

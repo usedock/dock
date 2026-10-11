@@ -33,6 +33,23 @@ export class ExportNotFoundException extends NotFoundException {
   }
 }
 
+/** A Range past the end of the export; the controller answers it with a Content-Range carrying the size so a client restarts. */
+export class RangeNotSatisfiableException extends HttpException {
+  readonly size: number;
+
+  constructor(size: number) {
+    super({ code: 'range_not_satisfiable', message: 'Range is not satisfiable' }, HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE);
+    this.size = size;
+  }
+}
+
+/** Importing would end in a refused boot: no host confines the default Environment's egress allowlist on resume. */
+export class ImportEgressUnsupportedException extends ConflictException {
+  constructor() {
+    super({ code: 'import_egress_unsupported', message: 'No host that verifies imports supports the default environment egress allowlist; upgrade the docklets' });
+  }
+}
+
 /** Too many open uploads or live exports at once; each holds object storage. */
 export class TransferLimitException extends HttpException {
   constructor(code: 'import_limit_reached' | 'export_limit_reached', message: string) {

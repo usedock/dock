@@ -5,6 +5,7 @@ import type { RequestUser } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { dockView } from '../docks/dock-view';
 import { CompleteImportDto, ImportDockDto } from './dto/dock-transfer.dto';
+import { RangeNotSatisfiableException } from './dock-transfer-errors';
 import { DockTransfersService } from './dock-transfers.service';
 
 /** Moves a dock's disk between control planes: uploads in, downloads out. */
@@ -61,7 +62,10 @@ export class DockTransfersController {
     @Headers('range') range: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
-    const file = await this.transfers.openDownload(user.id, exportId, range);
+    const file = await this.transfers.openDownload(user.id, exportId, range).catch((err) => {
+      if (err instanceof RangeNotSatisfiableException) res.setHeader('content-range', `bytes */${err.size}`);
+      throw err;
+    });
     res.status(file.partial ? HttpStatus.PARTIAL_CONTENT : HttpStatus.OK);
     res.setHeader('content-type', 'application/octet-stream');
     res.setHeader('accept-ranges', 'bytes');
