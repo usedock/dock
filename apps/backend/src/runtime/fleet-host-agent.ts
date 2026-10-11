@@ -78,9 +78,10 @@ export class FleetHostAgent implements HostAgent {
     resources: DockletResources,
     snapshotId: string,
     execAgent?: boolean,
+    egressAllow?: string[],
   ): Promise<{ ip: string; hostId: string }> {
     const token = randomUUID();
-    return this.send('snapshot.load', { dockId, resources, snapshotId, ...(execAgent ? { execAgent: true } : {}), idempotencyToken: token }, token);
+    return this.send('snapshot.load', { dockId, resources, snapshotId, ...(execAgent ? { execAgent: true } : {}), ...(egressAllow?.length ? { egressAllow } : {}), idempotencyToken: token }, token);
   }
 
   destroy(dockId: string): Promise<void> {

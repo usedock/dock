@@ -1,1 +1,1 @@
-{"dockId":"dck_01JC8Z3Q5W","resources":{"cpus":4,"memoryMiB":4096,"diskGiB":20},"snapshotId":"snap_01JC8Z5D7F","execAgent":true,"idempotencyToken":"tok_load_01"}
+{"dockId":"dck_01JC8Z3Q5W","resources":{"cpus":4,"memoryMiB":4096,"diskGiB":20},"snapshotId":"snap_01JC8Z5D7F","execAgent":true,"egressAllow":["api.github.com","*.npmjs.org"],"idempotencyToken":"tok_load_01"}

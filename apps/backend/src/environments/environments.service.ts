@@ -50,6 +50,7 @@ import {
   assertEnvMap,
   assertNotReserved,
   assertSecretPath,
+  checkedEgressAllow,
   parseEnvContents,
   serializeEnvContents,
 } from './env-validation';
@@ -101,6 +102,8 @@ export interface EnvironmentView {
   passGithub: boolean;
   passSecrets: boolean;
   passDockCredentials: boolean;
+  /** HTTPS hosts docks on this environment may reach; null leaves egress open. */
+  egressAllow: string[] | null;
   passAgentsCredentials: boolean;
   connections: Record<EnvProvider, ConnectionView>;
   varNames: string[];
@@ -150,6 +153,7 @@ export interface UpdateEnvironmentInput {
   passGithub?: boolean;
   passSecrets?: boolean;
   passDockCredentials?: boolean;
+  egressAllow?: string[] | null;
   passAgentsCredentials?: boolean;
 }
 
@@ -172,6 +176,7 @@ interface VersionContent {
   passSecrets: boolean;
   passDockCredentials: boolean;
   passAgentsCredentials: boolean;
+  egressAllow: string[] | null;
   repos: EnvRepo[];
   envVars: Record<string, SealedValue>;
   secretFiles: EnvSecretFile[];
@@ -439,6 +444,7 @@ export class EnvironmentsService {
       passSecrets: latest.passSecrets,
       passDockCredentials: latest.passDockCredentials,
       passAgentsCredentials: latest.passAgentsCredentials,
+      egressAllow: latest.egressAllow,
       repos: latest.repos,
       envVars: this.sealAll(vars),
       secretFiles: this.sealFiles(files),
@@ -592,6 +598,19 @@ export class EnvironmentsService {
     if (membership.role === 'member') throw new EnvironmentSecretsAdminOnlyException();
   }
 
+  /** Allowlist a dock's pinned environment version imposes; null (open) when the environment is gone. */
+  async egressAllowFor(organizationId: string, name: string | undefined, pin?: string | null): Promise<string[] | null> {
+    try {
+      const { version } = await this.resolveVersion(organizationId, name);
+      const match = pin ? VERSION_PIN_RE.exec(pin) : null;
+      const pinned = match ? await this.versionAt(version.environmentId, Number(match[1])) : version;
+      return pinned.egressAllow ?? null;
+    } catch (err) {
+      if (err instanceof EnvironmentNotFoundException) return null;
+      throw err;
+    }
+  }
+
   /** Full driver bundle at a pinned version; safe/noEnv withholds everything. */
   async resolveBundle(
     organizationId: string,
@@ -720,6 +739,7 @@ export class EnvironmentsService {
       passSecrets: current.passSecrets,
       passDockCredentials: current.passDockCredentials,
       passAgentsCredentials: current.passAgentsCredentials,
+      egressAllow: current.egressAllow,
       repos: current.repos.map((r) => ({ ...r })),
       envVars: { ...current.envVars },
       secretFiles: current.secretFiles.map((f) => ({ ...f })),
@@ -762,6 +782,7 @@ export class EnvironmentsService {
         out[key] = patch[key] as boolean;
       }
     }
+    if (patch.egressAllow !== undefined) out.egressAllow = checkedEgressAllow(patch.egressAllow);
     return Object.keys(out).length ? out : null;
   }
 
@@ -854,6 +875,7 @@ export class EnvironmentsService {
       passSecrets: version.passSecrets,
       passDockCredentials: version.passDockCredentials,
       passAgentsCredentials: version.passAgentsCredentials,
+      egressAllow: version.egressAllow ?? null,
       connections,
       varNames: Object.keys(version.envVars).sort(),
       files: version.secretFiles.map((f) => ({ path: f.path, size: f.size })),

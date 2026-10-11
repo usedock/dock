@@ -1,7 +1,9 @@
 # Source
 
 Copied verbatim from `usedock/docklet` `api/v1/testdata/` at commit
-`d9eb3cc17bee58ade7f5bbe8d766a5c9570ee705` (main after usedock/docklet#17).
+`51fc790f268c04bfbe914c6498ad61d941ffb7ca` (branch `feat/egress-allowlist-any-dock`,
+usedock/docklet#47, which adds `egressAllow` to `snapshot-load-request.json`).
+Re-point this to the merged commit on `main` once that PR lands.
 
 Refresh by copying the folder again and updating this commit. The docklet repo
 owns the files; `docklet.contract.spec.ts` checks the client types and fleet

@@ -369,6 +369,8 @@ export class DocksService {
       await this.envs.assertSecretsLaunchable(callerId, orgId, environment, { pin: `v${version.version}`, noEnv: input.noEnv });
     }
     const noEnv = input.noEnv ?? false;
+    // A run's own list wins; otherwise the environment's list applies, even with noEnv.
+    const egressAllow = input.egressAllow?.length ? input.egressAllow : (version.egressAllow ?? undefined);
     let fromTemplate: string | undefined;
     let templateStoreId: string | null | undefined;
     let templateCpuFamily: string | null = null;
@@ -426,7 +428,7 @@ export class DocksService {
         this.provider.provision(dock, {
           snapshotId: templateStoreId ?? null,
           hostId: host?.id ?? null,
-          ...(input.egressAllow?.length ? { egressAllow: input.egressAllow } : {}),
+          ...(egressAllow?.length ? { egressAllow } : {}),
         }),
       );
       const ready = await this.transition(dock.id, ['provisioning'], { state: 'ready', liveSince: new Date(), ip: machine.ip, hostId: machine.hostId ?? null, runtime: runtime ?? dock.runtime });
@@ -730,12 +732,13 @@ export class DocksService {
     const noEnv = opts.environment !== undefined ? (opts.noEnv ?? false) : opts.noEnv === true ? true : dock.noEnv;
     // Apply re-runs as the dock's creator, so judge the creator's sign-in, not the resumer's.
     await this.envs.assertSecretsLaunchable(callerId, orgId, environment, { pin: envVersionPin, noEnv, creatorId: dock.createdBy });
+    const egressAllow = (await this.envs.egressAllowFor(orgId, environment, envVersionPin)) ?? undefined;
     await this.spendGate.requireSpend(orgId);
     await this.transition(id, ['archived'], { state: 'provisioning', liveSince: null });
     let refused = false;
     try {
       const { machine, runtime } = await this.placeAndRun(latest, { id, image: dock.image, ...size }, (host) =>
-        this.provider.resume({ ...dock, ...size }, { snapshotId, hostId: host?.id ?? null }),
+        this.provider.resume({ ...dock, ...size }, { snapshotId, hostId: host?.id ?? null, ...(egressAllow ? { egressAllow } : {}) }),
       ).catch(async (err: unknown) => {
         // Refused before any machine started: the dock stays archived and resumable, not error.
         if (isPlacementRefusal(err)) {
@@ -798,6 +801,7 @@ export class DocksService {
     }
     const noEnv = opts.environment !== undefined ? (opts.noEnv ?? false) : (opts.noEnv ?? dock.noEnv);
     await this.envs.assertSecretsLaunchable(callerId, orgId, environment, { pin: envVersionPin, noEnv });
+    const egressAllow = (await this.envs.egressAllowFor(orgId, environment, envVersionPin)) ?? undefined;
     if (dock.connectors?.length) await this.refuseConnectorMembers(orgId, callerId);
     await this.spendGate.requireSpend(orgId);
     if (idempotencyKey) {
@@ -829,7 +833,7 @@ export class DocksService {
       const capture = await this.provider.captureSnapshot(dock, latest?.id ?? null);
       await this.recordSnapshot(id, capture.sizeBytes, capture.manifest, latest?.id ?? null, capture.snapshotId, capture.cpuFamily, capture.runtime, capture.kernelRelease, capture.baseFingerprint);
       const { machine, runtime } = await this.placeAndRun(capture, { id: target.id, image, ...size }, (host) =>
-        this.provider.branch(dock, target, { snapshotId: capture.snapshotId, hostId: host?.id ?? null }),
+        this.provider.branch(dock, target, { snapshotId: capture.snapshotId, hostId: host?.id ?? null, ...(egressAllow ? { egressAllow } : {}) }),
       );
       const ready = await this.transition(target.id, ['provisioning'], { state: 'ready', liveSince: new Date(), ip: machine.ip, hostId: machine.hostId ?? dock.hostId ?? null, runtime: runtime ?? dock.runtime });
       await this.bindKey(orgId, idempotencyKey, ready.id);

@@ -50,10 +50,10 @@ export class RestateComputeProvider implements ComputeProvider {
     return { snapshotId: res.snapshotId, sizeBytes: res.sizeBytes, cpuFamily: res.cpuFamily, runtime: dock.runtime, kernelRelease: null, baseFingerprint: fingerprintOf(res.baseFingerprint), manifest: cpuFamilyManifest(res.cpuFamily, dock.id) };
   }
 
-  async resume(dock: Dock, opts: { snapshotId: string | null; hostId?: string | null }): Promise<MachineHandle> {
+  async resume(dock: Dock, opts: { snapshotId: string | null; hostId?: string | null; egressAllow?: string[] }): Promise<MachineHandle> {
     if (!opts.snapshotId) throw new Error(`Dock ${dock.id} has no stored snapshot generation to resume from`);
     const client = await this.docklets(opts.hostId ?? dock.hostId ?? null);
-    const res = await client.snapshotLoad(dock.id, resourcesOf(dock), opts.snapshotId, true);
+    const res = await client.snapshotLoad(dock.id, resourcesOf(dock), opts.snapshotId, true, opts.egressAllow);
     this.checkHost(res.hostId, opts.hostId);
     return { ip: res.ip, hostId: res.hostId };
   }
@@ -61,7 +61,7 @@ export class RestateComputeProvider implements ComputeProvider {
   async branch(
     source: Dock,
     target: Dock,
-    opts?: { snapshotId?: string | null; hostId?: string | null; coldBoot?: boolean },
+    opts?: { snapshotId?: string | null; hostId?: string | null; coldBoot?: boolean; egressAllow?: string[] },
   ): Promise<MachineHandle> {
     const client = await this.docklets(opts?.hostId ?? target.hostId ?? null);
     const res = await client.provision({
@@ -70,6 +70,7 @@ export class RestateComputeProvider implements ComputeProvider {
       image: target.image,
       snapshotId: opts?.snapshotId ?? undefined,
       execAgent: true,
+      ...(opts?.egressAllow?.length ? { egressAllow: opts.egressAllow } : {}),
       idempotencyToken: randomUUID(),
     });
     this.checkHost(res.hostId, opts?.hostId);

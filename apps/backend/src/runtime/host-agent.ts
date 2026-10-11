@@ -45,6 +45,7 @@ export interface HostAgent {
     resources: DockletResources,
     snapshotId: string,
     execAgent?: boolean,
+    egressAllow?: string[],
   ): Promise<{ ip: string; hostId: string }>;
   destroy(dockId: string): Promise<void>;
   heartbeat(body: Record<string, unknown>): Promise<unknown>;

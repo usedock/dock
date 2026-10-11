@@ -167,6 +167,8 @@ export interface Environment {
   passSecrets: boolean;
   passAgentsCredentials: boolean;
   passDockCredentials: boolean;
+  /** HTTPS hosts docks may reach; null leaves outbound open. */
+  egressAllow: string[] | null;
   /** github: the org has a GitHub App installation that can clone private repos. */
   connections: Record<'github' | 'gitlab', { connected: boolean }>;
   varNames: string[];

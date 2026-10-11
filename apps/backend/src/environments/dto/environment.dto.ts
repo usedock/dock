@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
 import { ENV_NAME_RE, SECRETS_ACCESS, type SecretsAccess } from '../../database/schema';
 
 /** Environment creation payload; content starts as an empty v1. */
@@ -54,6 +54,12 @@ export class UpdateEnvironmentDto {
   @IsOptional()
   @IsBoolean()
   passAgentsCredentials?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ApiProperty({ required: false, nullable: true, type: [String], description: 'HTTPS hosts docks on this environment may reach (hostnames and *.suffix, at most 50); null leaves egress open minus private ranges. Applies when a dock is created, resumed or branched.' })
+  egressAllow?: string[] | null;
 }
 
 /** Name refs resolve within this org; id refs ignore it. */

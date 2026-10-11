@@ -101,6 +101,7 @@ describe('DocksService', () => {
       resolveVersion: vi.fn().mockResolvedValue({ environment: { name: 'base' }, version: { version: 1 } }),
       assertSecretsLaunchable: vi.fn().mockResolvedValue(undefined),
       assertDockSecretsReadable: vi.fn().mockResolvedValue(undefined),
+      egressAllowFor: vi.fn().mockResolvedValue(null),
     };
     provider = new FakeComputeProvider();
     hosts = { placeForDock: vi.fn(), canPlace: vi.fn().mockResolvedValue(true), getById: vi.fn().mockResolvedValue(null), anyOnlineWithHeadroom: vi.fn().mockResolvedValue(true), sizeFit: vi.fn().mockResolvedValue('ok') };
@@ -183,6 +184,58 @@ describe('DocksService', () => {
     expect(spy.mock.calls[1][1]).toMatchObject({ egressAllow: ['github.com'] });
     await service.create('u1', { workspaceId: wsId, egressAllow: [] });
     expect(spy.mock.calls[2][1]).not.toHaveProperty('egressAllow');
+    spy.mockRestore();
+  });
+
+  it('confines a new dock to its environment allowlist, with a run list taking precedence', async () => {
+    const spy = vi.spyOn(provider, 'provision');
+    db.insert.mockReturnValue(insertQ([dockRow({ state: 'provisioning', ip: null })]));
+    db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
+    envs.resolveVersion.mockResolvedValue({ environment: { name: 'base' }, version: { version: 2, egressAllow: ['registry.npmjs.org'] } });
+    await service.create('u1', { workspaceId: wsId });
+    expect(spy.mock.calls[0][1]).toMatchObject({ egressAllow: ['registry.npmjs.org'] });
+    expect(applier.apply).toHaveBeenCalledTimes(1);
+    await service.create('u1', { workspaceId: wsId, egressAllow: ['github.com'] });
+    expect(spy.mock.calls[1][1]).toMatchObject({ egressAllow: ['github.com'] });
+    envs.resolveVersion.mockResolvedValue({ environment: { name: 'base' }, version: { version: 3, egressAllow: null } });
+    await service.create('u1', { workspaceId: wsId });
+    expect(spy.mock.calls[2][1]).not.toHaveProperty('egressAllow');
+    spy.mockRestore();
+  });
+
+  it('resumes a dock with its pinned environment allowlist and leaves a null list open', async () => {
+    const spy = vi.spyOn(provider, 'resume');
+    const run = async () => {
+      db.select
+        .mockReturnValueOnce(selectQ([dockRow({ state: 'archived' })]))
+        .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
+        .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1', cpuFamily: 'x86_64-v4' }]));
+      db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
+      await service.resume('u1', dockId);
+    };
+    envs.egressAllowFor.mockResolvedValueOnce(['github.com']);
+    await run();
+    expect(envs.egressAllowFor).toHaveBeenCalledWith(orgId, 'base', 'base');
+    expect(spy.mock.calls[0][1]).toMatchObject({ snapshotId: 'gen-1', egressAllow: ['github.com'] });
+    await run();
+    expect(spy.mock.calls[1][1]).not.toHaveProperty('egressAllow');
+    spy.mockRestore();
+  });
+
+  it('branches a dock onto its environment allowlist', async () => {
+    const spy = vi.spyOn(provider, 'branch');
+    envs.egressAllowFor.mockResolvedValueOnce(['github.com']);
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow()]))
+      .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
+      .mockReturnValueOnce(selectQ([]))
+      .mockReturnValueOnce(selectQ([{ id: 'snap-9', status: 'completed' }]));
+    db.insert
+      .mockReturnValueOnce(insertQ([dockRow({ id: 'dock-new', name: 'fork-a', state: 'provisioning' })]))
+      .mockReturnValueOnce(insertQ([{ id: 'snap-10' }]));
+    db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow({ id: 'dock-new', state: 'ready' })]) }) }) });
+    await service.branch('u1', dockId, { name: 'fork-a' });
+    expect(spy.mock.calls[0][2]).toMatchObject({ egressAllow: ['github.com'] });
     spy.mockRestore();
   });
 
