@@ -4,6 +4,7 @@ import { RateLimitService } from '../auth/rate-limit.service';
 import { hashToken } from '../crypto/tokens';
 import { DB, Db } from '../database/database.module';
 import { docks } from '../database/schema';
+import { createConnectorFetch } from './connector-fetch';
 import { CONNECTOR_SPECS, apiBase, isConnectorKind, upstreamAuth, type ConnectorKind } from './connector-kinds';
 import { ConnectorsService } from './connectors.service';
 
@@ -78,7 +79,7 @@ export class ConnectorGatewayService {
     private readonly limits: RateLimitService,
     @Optional() options: { fetchFn?: typeof fetch } = {},
   ) {
-    this.fetchFn = options?.fetchFn ?? fetch;
+    this.fetchFn = options?.fetchFn ?? createConnectorFetch();
   }
 
   async forward(req: ConnectorGatewayRequest): Promise<GatewayUpstream> {

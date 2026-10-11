@@ -261,6 +261,22 @@ describe('ConnectorsService', () => {
       await expect(service.connect('u1', 'w1', 'slack', 'xoxb-1')).rejects.toBeInstanceOf(ConnectorAccountInUseException);
     });
 
+    it('resets the Figma allowlist to the new owner when a different Figma user reconnects', async () => {
+      const { onConflictDoUpdate } = mockUpsert();
+      db.select.mockReturnValue(selectQ([{ vendorUserId: 'fig-old' }]));
+      fetchFn.mockResolvedValueOnce(json({ id: 'fig-new', handle: 'pat' }));
+      await service.connect('u2', 'w1', 'figma', 'figd_new');
+      expect(onConflictDoUpdate.mock.calls[0][0].set).toMatchObject({ allowedUsers: ['fig-new'], vendorUserId: 'fig-new', createdBy: 'u2' });
+    });
+
+    it('keeps admin-set Figma allowlist entries when the same Figma user reconnects', async () => {
+      const { onConflictDoUpdate } = mockUpsert();
+      db.select.mockReturnValue(selectQ([{ vendorUserId: 'fig-42' }]));
+      fetchFn.mockResolvedValueOnce(json({ id: 'fig-42', handle: 'pat' }));
+      await service.connect('u1', 'w1', 'figma', 'figd_x');
+      expect(onConflictDoUpdate.mock.calls[0][0].set.allowedUsers).toBeUndefined();
+    });
+
     const updateChain = () => {
       const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) });
       db.update.mockReturnValue({ set });
@@ -331,6 +347,7 @@ describe('ConnectorsService', () => {
   describe('who may start runs', () => {
     it('defaults the Figma allowlist to the connecting admin and records the Sentry organization', async () => {
       const { values } = mockUpsert();
+      db.select.mockReturnValue(selectQ([]));
       fetchFn.mockResolvedValueOnce(json({ id: 'fig-42', handle: 'pat' }));
       await service.connect('u1', 'w1', 'figma', 'figd_x');
       expect(values.mock.calls[0][0]).toMatchObject({ allowedUsers: ['fig-42'], vendorUserId: 'fig-42' });

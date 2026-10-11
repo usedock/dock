@@ -7,6 +7,7 @@ import { connectorDeliveries, connectors, githubInstallations, providerKeys, typ
 import { openValue, sealValue } from '../environments/secrets';
 import { OrganizationsService, isUniqueViolation } from '../organizations/organizations.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import { createConnectorFetch } from './connector-fetch';
 import { assertPublicSentryHost, normalizeSentryHost } from './connector-host';
 import { CONNECTOR_KINDS, isConnectorKind, type ConnectorAccess, type ConnectorCredential, type ConnectorKind } from './connector-kinds';
 import { needsRefresh, oauthClient, refreshCredential } from './connector-oauth';
@@ -76,7 +77,7 @@ export class ConnectorsService {
     @Optional() options: { fetchFn?: typeof fetch } = {},
   ) {
     this.key = Buffer.from(config.getOrThrow<string>('SECRETS_ENCRYPTION_KEY'), 'hex');
-    this.fetchFn = options?.fetchFn ?? fetch;
+    this.fetchFn = options?.fetchFn ?? createConnectorFetch();
   }
 
   async list(callerId: string, workspaceId: string): Promise<ConnectorView[]> {
@@ -148,6 +149,13 @@ export class ConnectorsService {
       ...(host !== undefined ? { host } : {}),
       ...(identity.org ? { vendorOrg: identity.org } : {}),
     };
+    // Figma runs act with the owner's token, so the allowlist defaults to the token's Figma user. A reconnect
+    // by a different Figma user replaces the list with the new owner; a reconnect by the same one keeps admin edits.
+    const [existing] =
+      kind === 'figma' && identity.userId
+        ? await this.db.select({ vendorUserId: connectors.vendorUserId }).from(connectors).where(and(eq(connectors.workspaceId, workspaceId), eq(connectors.kind, kind))).limit(1)
+        : [];
+    const resetAllowlist = kind === 'figma' && !!identity.userId && existing?.vendorUserId !== identity.userId;
     try {
       const [row] = await this.db
         .insert(connectors)
@@ -155,7 +163,7 @@ export class ConnectorsService {
         .onConflictDoUpdate({
           target: [connectors.workspaceId, connectors.kind],
           // The connecting admin owns the connector's docks: triggered runs act on their behalf.
-          set: { credentials: sealed, accountLabel: identity.label, scopes, status: 'connected', createdBy: userId, updatedAt: new Date(), ...optional },
+          set: { credentials: sealed, accountLabel: identity.label, scopes, status: 'connected', createdBy: userId, updatedAt: new Date(), ...optional, ...(resetAllowlist && identity.userId ? { allowedUsers: [identity.userId] } : {}) },
         })
         .returning();
       return connectorView(row, !!oauthClient(this.config, kind));

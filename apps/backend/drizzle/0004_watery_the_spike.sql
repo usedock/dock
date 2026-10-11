@@ -1,0 +1,3 @@
+-- Close older duplicate open runs (left by the earlier read-then-insert race) so the unique index can be built.
+UPDATE "connector_runs" SET "state" = 'failed', "reason" = 'duplicate' WHERE "state" IN ('pending', 'working') AND "id" NOT IN (SELECT DISTINCT ON ("workspace_id", "kind", "trigger_key") "id" FROM "connector_runs" WHERE "state" IN ('pending', 'working') ORDER BY "workspace_id", "kind", "trigger_key", "created_at" DESC);--> statement-breakpoint
+CREATE UNIQUE INDEX "connector_runs_open_subject_unique" ON "connector_runs" USING btree ("workspace_id","kind","trigger_key") WHERE "connector_runs"."state" in ('pending', 'working');
