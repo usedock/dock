@@ -13,7 +13,7 @@ Both installers verify the release checksums and cosign signatures before instal
 
 ## Quickstart
 
-With no account, `dock` runs docks on your own machine (the built-in `local` context). You need QEMU and KVM on Linux x86_64, or QEMU and Windows Hypervisor Platform on Windows x86_64; `dock doctor` tells you what is missing.
+With no account, `dock` runs docks on your own machine (the built-in `local` context). You need QEMU and KVM on Linux (x86_64 or arm64), or QEMU and Windows Hypervisor Platform on Windows x86_64; `dock doctor` tells you what is missing.
 
 ```sh
 curl -fsSL https://usedock.io/install | sh
@@ -29,7 +29,7 @@ Docs: [quickstart](https://docs.usedock.io/quickstart), [CLI](https://docs.usedo
 
 Questions and ideas: [GitHub Discussions](https://github.com/usedock/dock/discussions).
 
-> **Status:** pre-release. Interfaces may change until the first public release; from then on `/v1` only grows. The `dock` CLI ships as signed release binaries. Local docks work on Linux x86_64 with KVM and Windows x86_64 with Windows Hypervisor Platform; macOS builds but is untested. Dock Cloud is coming soon; self-hosting is free. The TypeScript, Python and Go SDKs are early and not published to registries yet.
+> **Status:** pre-release. Interfaces may change until the first public release; from then on `/v1` only grows. The `dock` CLI ships as signed release binaries. Local docks work on Linux (x86_64 or arm64) with KVM and Windows x86_64 with Windows Hypervisor Platform; macOS builds but is untested. Dock Cloud is coming soon; self-hosting is free. The TypeScript, Python and Go SDKs are early and not published to registries yet.
 
 This repo is the open core: the control plane API, the dashboard, the self-host deploy and the documentation. Each dock runs in QEMU on your own machine, or in a Firecracker microVM or gVisor sandbox on a host enrolled with a control plane.
 
