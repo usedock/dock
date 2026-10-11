@@ -1,4 +1,5 @@
-import { BadRequestException, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { vi } from 'vitest';
+import { BadRequestException, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { PassThrough, Readable } from 'stream';
@@ -140,6 +141,59 @@ describe('FleetObjectsService', () => {
       presign: { client: unusedPresigner(), ttlSeconds: 900 },
       bucket: BUCKET,
     }));
+  });
+
+  describe('bucket encryption check', () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const withClient = (client: unknown) =>
+      new FleetObjectsService(() => ({
+        client: client as Client,
+        presign: { client: unusedPresigner(), ttlSeconds: 900, directTransfers: false },
+        bucket: BUCKET,
+      }));
+
+    beforeEach(() => warn.mockClear());
+    afterAll(() => warn.mockRestore());
+
+    it('stays quiet when the bucket has default encryption', async () => {
+      const client = {
+        getBucketEncryption: async () => ({
+          ServerSideEncryptionConfiguration: {
+            Rule: { ApplyServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } },
+          },
+        }),
+      };
+      await expect(withClient(client).checkBucketEncryption()).resolves.toBe(true);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('warns when the bucket has no encryption configuration', async () => {
+      const client = {
+        getBucketEncryption: async () => {
+          throw storeError('ServerSideEncryptionConfigurationNotFoundError');
+        },
+      };
+      await expect(withClient(client).checkBucketEncryption()).resolves.toBe(false);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('no default encryption'));
+    });
+
+    it('does not claim either way when the store refuses the read', async () => {
+      const client = {
+        getBucketEncryption: async () => {
+          throw storeError('AccessDenied');
+        },
+      };
+      await expect(withClient(client).checkBucketEncryption()).resolves.toBeNull();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not read'));
+    });
+
+    it('does not throw at boot when the store is unconfigured', async () => {
+      const service = new FleetObjectsService(() => {
+        throw new Error('SNAPSHOT_STORE_ENDPOINT is not set');
+      });
+      expect(() => service.onModuleInit()).not.toThrow();
+      await expect(service.checkBucketEncryption()).resolves.toBeNull();
+    });
   });
 
   describe('abandoned upload cleanup', () => {

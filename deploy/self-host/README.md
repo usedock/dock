@@ -6,7 +6,7 @@ This stack runs the whole Dock control plane on one machine with Docker Compose:
 |---|---|
 | `db` (Postgres 16), `redis` | durable state, rate limits |
 | `restate` | durable dock workflows (internal only) |
-| `minio` + `minio-init` | snapshot generations, bucket created on start |
+| `minio` + `minio-init` | snapshot generations, bucket created on start with default encryption (SSE-S3) |
 | `migrate` | applies database migrations, then exits |
 | `backend` | REST API, fleet API, GitHub webhooks, workflow endpoint (`9080`) |
 | `restate-register` | registers the workflow endpoint with Restate on every start |
@@ -89,7 +89,8 @@ then `./setup.sh --upgrade <version>`, for example `./setup.sh --upgrade 0.2.0`
 migrations run automatically before the API starts. By hand, edit `DOCK_VERSION`
 in `.env`, then `docker compose pull && docker compose up -d`. Back up the
 `pgdata` and `minio-data` volumes and keep `.env` (losing `SECRETS_ENCRYPTION_KEY`
-makes stored provider keys and environment secrets unreadable).
+makes stored provider keys and environment secrets unreadable, and losing
+`MINIO_KMS_SECRET_KEY` makes every snapshot unreadable).
 
 Release images are cosign-signed. Verify one with:
 
@@ -102,6 +103,45 @@ upgrade in place: `migrate` fails with `relation "users" already exists` and
 the API never starts. Reset the stack with `docker compose down -v` (this
 deletes all docks, snapshots, and accounts), run `./setup.sh` again, and
 re-enroll each host with `bootstrap-host.sh`.
+
+## Snapshot encryption at rest
+
+The bundled MinIO encrypts every snapshot object (SSE-S3). `minio-init` enables
+default encryption on the bucket (`mc encrypt set sse-s3`), and MinIO's built-in
+KMS wraps each object key with the static key in `MINIO_KMS_SECRET_KEY`
+(`<key-name>:<base64 of 32 bytes>`). `setup.sh` writes that key to `.env` once and
+never replaces it, on new installs and on upgrades of installs that lack one.
+
+- **Back the key up with `.env`.** Losing it makes every stored snapshot
+  unreadable; there is no recovery. Changing it has the same effect, so there is
+  no in-place rotation. MinIO documents the static key as a minimal KMS (no key
+  creation or rotation); for key management beyond that, use an external bucket
+  with SSE-KMS.
+- **Upgrading an existing install.** Objects written before the upgrade stay
+  unencrypted; only new writes are encrypted. To re-encrypt, copy them into a
+  fresh encrypted bucket and point the stack at it (stop writers first):
+
+  ```bash
+  docker compose stop backend
+  docker compose run --rm --entrypoint /bin/sh minio-init -c '
+    mc alias set dock http://minio:9000 "$SNAPSHOT_STORE_ACCESS_KEY" "$SNAPSHOT_STORE_SECRET_KEY" &&
+    mc mb --ignore-existing dock/dock-snapshots-enc &&
+    mc encrypt set sse-s3 dock/dock-snapshots-enc &&
+    mc cp --recursive dock/dock-snapshots/ dock/dock-snapshots-enc/'
+  # set SNAPSHOT_STORE_BUCKET=dock-snapshots-enc in .env, then:
+  docker compose up -d
+  ```
+
+  Delete the old bucket (`mc rb --force dock/dock-snapshots`) once Snapshots
+  restore from the new one. Or leave the old objects as they are and accept that
+  they stay unencrypted.
+- **External S3 or your own MinIO.** `MINIO_KMS_SECRET_KEY` does nothing there.
+  Turn on default bucket encryption yourself (SSE-S3 or SSE-KMS); Dock sends no
+  encryption headers, so it works with whatever the bucket enforces. On start the
+  API checks the bucket and logs a warning when no default encryption is set; it
+  never refuses to boot over it.
+- Backups of the `minio-data` volume hold ciphertext only; the key lives in
+  `.env`, so store the two apart.
 
 ## Register the GitHub App (issue-to-PR runs)
 
