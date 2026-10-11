@@ -118,4 +118,17 @@ describe('mail templates', () => {
     expect(text).toContain('http://localhost:3000/docks/d1');
     expect(text).toContain('dev');
   });
+
+  it('waitlist-confirmation points at self-hosting and how to be removed', () => {
+    const { html, text } = mail.render('waitlist-confirmation', {
+      subject: 'x',
+      email: 'you@example.com',
+    });
+    for (const out of [html, text]) {
+      expect(out).toContain('docs.usedock.io/self-hosting');
+      expect(out).toContain('coming soon');
+    }
+    expect(html).toContain('reply to this email');
+    expect(text).toContain('reply to this email');
+  });
 });

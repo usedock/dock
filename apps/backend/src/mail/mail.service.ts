@@ -19,6 +19,7 @@ export type MailTemplate =
   | 'auto_recovered'
   | 'held_after_loss'
   | 'contact-message'
+  | 'waitlist-confirmation'
   | 'organization-invitation';
 
 export interface MailContext {
@@ -82,6 +83,13 @@ function textFor(template: MailTemplate, context: MailContext): string {
       return `${context.dockName ?? 'Your dock'} is held after machine loss on Dock. ${context.detail ?? ''} Open it: ${context.linkUrl}`;
     case 'organization-invitation':
       return `You were invited to join ${context.orgName ?? 'an organization'} on Dock as ${context.role ?? 'member'}. Sign in with ${context.email ?? 'your email'} to accept (link expires in 7 days): ${context.inviteUrl}`;
+    case 'waitlist-confirmation':
+      return [
+        'You are on the Dock Cloud waitlist. Dock Cloud is coming soon, and we will write to you at this address when invites open.',
+        'Dock is free to self-host today: https://docs.usedock.io/self-hosting',
+        '',
+        'To be removed from the list, reply to this email.',
+      ].join('\n');
     case 'contact-message':
       return [
         `${context.name ?? 'A visitor'} wrote from ${context.email ?? 'an unknown address'}.`,

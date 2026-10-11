@@ -48,6 +48,10 @@ address.
 Response: `{ "sent": true }`. Errors: `validation_error`, `rate_limited`,
 `mail_unavailable`.
 
+For topic `cloud-waitlist` the submitter also gets a short confirmation email,
+at most one per address per 24 hours. It never repeats your message. A failure
+to send it does not fail the request.
+
 ## Identity and profile
 
 ### `GET /v1/me`

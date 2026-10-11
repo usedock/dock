@@ -83,6 +83,10 @@ const SAMPLES: Record<MailTemplate, { subject: string; context: Record<string, s
       inviteUrl: 'http://localhost:3002/invitations/preview',
     },
   },
+  'waitlist-confirmation': {
+    subject: 'You are on the Dock Cloud waitlist',
+    context: { email: 'you@example.com' },
+  },
   'contact-message': {
     subject: 'Dock Request access - Ada Lovelace (Acme)',
     context: {
