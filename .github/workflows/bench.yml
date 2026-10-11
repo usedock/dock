@@ -1,0 +1,93 @@
+name: Bench
+
+# Dock's own baseline: the local engine of the dock CLI (QEMU on KVM) on a GitHub-hosted runner.
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: Iterations per scenario
+        default: "50"
+      dock_version:
+        description: Release tag of the dock CLI to install (empty is the latest release)
+        default: ""
+  schedule:
+    - cron: "17 4 1 * *"
+  pull_request:
+    paths:
+      - bench/**
+      - .github/workflows/bench.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      ITERATIONS: ${{ inputs.iterations || '50' }}
+      DOCK_DATA_DIR: ${{ github.workspace }}/../dockdata
+      DOCK_BENCH_MEMORY_MIB: "1024"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: install qemu
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
+      - name: allow /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: install dock
+        env:
+          DOCK_VERSION: ${{ inputs.dock_version }}
+        run: |
+          curl -fsSL https://usedock.io/install | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: pull the image
+        run: |
+          dock doctor
+          dock images pull ubuntu-24.04
+      - run: bun install --frozen-lockfile
+        working-directory: bench
+      - name: record the environment
+        working-directory: bench
+        run: |
+          mkdir -p results
+          ./scripts/environment.sh | tee results/environment.json
+      # Cold create from the cached image, one at a time, then four at once.
+      - name: sequential create
+        working-directory: bench
+        run: bun run bench --provider dock-local --scenario sequential --iterations "$ITERATIONS"
+      - name: concurrent create (4)
+        working-directory: bench
+        run: bun run bench --provider dock-local --scenario burst --iterations "$ITERATIONS" --concurrency 4
+      - name: exec
+        working-directory: bench
+        run: bun run bench --provider dock-local --scenario exec --iterations "$ITERATIONS"
+      - name: stop and resume
+        working-directory: bench
+        run: bun run bench --provider dock-local --scenario resume --iterations "$ITERATIONS"
+      - name: branch
+        working-directory: bench
+        run: bun run bench --provider dock-local --scenario branch --iterations "$ITERATIONS"
+      - name: leftover docks
+        if: always()
+        run: dock ls --all --json
+      - name: guest logs
+        if: failure()
+        run: |
+          for f in "$DOCK_DATA_DIR"/docks/*/serial.log "$DOCK_DATA_DIR"/docks/*/qemu.log; do
+            [ -f "$f" ] && { echo "=== $f"; tail -40 "$f"; }
+          done || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: bench-local-engine
+          path: bench/results/
+          if-no-files-found: error

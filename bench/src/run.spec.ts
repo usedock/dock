@@ -160,6 +160,7 @@ describe('runBenchmark prepare', () => {
 
 describe('selectProvider', () => {
   it('skips a provider whose key is unset and names the variable', () => {
+    expect(selectProvider('dock-local', {})).toMatchObject({ provider: { name: 'dock-local' } });
     expect(selectProvider('e2b', {})).toEqual({ skipped: 'e2b skipped: set E2B_API_KEY' });
     expect(selectProvider('modal', { MODAL_TOKEN_ID: 'x' })).toEqual({ skipped: 'modal skipped: set MODAL_TOKEN_SECRET' });
     expect(selectProvider('vercel', { VERCEL_TOKEN: 't' })).toEqual({ skipped: 'vercel skipped: set VERCEL_TEAM_ID, VERCEL_PROJECT_ID' });

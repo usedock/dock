@@ -15,6 +15,8 @@ export interface ScenarioResult {
   concurrency: number;
   skipped?: string;
   stats?: Stats;
+  /** Every raw sample in completion order, so the CSV and any re-analysis keep failures visible. */
+  samples?: Sample[];
 }
 
 export interface Scenario {
@@ -158,5 +160,5 @@ export async function runScenario(scenario: Scenario, ctx: ScenarioContext): Pro
   }
   const samples: Sample[] = [];
   await scenario.run({ ...ctx, concurrency }, (s) => samples.push(s));
-  return { ...base, stats: summarize(samples) };
+  return { ...base, stats: summarize(samples), samples };
 }

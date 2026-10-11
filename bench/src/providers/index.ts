@@ -1,3 +1,4 @@
+import { DockLocalProvider, LOCAL_SIZE } from './dock-local.ts';
 import { DockProvider } from './dock.ts';
 import { E2BProvider } from './e2b.ts';
 import { ModalProvider } from './modal.ts';
@@ -17,6 +18,15 @@ const REGISTRY: Record<string, Entry> = {
     required: ['DOCK_API_URL', 'DOCK_API_KEY'],
     build: (env) =>
       new DockProvider({ apiUrl: env.DOCK_API_URL!, apiKey: env.DOCK_API_KEY!, workspaceId: env.DOCK_WORKSPACE_ID }),
+  },
+  // The local engine of the dock CLI; needs only the binary (DOCK_BIN, default `dock` on PATH).
+  'dock-local': {
+    required: [],
+    build: (env) =>
+      new DockLocalProvider({
+        bin: env.DOCK_BIN || 'dock',
+        size: { ...LOCAL_SIZE, memoryMiB: Number(env.DOCK_BENCH_MEMORY_MIB) || LOCAL_SIZE.memoryMiB },
+      }),
   },
   e2b: { required: ['E2B_API_KEY'], build: (env) => new E2BProvider(env.E2B_API_KEY!) },
   modal: {
