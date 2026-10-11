@@ -297,10 +297,10 @@ describe('EnvironmentApplyService', () => {
   });
 
   it('applies upgrades to live moved docks only', async () => {
-    envs.upgrade.mockResolvedValue({ operation: { id: 'op_1' }, moved: ['d1', 'd2'], orgId });
+    envs.upgrade.mockResolvedValue({ operation: { id: 'op_1' }, moved: ['d1', 'd2'], skipped: [{ id: 'd3', name: null, reason: 'r' }], orgId });
     db.select.mockReturnValue({ from: () => ({ where: () => Promise.resolve([dock()]) }) });
     const res = await service.upgrade('u1', 'base', orgId, undefined);
-    expect(res).toEqual({ operation: { id: 'op_1' } });
+    expect(res).toEqual({ operation: { id: 'op_1' }, skipped: [{ id: 'd3', name: null, reason: 'r' }] });
     expect(envs.resolveBundle).toHaveBeenCalledTimes(1);
   });
 

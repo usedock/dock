@@ -123,6 +123,12 @@ export interface EnvironmentView {
   updatedAt: Date;
 }
 
+export interface UpgradeSkipped {
+  id: string;
+  name: string | null;
+  reason: string;
+}
+
 export interface EnvironmentVersionView {
   version: number;
   createdAt: Date;
@@ -342,13 +348,17 @@ export class EnvironmentsService {
     return rows.map((row) => ({ version: row.version, createdAt: row.createdAt, dockCount: counts[row.version] ?? 0 }));
   }
 
-  /** Moves pins to the latest version; callers apply moved docks to their disks. */
+  /**
+   * Moves pins to the latest version; callers apply moved docks to their disks.
+   * A dock bound before this environment was created (the same-named one was deleted and re-created) is skipped and
+   * reported: its disk holds the old environment's files and envBoundAt only moves on resume.
+   */
   async upgrade(
     callerId: string,
     ref: string,
     organizationId: string | undefined,
     dockIds?: string[],
-  ): Promise<{ operation: OperationView; moved: string[]; orgId: string }> {
+  ): Promise<{ operation: OperationView; moved: string[]; skipped: UpgradeSkipped[]; orgId: string }> {
     const env = await this.resolveRef(callerId, ref, organizationId, 'admin');
     const latest = await this.latestVersion(env.id);
     const pin = `v${latest.version}`;
@@ -357,7 +367,7 @@ export class EnvironmentsService {
       .from(workspaces)
       .where(eq(workspaces.organizationId, env.organizationId));
     const wsIds = wsRows.map((w) => w.id);
-    let targets: { id: string; envVersionPin: string | null }[] = [];
+    let targets: { id: string; name?: string | null; envVersionPin: string | null; createdAt?: Date; envBoundAt?: Date | null }[] = [];
     if (dockIds?.length) {
       for (const id of dockIds) {
         if (!UUID_RE.test(id)) throw new DockNotFoundException();
@@ -367,21 +377,31 @@ export class EnvironmentsService {
       }
     } else if (wsIds.length) {
       targets = await this.db
-        .select({ id: docks.id, envVersionPin: docks.envVersionPin })
+        .select({ id: docks.id, name: docks.name, envVersionPin: docks.envVersionPin, createdAt: docks.createdAt, envBoundAt: docks.envBoundAt })
         .from(docks)
         .where(and(inArray(docks.workspaceId, wsIds), eq(docks.environment, env.name)));
     }
     const op = await this.ops.create(env.organizationId, 'environment', env.id);
     const moved: string[] = [];
+    const skipped: UpgradeSkipped[] = [];
     for (const dock of targets) {
       if (!this.isOlderPin(dock.envVersionPin, latest.version)) continue;
+      const boundAt = dock.envBoundAt ?? dock.createdAt;
+      if (boundAt && boundAt < env.createdAt) {
+        skipped.push({
+          id: dock.id,
+          name: dock.name ?? null,
+          reason: `Bound to an earlier environment named ${env.name} that was deleted; resume the dock onto the environment to rebind it`,
+        });
+        continue;
+      }
       moved.push(dock.id);
       await this.db
         .update(docks)
         .set({ envVersionPin: pin, updatedAt: new Date() })
         .where(eq(docks.id, dock.id));
     }
-    return { operation: await this.ops.complete(op.id), moved, orgId: env.organizationId };
+    return { operation: await this.ops.complete(op.id), moved, skipped, orgId: env.organizationId };
   }
 
   async listRepos(callerId: string, ref: string, organizationId?: string): Promise<EnvironmentView['repos']> {
