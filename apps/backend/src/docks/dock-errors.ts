@@ -34,6 +34,13 @@ export class CapacityExhaustedException extends ServiceUnavailableException {
   }
 }
 
+/** Every host that was tried refused the Dockyard image because it does not serve it. */
+export class ImageUnavailableException extends BadRequestException {
+  constructor(image: string) {
+    super({ code: 'image_unavailable', message: `No online host serves image ${image}; list images with GET /v1/images` });
+  }
+}
+
 /** Dock names are unique per workspace. */
 export class DockNameTakenException extends ConflictException {
   constructor(name: string) {

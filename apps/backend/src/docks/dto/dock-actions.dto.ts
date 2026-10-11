@@ -1,7 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsBoolean, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Transform } from 'class-transformer';
-import { DEFAULT_IMAGE } from '../../database/schema';
 import { DockSizeDto } from './dock-size.dto';
 
 export class StopDockDto {
@@ -19,7 +18,7 @@ export class BranchDockDto extends DockSizeDto {
 
   @IsOptional()
   @IsString()
-  @ApiProperty({ required: false, default: DEFAULT_IMAGE, description: 'Only ubuntu-24.04 is available' })
+  @ApiProperty({ required: false, description: 'Defaults to the source image; a branch cannot change it' })
   image?: string;
 
   @IsOptional()

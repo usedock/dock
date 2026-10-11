@@ -43,7 +43,7 @@ import { assertNotReserved } from '../environments/env-validation';
 import { EnvironmentNotFoundException, EnvironmentSecretsAdminOnlyException, EnvironmentsService } from '../environments/environments.service';
 import { ConnectorAdminOnlyException, ConnectorsService } from '../connectors/connectors.service';
 import { EnvironmentApplyService } from '../environments/environment-apply.service';
-import { ConfirmRequiredException, DockDeleteForbiddenException, DockNotFoundException, NoHostCapacityException, SnapshotInUseException, TEMPLATE_RE, TemplateSourceMissingException, TemplateNotFoundException, CapacityExhaustedException, DockNameTakenException } from './dock-errors';
+import { ConfirmRequiredException, DockDeleteForbiddenException, DockNotFoundException, NoHostCapacityException, SnapshotInUseException, TEMPLATE_RE, TemplateSourceMissingException, TemplateNotFoundException, CapacityExhaustedException, DockNameTakenException, ImageUnavailableException } from './dock-errors';
 import { COMPUTE_PROVIDER, ComputeProvider } from './compute.provider';
 import { DockletException } from '../runtime/docklet.client';
 import { MeteringService } from '../metering/metering.service';
@@ -171,7 +171,7 @@ export function checkedSize(input: DockSizeInput, base: DockSize = { cpus: DEFAU
 function checkedImage(image: unknown): string {
   if (image === undefined) return DEFAULT_IMAGE;
   if (typeof image === 'string' && DOCK_IMAGES.includes(image)) return image;
-  throw new BadRequestException({ code: 'image_unknown', message: `Unknown image. Valid images: ${DOCK_IMAGES.join(', ')}`, images: [...DOCK_IMAGES] });
+  throw new BadRequestException({ code: 'image_unknown', message: `Unknown image. Valid images: ${DOCK_IMAGES.join(', ')}` });
 }
 
 function checkedName(name: unknown): string {
@@ -299,24 +299,29 @@ export class DocksService {
    * Places then runs the boot. A host whose docklet refuses with capacity_exhausted, or with
    * base_image_unavailable (a generation recorded before bases were tracked), is skipped and
    * placement retried; running out of hosts after a base refusal reports the base, not capacity.
+   * A host refusing a Dockyard image it does not serve (image_unavailable) is skipped the same way.
    */
-  private async placeAndRun<T>(source: PlacementSource, dock: { id: string } & DockSize, run: (host: Host | null) => Promise<T>): Promise<{ machine: T; runtime?: Runtime }> {
+  private async placeAndRun<T>(source: PlacementSource, dock: { id: string; image?: string } & DockSize, run: (host: Host | null) => Promise<T>): Promise<{ machine: T; runtime?: Runtime }> {
     const excluded: string[] = [];
     let baseRefused = false;
+    let imageRefused = false;
     for (;;) {
       let host: Host | null;
       try {
         host = await this.placeOrThrow(source, dock, excluded);
       } catch (err) {
-        if (baseRefused && (err instanceof NoHostCapacityException || err instanceof CapacityExhaustedException)) throw new BaseImageUnavailableException();
+        const exhausted = err instanceof NoHostCapacityException || err instanceof CapacityExhaustedException;
+        if (imageRefused && exhausted) throw new ImageUnavailableException(dock.image ?? DEFAULT_IMAGE);
+        if (baseRefused && exhausted) throw new BaseImageUnavailableException();
         throw err;
       }
       try {
         return { machine: await run(host), runtime: host?.runtime };
       } catch (err) {
         const code = (err as { code?: unknown }).code;
-        if (!host || (code !== 'capacity_exhausted' && code !== 'base_image_unavailable')) throw err;
+        if (!host || (code !== 'capacity_exhausted' && code !== 'base_image_unavailable' && code !== 'image_unavailable')) throw err;
         if (code === 'base_image_unavailable') baseRefused = true;
+        if (code === 'image_unavailable') imageRefused = true;
         excluded.push(host.id);
       }
     }
@@ -764,6 +769,8 @@ export class DocksService {
     const { dock, orgId } = await this.loadReadableDock(callerId, id);
     const size = checkedSize(opts, dock);
     const image = opts.image === undefined ? dock.image : checkedImage(opts.image);
+    // A branch restores its source's disk, so another image would only relabel it.
+    if (image !== dock.image) throw validationError(`A branch keeps its source's image (${dock.image})`);
     const ttlSeconds = opts.ttlSeconds === undefined ? null : opts.ttlSeconds;
     if (ttlSeconds !== null && (!Number.isInteger(ttlSeconds) || ttlSeconds < 60 || ttlSeconds > 2592000)) {
       throw validationError('ttlSeconds must be an integer 60..2592000 or null');
@@ -808,7 +815,7 @@ export class DocksService {
       const latest = await this.latestSnapshot(id);
       const capture = await this.provider.captureSnapshot(dock, latest?.id ?? null);
       await this.recordSnapshot(id, capture.sizeBytes, capture.manifest, latest?.id ?? null, capture.snapshotId, capture.cpuFamily, capture.runtime, capture.kernelRelease, capture.baseFingerprint);
-      const { machine, runtime } = await this.placeAndRun(capture, { id: target.id, ...size }, (host) =>
+      const { machine, runtime } = await this.placeAndRun(capture, { id: target.id, image, ...size }, (host) =>
         this.provider.branch(dock, target, { snapshotId: capture.snapshotId, hostId: host?.id ?? null }),
       );
       const ready = await this.transition(target.id, ['provisioning'], { state: 'ready', liveSince: new Date(), ip: machine.ip, hostId: machine.hostId ?? dock.hostId ?? null, runtime: runtime ?? dock.runtime });

@@ -370,7 +370,7 @@ describe('DocksService', () => {
   it('rejects images outside the Dockyard catalog with image_unknown before creating anything', async () => {
     const err = await catchErr(service.create('u1', { workspaceId: wsId, image: 'debian-12' }));
     expect(err.status).toBe(400);
-    expect(err.body).toMatchObject({ code: 'image_unknown', images: ['ubuntu-24.04', 'node-22', 'python-3.12', 'browser'] });
+    expect(err.body).toEqual({ code: 'image_unknown', message: 'Unknown image. Valid images: ubuntu-24.04, node-22, python-3.12, browser' });
     expect(db.insert).not.toHaveBeenCalled();
     db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null })]));
     db.update.mockReturnValueOnce(updateQ([dockRow()]));
@@ -497,6 +497,32 @@ describe('DocksService', () => {
     const err = await catchErr(service.branch('u1', dockId, { cpus: 8 }));
     expect(err.status).toBe(503);
     expect(err.body).toMatchObject({ code: 'capacity_exhausted' });
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('skips hosts that refuse a catalog image and reports 400 image_unavailable once hosts run out', async () => {
+    config.get.mockReturnValue('restate');
+    hosts.placeForDock.mockResolvedValueOnce({ id: 'host-a' }).mockResolvedValueOnce({ id: 'host-b' }).mockResolvedValueOnce(null);
+    hosts.anyOnlineWithHeadroom.mockResolvedValue(true);
+    const refused = () => new DockletException('image_unavailable', 'image_unavailable: "node-22"');
+    const spy = vi.spyOn(provider, 'provision').mockRejectedValueOnce(refused()).mockRejectedValueOnce(refused());
+    db.insert.mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null, image: 'node-22' })]));
+    db.update.mockReturnValue({ set: () => ({ where: () => Promise.resolve([]) }) });
+    const err = await catchErr(service.create('u1', { workspaceId: wsId, image: 'node-22' }));
+    expect(err.status).toBe(400);
+    expect(err.body).toMatchObject({ code: 'image_unavailable' });
+    expect(err.body.message).toContain('node-22');
+    expect(hosts.placeForDock).toHaveBeenLastCalledWith(expect.objectContaining({ excludeHostIds: ['host-a', 'host-b'] }));
+    spy.mockRestore();
+  });
+
+  it('refuses a branch to another image before creating anything', async () => {
+    db.select
+      .mockReturnValueOnce(selectQ([dockRow({ image: 'ubuntu-24.04' })]))
+      .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]));
+    const err = await catchErr(service.branch('u1', dockId, { image: 'node-22' }));
+    expect(err.status).toBe(400);
+    expect(err.body).toMatchObject({ code: 'validation_error' });
     expect(db.insert).not.toHaveBeenCalled();
   });
 

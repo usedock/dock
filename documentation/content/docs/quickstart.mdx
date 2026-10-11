@@ -37,7 +37,7 @@ curl -sS "$DOCK_URL/v1/organizations/<org-id>/workspaces" \
 
 Only `workspaceId` is required. Size defaults to 2 CPUs, 4096 MiB of memory and
 a 20 GiB disk. `name` is optional and unique per workspace. `image` defaults to
-`ubuntu-24.04`, the only image available today.
+`ubuntu-24.04`; the other images are listed in [Dockyard](/dockyard).
 
 Creation takes an `idempotency-key` header, so a retried request returns the
 original Dock instead of creating a second one. The call returns once the host

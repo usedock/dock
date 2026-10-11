@@ -65,6 +65,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     SnapshotsModule,
     HostsModule,
     FleetModule,
+    ImagesModule,
     StatsModule,
     RetentionModule,
     AccountClosureModule,

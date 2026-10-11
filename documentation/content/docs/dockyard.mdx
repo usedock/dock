@@ -3,9 +3,9 @@ title: Dockyard
 description: The official Dock images, how to list them, and how to create a Dock from one.
 ---
 
-Dockyard is the set of official images a Dock can start from. Each image is
-built from source in `usedock/docklet`, published with a signature, and verified
-by the host before it boots a Dock.
+Dockyard is the catalog of official images a Dock can start from. The images are
+built from source in `usedock/docklet`. Hosts serve only `ubuntu-24.04` today;
+the other images become usable as hosts learn to serve Dockyard images.
 
 ## Images
 
@@ -21,11 +21,12 @@ environment setup script (see [Concepts](/concepts)).
 
 ## List images
 
-```bash
-dock images
-```
+`GET /v1/images` returns the catalog. Any authenticated caller can read it.
 
-The API route behind it is `GET /v1/images`. Any authenticated caller can read it.
+```bash
+curl -sS "$DOCK_URL/v1/images" \
+  -H "Authorization: Bearer $DOCK_API_KEY"
+```
 
 ```json
 {
@@ -43,22 +44,22 @@ The API route behind it is `GET /v1/images`. Any authenticated caller can read i
 }
 ```
 
-`available` is true when a connected, online host serves the image. Hosts do not
-report which images they hold yet, so today only `ubuntu-24.04` shows as
-available, and only while at least one host is online.
+`available` is true when an online host serves the image. Hosts do not report
+which images they hold yet, so today only `ubuntu-24.04` shows as available, and
+only while at least one host is online.
 
 ## Create a Dock from an image
 
 ```bash
-dock new --image node-22
+dock new --image ubuntu-24.04
 ```
 
 Over the API, send `image` in `POST /v1/docks`. An image that is not in the
-catalog is refused with 400 `image_unknown`, and the response lists the valid
-names. A catalog image is accepted even when `available` is false; the host that
-receives the Dock refuses an image it does not hold.
+catalog is refused with 400 `image_unknown`; the message lists the valid names.
+A catalog image is accepted even when `available` is false. Each host that
+does not serve it is skipped, and when no host is left the call fails with 400
+`image_unavailable` and the Dock is left in the `error` state.
 
-## Signed artifacts
-
-Every image artifact is signed by the release workflow in `usedock/docklet`, and
-the docklet checks the signature and digest before it uses an image.
+A branch (`POST /v1/docks/{id}/branch`) copies its source's disk, so it keeps the
+source's image; sending a different `image` is refused with 400
+`validation_error`.

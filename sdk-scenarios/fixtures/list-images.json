@@ -67,8 +67,7 @@
         "body": {
           "ok": false,
           "code": "image_unknown",
-          "message": "Unknown image. Valid images: ubuntu-24.04, node-22, python-3.12, browser",
-          "images": ["ubuntu-24.04", "node-22", "python-3.12", "browser"]
+          "message": "Unknown image. Valid images: ubuntu-24.04, node-22, python-3.12, browser"
         }
       }
     }

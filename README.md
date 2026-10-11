@@ -24,7 +24,7 @@ Docks run on hosts driven by the [docklet](https://github.com/usedock/docklet), 
 | Term | Meaning |
 | --- | --- |
 | Dock | An isolated Linux machine with a persistent disk |
-| Image | The disk a dock starts from: `ubuntu-24.04` (the only image today) or a dock you saved |
+| Image | The disk a dock starts from: a Dockyard image (default `ubuntu-24.04`) or a dock you saved |
 | Size | `cpus`, `memoryMiB`, `diskGiB` as numbers (default 2 vCPU, 4096 MiB, 20 GiB) |
 | Runtime | `microvm` or `gvisor`, chosen by the host |
 | Snapshot, Branch | A saved disk, and new docks started from it |

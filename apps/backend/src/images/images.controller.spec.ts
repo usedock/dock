@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { vi } from 'vitest';
 import { ImagesController } from './images.controller';
 import { ImagesService } from './images.service';
@@ -12,6 +14,12 @@ describe('ImagesController', () => {
     expect(list.filter((i) => i.available).map((i) => i.name)).toEqual(['ubuntu-24.04']);
     expect(list[0]).toMatchObject({ arch: ['amd64'], sizeMiB: 1536 });
     expect(list[0].description).toContain('Ubuntu 24.04');
+  });
+
+  // Read from source: importing AppModule validates the process env.
+  it('is mounted by the app module', () => {
+    const imports = /imports:\s*\[([\s\S]*?)\n  \]/.exec(readFileSync(join(__dirname, '../app.module.ts'), 'utf8'))?.[1] ?? '';
+    expect(imports).toMatch(/^\s*ImagesModule,$/m);
   });
 
   it('marks every image unavailable with no online host', async () => {
