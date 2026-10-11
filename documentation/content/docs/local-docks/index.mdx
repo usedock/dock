@@ -19,12 +19,9 @@ software emulation on its own.
 
 | Machine | Accelerator | Status |
 | --- | --- | --- |
-| Linux x86_64 | KVM (`/dev/kvm`) | Available |
+| Linux x86_64 and arm64 | KVM (`/dev/kvm`) | Available. arm64 images need `dock` v0.3.0 or later and have not been tested on real arm64 hardware |
 | Windows x86_64 | Windows Hypervisor Platform (WHPX) | Available. See [Windows](/local-docks/windows) |
-| macOS | Hypervisor.framework (HVF) | Built, not yet tested |
-
-[Dockyard](/dockyard) publishes amd64 images only today, so an arm64 machine
-(Apple silicon, Linux arm64) has no image to boot yet.
+| macOS | Hypervisor.framework (HVF) | Built, not yet tested (Apple silicon included) |
 
 On Linux, install QEMU (for example `sudo apt install qemu-system-x86
 qemu-utils`) and make sure your user can read and write `/dev/kvm` (for example

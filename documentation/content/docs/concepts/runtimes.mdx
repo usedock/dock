@@ -48,9 +48,9 @@ with the image's own kernel.
 
 | Machine | Accelerator | Status |
 |---|---|---|
-| Linux x86_64 | KVM | Available |
+| Linux x86_64 and arm64 | KVM | Available. arm64 needs `dock` v0.3.0 or later and is untested on real hardware |
 | Windows x86_64 | Windows Hypervisor Platform (WHPX) | Available. See [Windows](/local-docks/windows) |
-| macOS | Hypervisor.framework (HVF) | Built, not yet tested. Dockyard images are amd64 only, so Apple silicon has none yet |
+| macOS | Hypervisor.framework (HVF) | Built, not yet tested |
 
 Firecracker (`microvm`) stays the engine for Linux fleet hosts. The local engine
 is for your own machine, and it never falls back to software emulation unless

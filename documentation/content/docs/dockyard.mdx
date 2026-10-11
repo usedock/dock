@@ -8,16 +8,16 @@ built from source in `usedock/docklet`. A control plane host serves
 `ubuntu-24.04` once its base exists, and any other image after an operator pulls
 it on that host (see [Self-hosting](/self-hosting#serve-dockyard-images-on-a-host)).
 The `dock` CLI's [local engine](/local-docks) boots any of them
-directly on an amd64 machine.
+directly on an amd64 or arm64 machine.
 
 ## Images
 
 | Image | Contents | Arch |
 |---|---|---|
-| `ubuntu-24.04` | Minimal Ubuntu 24.04: systemd, openssh-server, Docker, git, curl, python3. The default. | amd64 |
-| `node-22` | `ubuntu-24.04` with Node.js 22 | amd64 |
-| `python-3.12` | `ubuntu-24.04` with Python 3.12, pip and venv | amd64 |
-| `browser` | `ubuntu-24.04` with Chromium and its dependencies | amd64 |
+| `ubuntu-24.04` | Minimal Ubuntu 24.04: systemd, openssh-server, Docker, git, curl, python3. The default. | amd64, arm64 |
+| `node-22` | `ubuntu-24.04` with Node.js 22 | amd64, arm64 |
+| `python-3.12` | `ubuntu-24.04` with Python 3.12, pip and venv | amd64, arm64 |
+| `browser` | `ubuntu-24.04` with Chromium and its dependencies | amd64, arm64 |
 
 No image has a coding agent baked in. Bring any agent and install it in the
 environment setup script (see [Concepts](/concepts)).
@@ -38,7 +38,7 @@ curl -sS "$DOCK_URL/v1/images" \
     {
       "name": "ubuntu-24.04",
       "description": "Minimal Ubuntu 24.04: systemd, openssh-server, Docker, git, curl, python3",
-      "arch": ["amd64"],
+      "arch": ["amd64", "arm64"],
       "sizeMiB": 2048,
       "contents": "Ubuntu 24.04 with systemd, openssh-server, Docker, git, curl and python3",
       "available": true
@@ -86,10 +86,11 @@ own kernel. Each image file is checked against its size and SHA-256 in the
 Dockyard index.
 
 The `dock` binary pins the Dockyard release and the SHA-256 of its
-`dockyard.json` index, and refuses an index that does not match. `dock` v0.2.0
+`dockyard.json` index, and refuses an index that does not match. `dock` v0.3.0
 pins the
-[`images-2026.10.11`](https://github.com/usedock/docklet/releases/tag/images-2026.10.11)
-release, whose files are also signed with cosign. Images are amd64 only today,
-so `dock images` lists nothing on an arm64 machine. `DOCK_DOCKYARD_URL` points the CLI at another index; it is then unpinned, the
+[`images-2026.10.11.2`](https://github.com/usedock/docklet/releases/tag/images-2026.10.11.2)
+release, whose files are also signed with cosign. All four images are published for amd64 and arm64. The arm64 images were
+boot-tested in CI under emulation only, not yet on real arm64 hardware. `dock`
+v0.2.0 lists amd64 images only, so use v0.3.0 or later on arm64. `DOCK_DOCKYARD_URL` points the CLI at another index; it is then unpinned, the
 CLI warns, and the index is verified only when `DOCK_DOCKYARD_SHA256` is also
 set.
