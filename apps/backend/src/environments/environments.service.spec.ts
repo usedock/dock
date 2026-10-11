@@ -347,6 +347,10 @@ describe('EnvironmentsService', () => {
       db.select.mockReturnValueOnce(selectQ([envRow({ createdAt: new Date('2026-05-01') })]));
       db.select.mockReturnValueOnce(selectQ([versionRow()]));
       expect(await service.gatewayKeyFor(orgId, { ...dockRef, envBoundAt: new Date('2026-06-01') }, 'ANTHROPIC_API_KEY')).toBe('sk-a');
+      // Bound in the same millisecond the environment was created: allowed.
+      db.select.mockReturnValueOnce(selectQ([envRow({ createdAt: new Date('2026-05-01') })]));
+      db.select.mockReturnValueOnce(selectQ([versionRow()]));
+      expect(await service.gatewayKeyFor(orgId, { ...dockRef, envBoundAt: new Date('2026-05-01') }, 'ANTHROPIC_API_KEY')).toBe('sk-a');
     });
 
     it('refuses noEnv docks and keys the dock agents do not require', async () => {

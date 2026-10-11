@@ -656,12 +656,11 @@ export class EnvironmentsService {
 
   /**
    * The org's real key for a dock's gateway call, or null. Re-checks the
-   * dock's pinned environment version on every call. A dock is pinned when it
-   * is created, resumed or upgraded, so switching the environment to plain
-   * (a new version) cuts a dock off once it is pinned to that version, e.g. on
-   * its next apply or upgrade; turning agent credentials off or removing the
-   * key in place takes effect at once. A same-name environment created after
-   * the dock was bound says nothing about the dock, so it yields null.
+   * dock's pinned environment version on every call. Posture edits (plain
+   * mode, agent credentials off) are a new version, so they cut a dock off once
+   * it is re-pinned: an environment upgrade, or a resume onto the environment.
+   * Removing the org's key takes effect at once. A same-name environment
+   * created after the dock was bound says nothing about the dock: null.
    */
   async gatewayKeyFor(
     organizationId: string,
