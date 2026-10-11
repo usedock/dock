@@ -724,6 +724,8 @@ describe('DockTransfersService', () => {
       queueSelects([ready()], [{ id: dockId }]);
       const err = await catchErr(service.openDownload('u1', exportId, 'bytes=1234-'));
       expect(err).toMatchObject({ status: 416, body: { code: 'range_not_satisfiable' } });
+      queueSelects([ready()], [{ id: dockId }]);
+      await expect(service.openDownload('u1', exportId, 'bytes=5-3')).rejects.toMatchObject({ status: 416, size: 1234 });
       expect(objects.getObjectRange).not.toHaveBeenCalled();
     });
 
