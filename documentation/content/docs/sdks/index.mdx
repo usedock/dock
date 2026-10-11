@@ -1,0 +1,91 @@
+---
+title: SDKs
+description: Client libraries for the Dock API in TypeScript, Python, and Go.
+---
+
+Dock has three client SDKs. Each wraps the public `/v1` API and nothing else:
+no fleet, admin, or internal routes. They are written by hand, so the names read
+the same way in every language: create, exec, files, stop, resume, branch,
+delete.
+
+| Language | Repository | Package | Page |
+| --- | --- | --- | --- |
+| TypeScript | [usedock/dock-js](https://github.com/usedock/dock-js) | `@usedock/sdk` | [TypeScript](/sdks/typescript) |
+| Python | [usedock/dock-python](https://github.com/usedock/dock-python) | `usedock` | [Python](/sdks/python) |
+| Go | [usedock/dock-go](https://github.com/usedock/dock-go) | `github.com/usedock/dock-go` | [Go](/sdks/go) |
+
+None of them is published to npm or PyPI yet, and the Go module has no tagged
+release. Each page shows how to install from GitHub. Expect changes until the
+first release.
+
+## Configuration
+
+Every SDK reads the same two environment variables. Explicit options override
+them.
+
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `DOCK_API_KEY` | API key (`dock_...`) from Developers > API keys | required |
+| `DOCK_API_URL` | Control plane origin, without `/v1` | `https://api.usedock.io` |
+
+For a self-hosted control plane, set `DOCK_API_URL` to your origin
+(`DOCK_PUBLIC_URL`; see [Self-hosting](/self-hosting)). Creating a Dock needs a
+`workspaceId`; the [Quickstart](/quickstart) shows how to find one.
+
+## Behaviour shared by all three
+
+- Create, stop, resume, and branch return when the host has finished the change.
+  Bound them with a timeout.
+- `delete` sends the required `x-confirm-delete` header for you and returns an
+  operation you can poll with the operations call.
+- Create and branch take an idempotency key, sent as the `idempotency-key`
+  header. A retry with the same key returns the original Dock; reusing a key for
+  a different request fails with `idempotency_key_reused`. The Python SDK also
+  sends one on `exec`.
+- Failures carry the API's stable `snake_case` code, the HTTP status, and a
+  message. Match on the code, not the message. See the [API guide](/api/v1).
+- Responses rely only on `id`, `name`, and `state`; other fields are kept when
+  the API returns them.
+- A non-zero exit code from `exec` is a result, not an error.
+
+## File helpers
+
+The API has no file routes. The `files` helpers (`write`, `read`, `list`) each
+run one `exec` call: content travels as base64 and paths are shell-quoted. The
+Dock must be running, and the limits come from exec:
+
+- One write holds about 48 KB of content. The whole command, including the path,
+  must fit the 64 KB exec command limit, and larger content is refused before
+  anything is sent.
+- One read returns about 768 KB. The API keeps the first 1 MiB of output, and
+  base64 adds a third. A larger file fails with a truncation error instead of
+  returning a partial file.
+- A non-zero exit from the underlying command is an error.
+
+For bigger files, fetch them from inside the Dock with `exec`.
+
+## Auto-stop
+
+Auto-stop is off by default. To clear a `ttlSeconds` you set earlier, send
+`null` on update. Each SDK has its own way; see its page.
+
+## Shared scenario suite
+
+All three SDKs run the same scenarios, kept in
+[`sdk-scenarios/`](https://github.com/usedock/dock/tree/main/sdk-scenarios) in
+the open core repository. Each SDK pins a commit of it in `SCENARIOS_REF`.
+
+The scenarios are language-neutral YAML files with recorded HTTP fixtures:
+create, exec, and delete; a file round trip; stop and resume keeping files;
+branching copying files; not-found errors; and size validation errors. Offline,
+each SDK replays them against a local fake server. With `DOCK_API_URL`,
+`DOCK_API_KEY`, and `DOCK_WORKSPACE_ID` set, the same scenarios run against a
+real control plane, creating and deleting Docks named `sdk-...`. Use a throwaway
+workspace.
+
+An API change lands in this repository together with an update to the scenarios
+when they cover the route, and links its SDK pull requests.
+
+## Command line
+
+The [`dock` CLI](/cli) covers the same lifecycle from a shell.

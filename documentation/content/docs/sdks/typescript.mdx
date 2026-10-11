@@ -1,0 +1,128 @@
+---
+title: TypeScript
+description: The @usedock/sdk client for Node 18+ and Bun.
+---
+
+`@usedock/sdk` has no runtime dependencies and uses the global `fetch` (Node 18+
+or Bun). It is ESM only. Source:
+[usedock/dock-js](https://github.com/usedock/dock-js).
+
+## Install
+
+The package is not on npm yet. Install it from GitHub with npm; a `prepare`
+script builds `dist/` during the install:
+
+```sh
+npm install github:usedock/dock-js
+```
+
+npm warns that the package runs an install script; that script is the build.
+`bun add github:usedock/dock-js` does not work: Bun does not run the `prepare`
+script of a Git dependency, so `dist/` is missing and the import fails.
+
+With Bun, or if the install from GitHub fails, build from source and install
+from the path:
+
+```sh
+git clone https://github.com/usedock/dock-js
+cd dock-js
+bun install
+bun run build
+cd ../your-project
+bun add ../dock-js
+```
+
+`npm install ../dock-js` works the same way. When the package is published:
+`npm install @usedock/sdk`.
+
+## Configure
+
+```ts
+import { Dock, DockError } from '@usedock/sdk'
+
+const dock = new Dock() // reads DOCK_API_KEY and DOCK_API_URL
+```
+
+`new Dock({ apiKey?, baseUrl?, fetch? })` overrides the environment. Without a
+key the constructor throws `DockError` with code `missing_api_key`.
+
+## Quickstart
+
+```ts
+const d = await dock.docks.create(
+  { workspaceId: '<workspace-id>', name: 'demo', cpus: 2, memoryMiB: 4096 },
+  { idempotencyKey: 'demo-1' },
+)
+
+const res = await dock.docks.exec(d.id, 'echo hello', { cwd: '/home/user/work' })
+console.log(res.exitCode, res.stdout)
+
+await dock.docks.files.write(d.id, '/home/user/work/notes/hello.txt', 'hello\n')
+console.log(await dock.docks.files.read(d.id, '/home/user/work/notes/hello.txt'))
+console.log(await dock.docks.files.list(d.id, '/home/user/work/notes')) // ['hello.txt']
+
+await dock.docks.stop(d.id) // { id, state }
+await dock.docks.resume(d.id)
+
+const copy = await dock.docks.branch(d.id, { name: 'demo-copy' })
+
+const { operation } = await dock.docks.delete(d.id)
+console.log((await dock.operations.get(operation.id)).status)
+await dock.docks.delete(copy.id)
+```
+
+## Methods
+
+- `docks.create(params, { idempotencyKey? })`, `list({ filter?, all? })`,
+  `get(id)`, `update(id, params)`
+- `docks.exec(id, command, { timeoutSeconds?, env?, cwd? })`
+- `docks.stop(id, { force? })`, `resume(id, params)`: both return `{ id, state }`
+- `docks.branch(id, params, { idempotencyKey? })`
+- `docks.delete(id)` returns `{ operation }`; `operations.get(id)` polls it
+- `docks.files.write(id, path, content)`, `read(id, path)`, `list(id, path)`
+
+Params use the API's names: `cpus`, `memoryMiB`, `diskGiB`, `ttlSeconds`, `env`,
+`environment`, `noEnv`. Undefined values are left out of the request.
+
+## Errors
+
+Every failure throws `DockError` with `code`, `status`, and `message`:
+
+```ts
+try {
+  await dock.docks.get('00000000-0000-4000-8000-000000000000')
+} catch (e) {
+  if (e instanceof DockError && e.code === 'dock_not_found') console.log(e.status) // 404
+}
+```
+
+`code` is the API's code (`dock_not_found`, `validation_error`,
+`dock_name_taken`, and so on). `status` is 0 when no HTTP response exists:
+`network_error`, and SDK-side `validation_error` for oversized file content or an
+empty path. Other SDK codes are `missing_api_key`, `missing_fetch`,
+`invalid_response`, and `file_error`. When the server answers without an error
+envelope the code is `http_<status>`.
+
+## File helpers
+
+See [File helpers](/sdks#file-helpers) for the limits. In this SDK a write
+above about 48 KB throws `validation_error` (status 0). A failed command, or a
+truncated read of a file over about 768 KB, throws `file_error`. `read` decodes
+UTF-8 text.
+
+## Turn off auto-stop
+
+Auto-stop is off unless you set `ttlSeconds`. Pass `null` to switch it off on
+create, branch, resume, or update:
+
+```ts
+await dock.docks.update(d.id, { ttlSeconds: null })
+```
+
+`undefined` leaves the field out, which keeps the current value.
+
+## Idempotency keys
+
+`create` takes `{ idempotencyKey }` as its second argument and `branch` as its
+third. Use a stable key per intended Dock, so a retry after a crash returns the
+original.

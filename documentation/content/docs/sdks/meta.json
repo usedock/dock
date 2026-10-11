@@ -1,0 +1,5 @@
+{
+  "title": "SDKs",
+  "description": "Client libraries for the Dock API in TypeScript, Python, and Go.",
+  "pages": ["index", "typescript", "python", "go"]
+}
