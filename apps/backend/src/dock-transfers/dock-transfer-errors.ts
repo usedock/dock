@@ -57,6 +57,13 @@ export class TransferLimitException extends HttpException {
   }
 }
 
+/** Too many proxied parts in flight; each is buffered in memory, so the caller retries shortly. */
+export class PartUploadBusyException extends HttpException {
+  constructor(message: string) {
+    super({ code: 'part_upload_busy', message }, HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
+
 /** Export codes carried in the `error` field of a failed export. */
 export const EXPORT_BASE_UNSUPPORTED = 'export_base_unsupported';
 export const EXPORT_FAILED = 'export_failed';

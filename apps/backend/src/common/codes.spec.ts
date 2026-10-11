@@ -7,6 +7,7 @@ describe('codeForStatus', () => {
     [403, 'forbidden'],
     [404, 'not_found'],
     [409, 'conflict'],
+    [413, 'payload_too_large'],
     [429, 'rate_limited'],
     [500, 'internal_error'],
     [502, 'bad_gateway'],
