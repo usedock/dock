@@ -77,3 +77,16 @@ export function toMarkdown(report: Report): string {
   }
   return lines.join('\n');
 }
+
+const csvCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+
+/** One row per iteration; failures have an empty ms and their error message. */
+export function toCsv(report: Report): string {
+  const lines = ['provider,scenario,iteration,ok,ms,error'];
+  for (const s of report.scenarios) {
+    (s.samples ?? []).forEach((x, i) => {
+      lines.push([report.provider, s.scenario, String(i + 1), String(x.ok), x.ok ? x.ms.toFixed(1) : '', x.ok ? '' : csvCell(x.error)].join(','));
+    });
+  }
+  return `${lines.join('\n')}\n`;
+}

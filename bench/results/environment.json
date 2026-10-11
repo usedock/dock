@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-11T12:23:37Z",
+  "runnerImage": "ubuntu24 20261004.327.1",
+  "cpuModel": "AMD EPYC 9V74 80-Core Processor",
+  "cpus": 4,
+  "hypervisor": "Microsoft",
+  "memoryGiB": 15.6,
+  "kernel": "6.17.0-1022-azure",
+  "dock": "v0.3.2",
+  "qemu": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+  "image": [
+    {
+      "name": "ubuntu-24.04",
+      "arch": "amd64",
+      "description": "Minimal Ubuntu 24.04: systemd, openssh-server, Docker, git, curl, python3",
+      "sizeBytes": 232816045,
+      "cached": true
+    }
+  ],
+  "kvm": "crw-rw-rw- 1 root kvm 10, 232 Oct 11 12:23 /dev/kvm"
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildReport, reportFileName, toMarkdown, type ClientInfo } from './report.ts';
+import { buildReport, reportFileName, toCsv, toMarkdown, type ClientInfo } from './report.ts';
 import { summarize } from './stats.ts';
 
 const client: ClientInfo = { os: 'Linux 6.8', arch: 'x64', cpuModel: 'Test CPU', cpuCount: 4, memoryGiB: 16, runtime: 'bun 1.4.0' };
@@ -55,5 +55,31 @@ describe('report', () => {
     expect(md).toContain('skipped: x does not support stop and resume');
     expect(md).toContain('burst: 1 x capacity_exhausted: full');
     expect(md).toContain('Provider: dock 0.1.0 (runtime microvm)');
+  });
+
+  it('writes one CSV row per raw sample, failures included and quoted', () => {
+    const withSamples = buildReport({
+      client,
+      provider: 'dock-local',
+      providerInfo: {},
+      config: { iterations: 2, concurrency: 1 },
+      scenarios: [
+        {
+          scenario: 'sequential',
+          iterations: 2,
+          concurrency: 1,
+          samples: [
+            { ok: true, ms: 1234.56 },
+            { ok: false, error: 'dock new exited 1: a, "b"' },
+          ],
+        },
+      ],
+      cleanupFailures: [],
+    });
+    expect(toCsv(withSamples)).toBe(
+      'provider,scenario,iteration,ok,ms,error\n' +
+        'dock-local,sequential,1,true,1234.6,\n' +
+        'dock-local,sequential,2,false,,"dock new exited 1: a, ""b"""\n',
+    );
   });
 });

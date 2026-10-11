@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { TrackedProvider } from './cleanup.ts';
 import { PROVIDER_NAMES, selectProvider } from './providers/index.ts';
-import { reportFileName, toMarkdown } from './report.ts';
+import { reportFileName, toCsv, toMarkdown } from './report.ts';
 import { runBenchmark } from './run.ts';
 
 const { values } = parseArgs({
@@ -49,8 +49,10 @@ async function main(): Promise<number> {
   await mkdir(values.out!, { recursive: true });
   const file = join(values.out!, reportFileName(report));
   await writeFile(file, `${JSON.stringify(report, null, 2)}\n`);
+  const csv = file.replace(/\.json$/, '.csv');
+  await writeFile(csv, toCsv(report));
   console.log(toMarkdown(report));
-  console.log(`\nWrote ${file}`);
+  console.log(`\nWrote ${file} and ${csv}`);
   return report.cleanupFailures.length ? 1 : 0;
 }
 
