@@ -14,6 +14,8 @@ in your environment setup script.
 
 ## What you can use today
 
+- [Local docks](/local-docks): the `dock` CLI runs docks on your own Linux or
+  Windows machine with QEMU, no account needed (macOS is built, not yet tested).
 - The [`dock` CLI](/cli), installed as a signed release binary, and client SDKs
   for [TypeScript, Python, and Go](/sdks), installed from GitHub until they are
   published to package registries. Both are early.
@@ -32,6 +34,4 @@ Start with the [Quickstart](/quickstart) and the [concepts](/concepts/docks).
 
 ## Not built yet
 
-A local engine that runs Docks on your machine without a control plane is
-planned. The CLI and SDKs talk to a control plane today. `dock cp` is missing
-because the API has no file endpoint for live Docks.
+`dock cp` is missing because the API has no file endpoint for live Docks.

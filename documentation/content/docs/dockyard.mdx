@@ -4,8 +4,10 @@ description: The official Dock images, how to list them, and how to create a Doc
 ---
 
 Dockyard is the catalog of official images a Dock can start from. The images are
-built from source in `usedock/docklet`. Hosts serve only `ubuntu-24.04` today;
-the other images become usable as hosts learn to serve Dockyard images.
+built from source in `usedock/docklet`. Control plane hosts serve only
+`ubuntu-24.04` today; the other images become usable as hosts learn to serve
+Dockyard images. The `dock` CLI's [local engine](/local-docks) boots any of them
+directly.
 
 ## Images
 
@@ -63,3 +65,26 @@ does not serve it is skipped, and when no host is left the call fails with 400
 A branch (`POST /v1/docks/{id}/branch`) copies its source's disk, so it keeps the
 source's image; sending a different `image` is refused with 400
 `validation_error`.
+
+## Images on your machine
+
+With the `dock` CLI's [local engine](/local-docks), `dock images` lists the
+Dockyard images for your machine's architecture, with their size and whether
+they are already downloaded:
+
+```sh
+dock images
+dock images pull ubuntu-24.04
+```
+
+`dock images pull <name>` downloads an image into the local cache so the first
+`dock new` does not have to. The local engine boots the image directly with its
+own kernel. Each image file is checked against its size and SHA-256 in the
+Dockyard index.
+
+The `dock` binary pins the Dockyard release and the SHA-256 of its
+`dockyard.json` index, and refuses an index that does not match. Until a
+release is pinned, `dock images` prints that there are no images to list.
+`DOCK_DOCKYARD_URL` points the CLI at another index; it is then unpinned, the
+CLI warns, and the index is verified only when `DOCK_DOCKYARD_SHA256` is also
+set.

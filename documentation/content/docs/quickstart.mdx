@@ -1,7 +1,61 @@
 ---
 title: Quickstart
-description: Get an API key, find a workspace, and create your first Dock.
+description: Run your first Dock on your laptop with no account, or against a control plane with an API key.
 ---
+
+## Your first dock on your laptop
+
+No account, no server. The `dock` CLI runs docks on your own machine with QEMU
+([Local docks](/local-docks)). The CLI is early and not released yet.
+
+Install it. On macOS and Linux:
+
+```sh
+curl -fsSL https://usedock.io/install | sh
+```
+
+On Windows PowerShell:
+
+```powershell
+irm https://usedock.io/install.ps1 | iex
+```
+
+Local docks need QEMU and your machine's hardware accelerator (KVM on Linux,
+Windows Hypervisor Platform on Windows; macOS is built but not yet tested).
+`dock doctor` checks and tells you what to fix. On Windows, see
+[Windows](/local-docks/windows).
+
+```sh
+dock doctor
+dock new web                  # downloads the ubuntu-24.04 image the first time
+dock exec web -- uname -a
+dock ssh web                  # a shell inside the dock
+dock stop web                 # powers it off and keeps the disk
+dock resume web
+dock branch web --name web-2  # copies the stopped disk (no live fork locally)
+dock rm web
+```
+
+With no API key or URL configured, the CLI uses its built-in `local` context.
+Local docks differ from a control plane in a few ways (branching copies a
+disk, `dock port` forwards to `127.0.0.1`); see [Local docks](/local-docks).
+
+### Switch to a control plane
+
+When you want shared or always-on docks, point the CLI at a control plane you
+host ([Self-hosting](/self-hosting)):
+
+```sh
+dock context add home --url https://dock.example.com
+dock context use home
+dock login                    # reads your API key from stdin
+```
+
+Create the key as described below. Switch back any time with
+`dock context use local`. Dock Cloud, a hosted
+control plane, is coming soon. The rest of this page uses a control plane.
+
+## Using a control plane
 
 The examples use `https://dock.example.com` for your control plane. Replace it
 with your own origin (`DOCK_PUBLIC_URL`; see [Self-hosting](/self-hosting)).

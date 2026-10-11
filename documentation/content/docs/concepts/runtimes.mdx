@@ -1,6 +1,6 @@
 ---
 title: Runtimes and images
-description: Images, sizes, and the two runtimes a host can provide.
+description: Images, sizes, the runtimes a host can provide, and the local engine.
 ---
 
 ## Image
@@ -38,3 +38,36 @@ Dock object, with the paths that survive a stop in `persistentPaths`.
 Use `microvm` when you need the whole machine kept (installed packages,
 system changes). A `gvisor` Dock restarts from the image with only
 `/home/user/work` restored, so put work there.
+
+## Local engine
+
+The `dock` CLI has its own engine for docks on your own machine, with no control
+plane ([Local docks](/local-docks)). It runs each dock as a QEMU virtual machine
+and reports `runtime` as `qemu`. It boots a [Dockyard](/dockyard) image directly
+with the image's own kernel.
+
+| Machine | Accelerator | Status |
+|---|---|---|
+| Linux x86_64 | KVM | Available |
+| Windows x86_64 | Windows Hypervisor Platform (WHPX) | Available. See [Windows](/local-docks/windows) |
+| macOS | Hypervisor.framework (HVF) | Built, not yet tested |
+
+Firecracker (`microvm`) stays the engine for Linux fleet hosts. The local engine
+is for your own machine, and it never falls back to software emulation unless
+you set `DOCK_LOCAL_ACCEL=tcg` (slow, meant for tests).
+
+What the isolation is, stated plainly:
+
+- Each local dock is a hardware virtual machine with its own guest kernel, so
+  the boundary is the hypervisor, as with `microvm`.
+- QEMU's device model is larger than Firecracker's, and a local dock is not run
+  under the jailer. Prefer `microvm` on a fleet host for hostile or
+  multi-tenant workloads.
+- The network is QEMU user-mode networking. The guest agent's port is forwarded
+  to `127.0.0.1` on the host only. `dock new --network off` blocks the dock's
+  network.
+- The guest agent's config, including its token, is passed through a QEMU
+  `fw_cfg` file with mode 0600, not on the QEMU command line, which other users
+  on the machine can read.
+- A local dock is one user's dock on that user's machine: the engine has no
+  tenancy of its own.

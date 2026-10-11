@@ -5,7 +5,9 @@ description: "The dock command line client: install, contexts, commands, dock.to
 
 `dock` is a command line client for the Dock control plane `/v1` API. It works
 against your own control plane ([Self-hosting](/self-hosting)) or Dock Cloud
-(coming soon). It runs on Linux, macOS, and Windows, and it is early: the
+(coming soon), and it can run docks on your own machine with no account (the
+[`local` context](#the-local-context)). It runs on Linux, macOS, and Windows,
+and it is early: the
 source is in [usedock/docklet](https://github.com/usedock/docklet) under
 `cmd/dock`.
 
@@ -67,9 +69,14 @@ A context is a named control plane: a URL, an API key, and an optional default
 workspace. The CLI keeps them in `dock/config.toml` under your user config
 directory (`os.UserConfigDir()`), written with mode 0600.
 
-The `cloud` context is built in and points at `https://api.usedock.io`. It is
-the active context until you switch. For a self-hosted control plane, add one
-and make it active:
+Two contexts are built in:
+
+- `local` runs docks on this machine with QEMU and needs no account (see
+  [The local context](#the-local-context)). It is the active context until you
+  run `dock login` or set `DOCK_API_KEY`.
+- `cloud` points at `https://api.usedock.io`.
+
+For a self-hosted control plane, add a context and make it active:
 
 ```sh
 dock context add home --url https://dock.example.com --workspace <workspace-id>
@@ -80,7 +87,49 @@ dock context rm home
 
 `--workspace` sets the default workspace for `dock new`. `dock context use
 <name> --workspace <id>` changes it later; an empty value clears it. The
-`cloud` context cannot be removed or re-added.
+`local` and `cloud` contexts cannot be removed or re-added. Switch back to the
+local engine with `dock context use local`, or to the hosted one with `dock
+context use cloud`.
+
+## The local context
+
+With no API key or URL configured, `dock` runs docks on your machine: each is a
+QEMU virtual machine, booted from a [Dockyard](/dockyard) image, with no account
+and no control plane. The commands below work the same way, with the
+differences listed here. Setup is in [Local docks](/local-docks) and, for
+Windows, [Windows](/local-docks/windows); isolation is in
+[Runtimes](/concepts/runtimes#local-engine).
+
+```sh
+dock doctor
+dock images
+dock images pull ubuntu-24.04
+dock new web
+```
+
+Local differences:
+
+- `dock branch` copies a stopped disk. A running dock is stopped, copied and
+  resumed; there is no live fork.
+- `dock new --network off` blocks the dock's network. This is local only.
+- `dock ls --filter` is not supported; use `--all` to include stopped docks.
+- `dock port <dock> <port>` forwards the port to `127.0.0.1` in the foreground
+  (`--local-port` picks the local port) until Ctrl+C. There is no public URL,
+  and `--rm` is rejected.
+- `dock ssh` opens a shell through the guest agent; `--print` and `--json` do
+  not apply.
+- `dock exec` prints the output when the command ends.
+- A new local dock defaults to 2 CPUs, 2048 MiB and a 10 GiB disk.
+
+Environment variables for the local engine:
+
+| Variable | Effect |
+| --- | --- |
+| `DOCK_QEMU` | Path to the `qemu-system` binary. Default: found on `PATH`, then the standard install directories |
+| `DOCK_DATA_DIR` | Where docks and cached images live. Default: `~/.local/share/dock` (Linux, or `$XDG_DATA_HOME/dock`), `~/Library/Application Support/dock` (macOS), `%LOCALAPPDATA%\dock` (Windows) |
+| `DOCK_DOCKYARD_URL` | Use another Dockyard image index. It is unpinned and the CLI warns |
+| `DOCK_DOCKYARD_SHA256` | SHA-256 of that index; it is verified only when this is set |
+| `DOCK_LOCAL_ACCEL` | `tcg` allows slow software emulation, for tests only. Local docks never fall back to it on their own |
 
 ## Log in
 
@@ -194,6 +243,27 @@ dock rm web
 Deletes a Dock. The CLI sends the required `x-confirm-delete` header for you,
 so there is no prompt: the delete is immediate.
 
+### images
+
+```sh
+dock images
+dock images pull ubuntu-24.04
+```
+
+Local engine. `dock images` lists the [Dockyard](/dockyard) images for this
+machine's architecture with their size and whether they are downloaded.
+`dock images pull <name>` downloads one into the local cache.
+
+### doctor
+
+```sh
+dock doctor
+```
+
+Local engine. Checks QEMU and `qemu-img`, the hardware accelerator, free disk
+space in the data directory (at least 5 GiB) and the Dockyard index, and prints
+a fix for anything missing. It exits 1 when something is missing.
+
 ### login, context, version
 
 Described above.
@@ -234,5 +304,5 @@ branch` does not read the file.
 - `dock cp`. The API has no file endpoint for live Docks; use `exec`, or the
   [SDK file helpers](/sdks), which run over `exec`.
 - Streaming `exec` output.
-- A local engine that runs Docks on your machine without a control plane. It is
-  planned. Today the CLI always talks to a control plane.
+- On the local engine: live fork, a public URL for `dock port`, and `ls
+  --filter` (see [The local context](#the-local-context)).
