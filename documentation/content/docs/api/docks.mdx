@@ -204,23 +204,57 @@ hours. Errors: `dock_not_found`, `environment_secrets_admin_only`,
 
 List exposed ports. Dock-bound keys may call this for their own Dock.
 
-Response: an array of `{ "port": 3000, "url": "https://...", "createdAt": "..." }`.
-`url` is `null` while hosted ports are off. Errors: `dock_not_found`,
+Response: an array of
+`{ "port": 3000, "visibility": "private", "url": "https://...", "createdAt": "..." }`.
+`url` is `null` while hosted ports are off. Ports exposed before `visibility`
+existed read as `public`. Errors: `dock_not_found`,
 `environment_secrets_admin_only`.
 
 ### `POST /v1/docks/:id/ports`
 
-Expose a Dock port at a public URL (201). Exposing a port again returns the same
-URL. Dock-bound keys may call this for their own Dock. A Dock exposes at most 10
+Expose a Dock port at a URL (201). Exposing a port again returns the same URL.
+Dock-bound keys may call this for their own Dock. A Dock exposes at most 10
 ports.
 
 | Field | Type | Required | Limits / default | Description |
 |---|---|---|---|---|
 | `port` | integer | yes | 1 to 65535; 2222 is reserved | TCP port inside the Dock; services bound to localhost are reachable. |
+| `visibility` | string | no | `public` or `private`; default `private` for a new port | `private` needs a credential at the edge, `public` is open to anyone with the URL. Sent for a port that is already exposed, it changes that port's visibility; left out, the port keeps its current one. |
 
-Response: `{ "port": 3000, "url": "https://...", "createdAt": "..." }`. Errors:
-`validation_error`, `dock_not_found`, `environment_secrets_admin_only`,
+Response: `{ "port": 3000, "visibility": "private", "url": "https://...", "createdAt": "..." }`.
+Errors: `validation_error`, `dock_not_found`, `environment_secrets_admin_only`,
 `port_limit_reached`, `ports_unavailable`.
+
+A private port answers only requests that carry one of two credentials:
+
+- A port cookie. A browser without one is redirected through the control plane
+  (`GET /v1/ports/access`): if the user is signed in and is a member of the
+  Dock's organization, they are sent back to the port URL with a 60-second
+  token, which the edge trades for an 8-hour `HttpOnly` cookie that is valid for
+  that one port URL only. A signed-out user is sent to the dashboard sign-in
+  first. Removing the user from the organization ends access on the next request.
+- `Authorization: Bearer dock_...` with an API key bound to that Dock. Other
+  keys, including your own user keys, are not accepted. Without a credential,
+  requests that do not ask for HTML get `401`.
+
+The cookie and the `Authorization` header are passed on to the service in the
+Dock. Switch a port to `public` for webhooks or other callers that cannot sign
+in.
+
+### `GET /v1/ports/access`
+
+Browser landing for a private port; not called by API clients. Query `host` is
+the port hostname and `next` is the path to open after sign-in. Redirects (302)
+to the port URL with an exchange token for an organization member, to the
+dashboard sign-in when signed out, and returns `404` (`port_not_found`) for
+unknown hosts, public ports, or users outside the organization.
+
+### `GET /v1/ports/auth`
+
+Access check the self-host edge proxy calls before it forwards each request to a
+port URL; the edge passes the original `Host`, URI, cookie and `Authorization`
+header as `X-Forwarded-*` and request headers. Returns `200` to let the request
+through, `302` to start sign-in, or `401`; it never returns Dock data.
 
 ### `DELETE /v1/docks/:id/ports/:port`
 

@@ -67,7 +67,7 @@ are in `GET /v1/config` under `ssh`; self-hosted instances listen on
 ## Ports
 
 Expose a port with `POST /v1/docks/:id/ports` (`port`: 1 to 65535) or on the
-dashboard's Ports tab. The response carries a public URL such as
+dashboard's Ports tab. The response carries a URL such as
 `https://3000-k7x2m9q4w8r3t5yz.<ports domain>`; exposing the same port again
 returns the same URL.
 
@@ -79,9 +79,14 @@ curl -X POST https://$DOCK_URL/v1/docks/$DOCK_ID/ports \
 ```
 
 Requests to the URL reach the port on the Dock's loopback, so a server bound to
-`localhost` works. HTTP, WebSockets, and streaming responses pass through. The
-random name is the only credential: anyone with the URL can reach the port
-until you remove it with `DELETE /v1/docks/:id/ports/:port`. A Dock exposes at
+`localhost` works. HTTP, WebSockets, and streaming responses pass through. A new
+port is `private`: members of the Dock's organization open it after signing in,
+and a Dock-bound API key can send `Authorization: Bearer dock_...`. Pass
+`"visibility": "public"` to open it to anyone with the URL, for example for
+webhooks; the URL is then the only credential, until you remove the port with
+`DELETE /v1/docks/:id/ports/:port`. The hostname is random either way, but it
+can appear in public Certificate Transparency logs unless the operator serves
+ports under a wildcard certificate. A Dock exposes at
 most 10 ports, and its URLs answer only while it is running. The request keeps
 its original `Host` header, so dev servers that check it (Vite's
 `server.allowedHosts`, for example) must allow the ports domain. Hosted ports

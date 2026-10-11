@@ -71,9 +71,13 @@ Open `DOCK_PUBLIC_URL` and sign up. Then:
   `./setup.sh --ports-domain ports.example.com` with a wildcard DNS record
   `*.ports.example.com` pointing here. Exposing a port on a dock's Ports tab
   gives it a URL like `https://3000-k7x2m9q4w8r3t5yz.ports.example.com`; Caddy
-  issues each certificate on first use, only for exposed names. Services bound to
-  `localhost` inside the dock are reachable. The random name is the only
-  credential, so treat port URLs as public.
+  issues each certificate on first use, only for exposed names, so port names
+  appear in Certificate Transparency logs; `DOCK_PORTS_WILDCARD_TLS=1` avoids
+  that with a wildcard certificate (needs a Caddy build with a DNS provider
+  module, see the self-hosting docs). New ports are private: signed-in members of
+  the dock's organization, or a dock-bound API key, open them; a port set to
+  public is open to anyone with the URL. Services bound to `localhost` inside the
+  dock are reachable.
 - **Mail** is optional. With `SMTP_HOST` empty, every message (password reset
   links, sign-in codes) is written to the API log instead of being delivered:
   `docker compose logs backend | grep -A2 "mail not delivered"`. Email

@@ -290,8 +290,12 @@ export interface ChatgptDeviceCode {
 
 export type ChatgptDevicePoll = { state: 'pending' } | ({ state: 'connected' } & ChatgptConnection);
 
+export type PortVisibility = 'public' | 'private';
+
 export interface DockPort {
   port: number;
+  /** Private ports need an org member's sign-in or a dock-bound key. */
+  visibility: PortVisibility;
   /** Null while hosted ports are off on this instance. */
   url: string | null;
   createdAt: string;
@@ -454,7 +458,7 @@ export interface DockApi {
   createApiKey: (name: string, expiresAt?: string) => Promise<{ id: string; apiKey: string }>;
   revokeApiKey: (id: string) => Promise<unknown>;
   listDockPorts: (id: string) => Promise<DockPort[]>;
-  exposeDockPort: (id: string, port: number) => Promise<DockPort>;
+  exposeDockPort: (id: string, port: number, visibility?: PortVisibility) => Promise<DockPort>;
   removeDockPort: (id: string, port: number) => Promise<unknown>;
   listSshKeys: () => Promise<SshKey[]>;
   addSshKey: (name: string, publicKey: string) => Promise<SshKey>;
@@ -676,7 +680,7 @@ export function createDockApi({ baseUrl = '', fetchImpl = fetch, headers = {} }:
     revokeApiKey: (id: string) => del<unknown>(`/v1/api-keys/${enc(id)}`),
 
     listDockPorts: (id: string) => get<DockPort[]>(`/v1/docks/${enc(id)}/ports`),
-    exposeDockPort: (id: string, port: number) => post<DockPort>(`/v1/docks/${enc(id)}/ports`, { port }),
+    exposeDockPort: (id: string, port: number, visibility?: PortVisibility) => post<DockPort>(`/v1/docks/${enc(id)}/ports`, { port, visibility }),
     removeDockPort: (id: string, port: number) => del<unknown>(`/v1/docks/${enc(id)}/ports/${port}`),
 
     listSshKeys: () => get<SshKey[]>('/v1/ssh-keys'),

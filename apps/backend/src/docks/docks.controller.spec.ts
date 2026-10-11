@@ -14,6 +14,7 @@ describe('DocksController', () => {
   };
   let execs: { exec: Mock };
   let ports: { list: Mock; expose: Mock; remove: Mock; hostnameExposed: Mock };
+  let portAccess: { authorize: Mock; access: Mock };
   let controller: DocksController;
   const user = { id: 'u1', email: 'a@b.co', emailVerified: true, isInteractive: true };
 
@@ -30,7 +31,8 @@ describe('DocksController', () => {
     };
     execs = { exec: vi.fn() };
     ports = { list: vi.fn(), expose: vi.fn(), remove: vi.fn(), hostnameExposed: vi.fn() };
-    controller = new DocksController(docks as never, execs as never, {} as never, ports as never);
+    portAccess = { authorize: vi.fn(), access: vi.fn() };
+    controller = new DocksController(docks as never, execs as never, {} as never, ports as never, portAccess as never);
   });
 
   it('creates scoped to the user with the idempotency key', async () => {
@@ -97,10 +99,38 @@ describe('DocksController', () => {
   it('delegates port listing, exposure, and removal', async () => {
     await controller.listPorts(user, 'd1');
     await controller.exposePort(user, 'd1', { port: 3000 });
+    await controller.exposePort(user, 'd1', { port: 3001, visibility: 'public' });
     await controller.removePort(user, 'd1', 3000);
     expect(ports.list).toHaveBeenCalledWith('u1', 'd1');
-    expect(ports.expose).toHaveBeenCalledWith('u1', 'd1', 3000);
+    expect(ports.expose).toHaveBeenCalledWith('u1', 'd1', 3000, undefined);
+    expect(ports.expose).toHaveBeenCalledWith('u1', 'd1', 3001, 'public');
     expect(ports.remove).toHaveBeenCalledWith('u1', 'd1', 3000);
+  });
+
+  function fakeRes() {
+    const res = { headers: {} as Record<string, string>, code: 0, location: '', ended: false } as any;
+    res.setHeader = (name: string, value: string) => (res.headers[name] = value);
+    res.status = (code: number) => ((res.code = code), res);
+    res.end = () => (res.ended = true);
+    res.redirect = (code: number, location: string) => ((res.code = code), (res.location = location));
+    return res;
+  }
+
+  it('maps the port access decision onto the edge response', async () => {
+    const call = (result: unknown) => {
+      portAccess.authorize.mockResolvedValueOnce(result);
+      const res = fakeRes();
+      return controller.portAuth('x.ports.dev', '/p', 'c=1', 'Bearer k', 'text/html', res).then(() => res);
+    };
+    const ok = await call({ status: 200, headers: { 'X-Dock-Port-Auth': 'proof' } });
+    expect(ok).toMatchObject({ code: 200, ended: true, headers: { 'X-Dock-Port-Auth': 'proof', 'Cache-Control': 'no-store' } });
+    const redirect = await call({ status: 302, location: 'https://api/login', setCookie: 'a=b; HttpOnly' });
+    expect(redirect).toMatchObject({ code: 302, location: 'https://api/login', headers: { 'Set-Cookie': 'a=b; HttpOnly' } });
+    portAccess.authorize.mockResolvedValueOnce({ status: 401 });
+    await expect(controller.portAuth('x', '/', undefined, undefined, undefined, fakeRes())).rejects.toMatchObject({ status: 401 });
+    expect(portAccess.authorize).toHaveBeenLastCalledWith({ host: 'x', uri: '/', cookie: undefined, authorization: undefined, wantsHtml: false });
+    portAccess.access.mockResolvedValueOnce({ status: 404 });
+    await expect(controller.portAccessLanding('x', '/', undefined, fakeRes())).rejects.toMatchObject({ status: 404 });
   });
 
   it('answers the edge TLS check only for exposed hostnames', async () => {

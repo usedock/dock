@@ -160,7 +160,7 @@ dock port web 3000
 dock port web 3000 --rm
 ```
 
-Exposes a Dock port and prints its public URL. `--rm` stops exposing it. When
+Exposes a Dock port and prints its URL. A new port is private, so the URL opens for organization members after sign-in; set `visibility` to `public` through the API to open it to anyone. `--rm` stops exposing it. When
 the deployment has no ports domain the port is registered but has no URL.
 
 ### stop, resume

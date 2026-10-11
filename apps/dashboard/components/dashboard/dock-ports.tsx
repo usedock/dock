@@ -8,19 +8,21 @@ import { useInstanceConfigState } from '@/lib/use-instance-config';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { CopyButton } from './copy-button';
 import { EmptyNote, ErrorNote, LoadingRows } from './data-states';
 
 const MAX_PORTS = 10;
 
-/** Ports of one dock served at public URLs through the instance's ports domain. */
+/** Ports of one dock served at URLs through the instance's ports domain; private unless made public. */
 export function DockPorts({ api, dockId, running }: { api: DockApi; dockId: string; running: boolean }) {
   const { config: instance, failed: instanceFailed } = useInstanceConfigState();
   const [ports, setPorts] = useState<DockPort[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [value, setValue] = useState('');
+  const [isPublic, setIsPublic] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(() => {
@@ -49,7 +51,7 @@ export function DockPorts({ api, dockId, running }: { api: DockApi; dockId: stri
     setBusy(true);
     setActionError(null);
     try {
-      await api.exposeDockPort(dockId, port);
+      await api.exposeDockPort(dockId, port, isPublic ? 'public' : 'private');
       setValue('');
       refresh();
     } catch (err: unknown) {
@@ -57,6 +59,14 @@ export function DockPorts({ api, dockId, running }: { api: DockApi; dockId: stri
     } finally {
       setBusy(false);
     }
+  }
+
+  function setVisibility(target: number, makePublic: boolean) {
+    setActionError(null);
+    api
+      .exposeDockPort(dockId, target, makePublic ? 'public' : 'private')
+      .then(() => refresh())
+      .catch((err: unknown) => setActionError(`Could not change port ${target}: ${messageOf(err, 'request failed')}`));
   }
 
   function remove(target: number) {
@@ -95,9 +105,14 @@ export function DockPorts({ api, dockId, running }: { api: DockApi; dockId: stri
             {busy ? 'Exposing…' : 'Expose'}
           </Button>
         </div>
+        <div className="flex items-center gap-2">
+          <Switch id="dock-port-public" checked={isPublic} onCheckedChange={setIsPublic} />
+          <Label htmlFor="dock-port-public">Anyone with the URL can open it</Label>
+        </div>
         <p className="text-sm text-muted-foreground">
-          Serves a port inside the dock at a public HTTPS URL, including services bound to localhost. Anyone with the URL can
-          reach it. At most {MAX_PORTS} ports per dock.
+          Serves a port inside the dock at an HTTPS URL, including services bound to localhost. A private port opens for
+          members of this organization after they sign in; make it public for callers that cannot sign in, such as webhooks.
+          At most {MAX_PORTS} ports per dock.
         </p>
       </form>
       {!running ? <EmptyNote title="Port URLs answer only while the dock is running." hint="Resume the dock to reach its ports." /> : null}
@@ -115,6 +130,7 @@ export function DockPorts({ api, dockId, running }: { api: DockApi; dockId: stri
               <TableRow>
                 <TableHead>Port</TableHead>
                 <TableHead>URL</TableHead>
+                <TableHead>Public</TableHead>
                 <TableHead>Exposed</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -140,6 +156,13 @@ export function DockPorts({ api, dockId, running }: { api: DockApi; dockId: stri
                     ) : (
                       <span className="text-sm text-muted-foreground">—</span>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      aria-label={`Anyone with the URL can open port ${row.port}`}
+                      checked={row.visibility === 'public'}
+                      onCheckedChange={(checked) => setVisibility(row.port, checked)}
+                    />
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{formatDate(row.createdAt)}</TableCell>
                   <TableCell className="text-right">

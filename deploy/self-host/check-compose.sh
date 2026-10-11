@@ -21,7 +21,7 @@ fail() {
 }
 log() { printf 'check-compose: %s\n' "$*"; }
 
-cp "${SELF_DIR}/docker-compose.yml" "${SELF_DIR}/Caddyfile" "$WORK/"
+cp -r "${SELF_DIR}/docker-compose.yml" "${SELF_DIR}/Caddyfile" "${SELF_DIR}/ports-tls" "$WORK/"
 sed -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 8)|" \
   -e "s|^FLEET_TOKEN=.*|FLEET_TOKEN=$(openssl rand -hex 8)|" \
   -e "s|^SNAPSHOT_STORE_ACCESS_KEY=.*|SNAPSHOT_STORE_ACCESS_KEY=${ROOT_USER}|" \

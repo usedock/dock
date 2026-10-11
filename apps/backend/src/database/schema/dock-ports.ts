@@ -10,6 +10,8 @@ export const dockPorts = pgTable(
       .notNull()
       .references(() => docks.id, { onDelete: 'cascade' }),
     port: integer('port').notNull(),
+    /** `public`: anyone with the URL; `private`: org members and dock-bound keys only. */
+    visibility: text('visibility', { enum: ['public', 'private'] }).notNull().default('public'),
     label: text('label').notNull().unique('dock_ports_label_unique'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

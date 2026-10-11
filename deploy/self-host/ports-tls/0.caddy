@@ -1,0 +1,5 @@
+# Default: one certificate per exposed port name, issued on first use.
+# The backend vouches for each name through the ask URL in the Caddyfile.
+tls {
+	on_demand
+}

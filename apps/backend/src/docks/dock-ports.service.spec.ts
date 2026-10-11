@@ -4,7 +4,8 @@ import { connect, type AddressInfo } from 'net';
 import { vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { CommandFailedException } from '../fleet/host-command-queue';
-import { DockPortsService, hostHeader, MAX_PORTS_PER_DOCK } from './dock-ports.service';
+import { DockPortsService, hostHeader, MAX_PORTS_PER_DOCK, withoutHeader } from './dock-ports.service';
+import { EDGE_PROOF_HEADER, edgeProof } from './port-access-token';
 import { DockTunnelService } from './dock-tunnel.service';
 
 const dockId = '33333333-3333-4333-8333-333333333333';
@@ -30,14 +31,14 @@ function fakeDb(results: unknown[][]) {
 }
 
 function portRow(overrides: Record<string, unknown> = {}) {
-  return { id: 'p1', dockId, port: 3000, label, createdAt: new Date('2026-10-01T00:00:00Z'), ...overrides };
+  return { id: 'p1', dockId, port: 3000, label, visibility: 'public', createdAt: new Date('2026-10-01T00:00:00Z'), ...overrides };
 }
 
 function reader(values: Record<string, unknown>) {
   return { get: vi.fn((key: string) => values[key]) };
 }
 
-const enabled = { PORTS_DOMAIN: 'ports.x.dev', PORTS_PROXY_PORT: 0, PUBLIC_API_URL: 'https://api.x.dev', PUBLIC_APP_URL: 'https://app.x.dev', RUNTIME_DRIVER: 'restate' };
+const enabled = { BETTER_AUTH_SECRET: 'test-secret', PORTS_DOMAIN: 'ports.x.dev', PORTS_PROXY_PORT: 0, PUBLIC_API_URL: 'https://api.x.dev', PUBLIC_APP_URL: 'https://app.x.dev', RUNTIME_DRIVER: 'restate' };
 
 describe('hostHeader', () => {
   it('reads exactly one Host header', () => {
@@ -65,7 +66,7 @@ describe('DockPortsService', () => {
   it('lists exposed ports with their URLs after a membership check', async () => {
     const { ports } = service([[portRow()]]);
     await expect(ports.list('u1', dockId)).resolves.toEqual([
-      { port: 3000, url: `https://${label}.ports.x.dev`, createdAt: new Date('2026-10-01T00:00:00Z') },
+      { port: 3000, visibility: 'public', url: `https://${label}.ports.x.dev`, createdAt: new Date('2026-10-01T00:00:00Z') },
     ]);
     expect(docks.loadReadableDock).toHaveBeenCalledWith('u1', dockId);
   });
@@ -96,6 +97,32 @@ describe('DockPortsService', () => {
     const values = calls.find((c) => c.method === 'values')!.args[0] as { label: string; port: number };
     expect(values.port).toBe(8080);
     expect(values.label).toMatch(/^8080-[a-z2-9]{16}$/);
+    expect(values.visibility).toBe('private');
+  });
+
+  it('exposes with an explicit visibility and switches an existing port on request', async () => {
+    const created = service([[], [{ total: 0 }], [portRow({ visibility: 'public' })]]);
+    await created.ports.expose('u1', dockId, 3000, 'public');
+    expect((created.calls.find((c) => c.method === 'values')!.args[0] as { visibility: string }).visibility).toBe('public');
+
+    const switched = service([[portRow({ visibility: 'public' })], [portRow({ visibility: 'private' })]]);
+    expect((await switched.ports.expose('u1', dockId, 3000, 'private')).visibility).toBe('private');
+    expect(switched.calls.find((c) => c.method === 'set')!.args[0]).toEqual({ visibility: 'private' });
+
+    const kept = service([[portRow({ visibility: 'public' })]]);
+    expect((await kept.ports.expose('u1', dockId, 3000)).visibility).toBe('public');
+    expect(kept.calls.some((c) => c.method === 'set')).toBe(false);
+  });
+
+  it('generates labels with 80 bits of randomness', () => {
+    const labels = new Set<string>();
+    return Promise.all(
+      Array.from({ length: 50 }, async () => {
+        const { ports, calls } = service([[], [{ total: 0 }], [portRow()]]);
+        await ports.expose('u1', dockId, 3000);
+        labels.add((calls.find((c) => c.method === 'values')!.args[0] as { label: string }).label);
+      }),
+    ).then(() => expect(labels.size).toBe(50));
   });
 
   it('returns the existing URL when a port is exposed twice', async () => {
@@ -147,7 +174,7 @@ describe('DockPortsService', () => {
       });
     }
 
-    const target = { port: 3000, dockId, state: 'ready', hostId: 'h1', billingPausedAt: null };
+    const target = { port: 3000, visibility: 'public', dockId, state: 'ready', hostId: 'h1', billingPausedAt: null };
 
     it('does not listen while hosted ports are off', async () => {
       await expect(service([], {}).ports.listen('127.0.0.1')).resolves.toBeNull();
@@ -161,6 +188,25 @@ describe('DockPortsService', () => {
       tunnels.open.mockRejectedValue(new TunnelOpenException('port_closed', 'Nothing is listening on port 3000 inside the dock'));
       expect(await raw(`GET / HTTP/1.1\r\nHost: ${label}.ports.x.dev\r\n\r\n`)).toMatch(/^HTTP\/1.1 502 [\s\S]*Nothing is listening on port 3000/);
       expect(tunnels.open).toHaveBeenCalledWith('h1', dockId, 3000);
+    });
+
+    it('serves a private port only with the edge proof, and never passes the proof on', async () => {
+      const privateTarget = { ...target, visibility: 'private' };
+      await start([[privateTarget], [privateTarget], [privateTarget]]);
+      const forged = `GET / HTTP/1.1\r\nHost: ${label}.ports.x.dev\r\n${EDGE_PROOF_HEADER}: nope\r\n\r\n`;
+      expect(await raw(`GET / HTTP/1.1\r\nHost: ${label}.ports.x.dev\r\n\r\n`)).toMatch(/^HTTP\/1.1 403 /);
+      expect(await raw(forged)).toMatch(/^HTTP\/1.1 403 /);
+      const { TunnelOpenException } = await import('./dock-tunnel.service');
+      tunnels.open.mockRejectedValue(new TunnelOpenException('port_closed', 'closed'));
+      const proof = edgeProof(reader(enabled), label);
+      expect(await raw(`GET / HTTP/1.1\r\nHost: ${label}.ports.x.dev\r\n${EDGE_PROOF_HEADER}: ${proof}\r\n\r\n`)).toMatch(/^HTTP\/1.1 502 /);
+    });
+
+    it('removes only the proof header from the buffered request', () => {
+      const request = Buffer.from('POST /x HTTP/1.1\r\nHost: a\r\nX-Dock-Port-Auth: abc\r\nX-Other: 1\r\n\r\nbody');
+      expect(withoutHeader(request, EDGE_PROOF_HEADER).toString()).toBe('POST /x HTTP/1.1\r\nHost: a\r\nX-Other: 1\r\n\r\nbody');
+      const plain = 'GET / HTTP/1.1\r\nHost: a\r\n\r\n';
+      expect(withoutHeader(Buffer.from(plain), EDGE_PROOF_HEADER).toString()).toBe(plain);
     });
 
     it('refuses requests without a Host header or with oversized headers', async () => {
@@ -210,7 +256,7 @@ describe('DockPortsService', () => {
       };
       realTunnels = new DockTunnelService(queue as never);
       api.on('upgrade', (req, socket, head) => realTunnels.acceptHost(req, socket, head, req.url!.split('/').pop()!));
-      const { db } = fakeDb([[{ port: 3000, dockId, state: 'running', hostId: 'h1', billingPausedAt: null }]]);
+      const { db } = fakeDb([[{ port: 3000, visibility: 'public', dockId, state: 'running', hostId: 'h1', billingPausedAt: null }]]);
       ports = new DockPortsService(db, docks, realTunnels, reader(enabled) as never);
       const proxyPort = (await ports.listen('127.0.0.1')) as number;
 

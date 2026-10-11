@@ -23,13 +23,15 @@ import { DockTerminalService } from './dock-terminal.service';
 import { DockSshGatewayService } from './dock-ssh-gateway.service';
 import { DockTunnelService } from './dock-tunnel.service';
 import { DockPortsService } from './dock-ports.service';
+import { DockPortAccessService } from './dock-port-access.service';
+import { BetterAuthModule } from '../auth/better-auth/better-auth.module';
 import { SshKeysModule } from '../ssh-keys/ssh-keys.module';
 import { HostCommandQueueModule } from '../fleet/host-command-queue.module';
 import { RateLimitService } from '../auth/rate-limit.service';
 
 /** Dock routes authorize through org membership; deletes flow through operations. */
 @Module({
-  imports: [OrganizationsModule, WorkspacesModule, ConnectorsModule, RetentionModule, EnvironmentsModule, MeteringModule, WebhooksModule, NotificationsModule, RuntimeModule, HostsModule, FleetObjectsModule, HostCommandQueueModule, SshKeysModule, forwardRef(() => AccountClosureModule)],
+  imports: [BetterAuthModule, OrganizationsModule, WorkspacesModule, ConnectorsModule, RetentionModule, EnvironmentsModule, MeteringModule, WebhooksModule, NotificationsModule, RuntimeModule, HostsModule, FleetObjectsModule, HostCommandQueueModule, SshKeysModule, forwardRef(() => AccountClosureModule)],
   controllers: [DocksController],
   providers: [
     DocksService,
@@ -38,6 +40,7 @@ import { RateLimitService } from '../auth/rate-limit.service';
     DockSshGatewayService,
     DockTunnelService,
     DockPortsService,
+    DockPortAccessService,
     // Provided directly: importing AuthModule would cycle through AccountClosureModule.
     RateLimitService,
     {
