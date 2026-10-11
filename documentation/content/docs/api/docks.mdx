@@ -341,7 +341,7 @@ Errors: `validation_error` (a malformed body or `sha256`), `image_unknown`,
 `dock_not_found` (unknown workspace), `import_too_large` (413: `sizeBytes`
 above the `diskGiB` limit, or in `proxy` mode a disk whose part size would
 exceed 128 MiB), `runtime_unsupported` (409), `dock_name_taken`,
-`import_limit_reached` (429).
+`import_limit_reached` (429), `environment_secrets_admin_only` (403: a member, when the organization's default Environment passes admins-only secrets).
 
 ### `PUT /v1/docks/import/:importId/parts/:number`
 

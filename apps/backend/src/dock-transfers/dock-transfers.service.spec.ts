@@ -399,6 +399,27 @@ describe('DockTransfersService', () => {
       expect(docks.create).toHaveBeenCalledTimes(2);
     });
 
+    it.each([
+      ['capacity_exhausted', 'CapacityExhaustedException'],
+      ['dock_name_taken', 'DockNameTakenException'],
+    ])('keeps the assembled upload on %s', async (code, cls) => {
+      queueSelects([importRow()]);
+      const errors: Record<string, new (arg: string) => Error> = (await import('../docks/dock-errors')) as never;
+      docks.create.mockRejectedValueOnce(new errors[cls]('n'));
+      expect((await catchErr(service.completeImport('u1', importId, parts))).body.code).toBe(code);
+      expect(updated.at(-1)).toMatchObject({ status: 'uploaded' });
+      expect(objects.deleteGeneration).not.toHaveBeenCalled();
+    });
+
+    it('ends the import on an image refusal, which an imported dock only meets in its background boot', async () => {
+      queueSelects([importRow()]);
+      const { ImageUnavailableException } = await import('../docks/dock-errors');
+      docks.create.mockRejectedValueOnce(new ImageUnavailableException('ubuntu-24.04'));
+      expect((await catchErr(service.completeImport('u1', importId, parts))).body.code).toBe('image_unavailable');
+      expect(updated.at(-1)).toMatchObject({ status: 'failed', error: 'image_unavailable' });
+      expect(objects.deleteGeneration).toHaveBeenCalledWith('gen-1');
+    });
+
     it('discards the upload when the dock cannot be created for another reason', async () => {
       queueSelects([importRow()]);
       docks.create.mockRejectedValueOnce(new Error('db down'));

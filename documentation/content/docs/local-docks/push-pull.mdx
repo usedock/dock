@@ -59,10 +59,10 @@ start at 1.
   credentials as for any API call. At most 128 MiB per part.
 
 An organization can hold five open imports at once (`import_limit_reached`,
-HTTP 429). A member is refused at start, before any upload, when the
-organization's default Environment passes admins-only secrets
-(`environment_secrets_admin_only`, 403), and when `name` is already used in the
-workspace (`dock_name_taken`, 409).
+HTTP 429). Start refuses, before any upload, a `name` already used in the
+workspace (`dock_name_taken`, 409), and a member when the organization's
+default Environment passes admins-only secrets (`environment_secrets_admin_only`,
+403).
 
 ### Upload a part through the control plane
 

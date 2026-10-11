@@ -5,6 +5,7 @@ import { plainToInstance } from 'class-transformer';
 import { getMetadataStorage, validate } from 'class-validator';
 import { FleetHeartbeatDto, FleetRegisterDto, HostCommandResultDto, HostSampleDto, HostWorkloadDto } from '../fleet/dto/fleet.dto';
 import type { RegisterResult } from '../fleet/fleet.service';
+import { EGRESS_ON_RESUME, VERIFIED_IMPORTS } from '../hosts/host-features';
 import type { HostCommandPayload, HostCommandQueue } from '../fleet/host-command-queue';
 import {
   DockletClient,
@@ -106,6 +107,7 @@ const headerTokenOnly = new Set(['pause-request.json', 'destroy-request.json', '
 // Fleet bodies the docklet sends, validated as the control plane does (main.ts ValidationPipe).
 const fleetDtos: Record<string, new () => object> = {
   'fleet-register-request.json': FleetRegisterDto,
+  'fleet-register-request-verified-imports.json': FleetRegisterDto,
   'fleet-heartbeat-request.json': FleetHeartbeatDto,
   'fleet-heartbeat-request-gvisor.json': FleetHeartbeatDto,
   'fleet-heartbeat-request-images.json': FleetHeartbeatDto,
@@ -230,6 +232,10 @@ describe('fleet fixtures vs control-plane DTOs', () => {
     expect(load('fleet-register-request.json').runtime).toBe('microvm');
     expect(load('fleet-heartbeat-request.json').runtime).toBe('microvm');
     expect(load('fleet-heartbeat-request-gvisor.json').runtime).toBe('gvisor');
+  });
+
+  it('registers the features the control plane places by', () => {
+    expect(load('fleet-register-request-verified-imports.json').features).toEqual([EGRESS_ON_RESUME, VERIFIED_IMPORTS]);
   });
 
   it('polls a command in the queue payload shape, or null', () => {

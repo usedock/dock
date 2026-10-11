@@ -46,8 +46,8 @@ const STALE_MARGIN_MS = 300_000;
 const STALE_COMPLETING_MS = 3_600_000;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** Refusals of the boot placement; the assembled upload survives them so complete can be retried. */
-const RETRYABLE_CODES = ['no_host_capacity', 'capacity_exhausted', 'base_image_unavailable', 'image_unavailable', 'dock_name_taken'];
+/** Refusals docks.create raises before the background boot; the assembled upload survives them so complete can be retried. */
+const RETRYABLE_CODES = ['no_host_capacity', 'capacity_exhausted', 'dock_name_taken'];
 
 export interface ImportInput {
   workspaceId: string;
