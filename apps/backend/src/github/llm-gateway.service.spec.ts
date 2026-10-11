@@ -1,6 +1,6 @@
 import { HttpException } from '@nestjs/common';
 import { hashToken } from '../crypto/tokens';
-import { docks } from '../database/schema';
+import { docks, workspaces } from '../database/schema';
 import { LlmGatewayController } from './llm-gateway.controller';
 import { LlmGatewayService, type GatewayRequest } from './llm-gateway.service';
 import { vi } from 'vitest';
@@ -23,6 +23,7 @@ function setup(
     vars?: Record<string, string>;
     chatgpt?: { accessFor: ReturnType<typeof vi.fn> };
     dock?: Record<string, unknown>;
+    dockKey?: string | null;
   } = {},
 ) {
   const lookups: unknown[] = [];
@@ -31,13 +32,16 @@ function setup(
       from: (table: unknown) => ({
         where: (w: unknown) => {
           lookups.push(w);
-          const row = table === docks ? opts.dock : run;
+          const row = table === workspaces ? { id: 'ws-1', organizationId: 'org-1' } : table === docks ? opts.dock : run;
           return { limit: () => Promise.resolve(row ? [row] : []) };
         },
       }),
     }),
   };
-  const envs = { resolveBundle: vi.fn().mockResolvedValue({ vars: opts.vars ?? { OPENCODE_API_KEY: 'oc_real', ANTHROPIC_API_KEY: 'sk_real' } }) };
+  const envs = {
+    resolveBundle: vi.fn().mockResolvedValue({ vars: opts.vars ?? { OPENCODE_API_KEY: 'oc_real', ANTHROPIC_API_KEY: 'sk_real' } }),
+    gatewayKeyFor: vi.fn().mockResolvedValue(opts.dockKey === undefined ? 'sk_dock_real' : opts.dockKey),
+  };
   const limits = { hit: vi.fn().mockResolvedValue({ allowed: opts.allowed ?? true, count: 1 }) };
   const fetchFn = vi.fn().mockResolvedValue(new Response('{"ok":1}', { status: 200, headers: { 'content-type': 'application/json' } }));
   const service = new LlmGatewayService(db as never, envs as never, limits as never, { fetchFn: fetchFn as never }, opts.chatgpt as never);
@@ -120,13 +124,12 @@ describe('LlmGatewayService', () => {
       const ctx = setup(null, { chatgpt, dock: { id: 'd1', state: 'running', createdBy: 'owner-1' } });
       await ctx.service.forward(chatgptRequest());
       expect(chatgpt.accessFor).toHaveBeenCalledWith('owner-1');
-      expect(ctx.limits.hit).toHaveBeenCalledWith('rl:llm-gw:dock:d1', 2000, 3600);
+      expect(ctx.limits.hit).toHaveBeenCalledWith('rl:llm-gw:dock:d1', 3000, 3600);
     });
 
-    it('refuses dock tokens on other providers and for stopped docks', async () => {
+    it('refuses dock tokens for stopped docks', async () => {
       const chatgpt = { accessFor: vi.fn() };
       const live = { id: 'd1', state: 'running', createdBy: 'owner-1' };
-      expect(await status(setup(null, { chatgpt, dock: live }).service.forward(request({ provider: 'anthropic', path: 'messages' })))).toBe(401);
       expect(await status(setup(null, { chatgpt, dock: { ...live, state: 'archived' } }).service.forward(chatgptRequest()))).toBe(401);
       expect(chatgpt.accessFor).not.toHaveBeenCalled();
     });
@@ -183,6 +186,55 @@ describe('LlmGatewayService', () => {
   it('enforces the per-run budget and fails closed without a provider key', async () => {
     expect(await status(setup(liveRun(), { allowed: false }).service.forward(request()))).toBe(429);
     expect(await status(setup(liveRun(), { vars: {} }).service.forward(request()))).toBe(503);
+  });
+});
+
+describe('LlmGatewayService dock tokens', () => {
+  const live = { id: 'd1', workspaceId: 'ws-1', environment: 'base', envVersionPin: 'v2', noEnv: false, state: 'running', createdBy: 'owner-1' };
+  const anthropic = (over: Partial<GatewayRequest> = {}) =>
+    request({ provider: 'anthropic', path: 'messages', headers: { 'x-api-key': TOKEN, 'content-type': 'application/json' }, ...over });
+
+  it("swaps a live dock's placeholder for its org key without forwarding the placeholder", async () => {
+    const ctx = setup(null, { dock: live });
+    await ctx.service.forward(anthropic());
+    expect(ctx.envs.gatewayKeyFor).toHaveBeenCalledWith('org-1', live, 'ANTHROPIC_API_KEY');
+    expect(ctx.limits.hit).toHaveBeenCalledWith('rl:llm-gw:dock:d1', 3000, 3600);
+    const [url, init] = ctx.fetchFn.mock.calls[0];
+    expect(url).toBe('https://api.anthropic.com/v1/messages');
+    expect(init.headers['x-api-key']).toBe('sk_dock_real');
+    expect(JSON.stringify(init.headers)).not.toContain(TOKEN);
+  });
+
+  it('accepts the OpenAI-style bearer placeholder and drops a duplicated version segment', async () => {
+    const ctx = setup(null, { dock: live });
+    await ctx.service.forward(request({ provider: 'openai', path: 'v1/chat/completions', headers: { authorization: `Bearer ${TOKEN}` } }));
+    const [url, init] = ctx.fetchFn.mock.calls[0];
+    expect(url).toBe('https://api.openai.com/v1/chat/completions');
+    expect(init.headers.authorization).toBe('Bearer sk_dock_real');
+    expect(ctx.envs.gatewayKeyFor).toHaveBeenCalledWith('org-1', live, 'OPENAI_API_KEY');
+  });
+
+  it('refuses stopped docks and answers provider_not_configured when the environment no longer allows the key', async () => {
+    for (const state of ['archived', 'archiving', 'error', 'unreachable', 'provisioning']) {
+      const ctx = setup(null, { dock: { ...live, state } });
+      expect(await status(ctx.service.forward(anthropic()))).toBe(401);
+      expect(ctx.fetchFn).not.toHaveBeenCalled();
+    }
+    const plain = setup(null, { dock: live, dockKey: null });
+    expect(await status(plain.service.forward(anthropic()))).toBe(503);
+    expect(plain.fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown token and keeps run auth first', async () => {
+    expect(await status(setup(null).service.forward(anthropic()))).toBe(401);
+    const both = setup(liveRun({ model: 'anthropic/claude-sonnet-5' }), { dock: live });
+    await both.service.forward(anthropic());
+    expect(both.envs.gatewayKeyFor).not.toHaveBeenCalled();
+    expect(both.envs.resolveBundle).toHaveBeenCalled();
+  });
+
+  it('applies the dock budget', async () => {
+    expect(await status(setup(null, { dock: live, allowed: false }).service.forward(anthropic()))).toBe(429);
   });
 });
 

@@ -17,7 +17,7 @@ report a vulnerability, see [SECURITY.md](https://github.com/usedock/dock/blob/m
 | Dock disks and Snapshots | On the host; Snapshots in the object store (MinIO with SSE-S3 by default, or any S3-compatible bucket) | The organization that owns the Dock |
 | API keys | SHA-256 hashes in Postgres; the raw value is shown once | The user who created the key |
 | Dock-bound keys | Same table, tied to one Dock | The Dock they were issued to |
-| Provider keys, Environment secrets | Encrypted at rest (AES-256-GCM) with `SECRETS_ENCRYPTION_KEY` | Organization admins, and Docks the Environment passes them into. New Environments are admins-only by default: a member is refused a launch that would pass something readable into the Dock (a secret variable or file, the Dock API key, or agent credentials while the organization has provider keys or another user's ChatGPT sign-in applies), unless the Environment is marked safe for third parties. If an Environment allows members, any member can create a Dock with it and read its secrets from inside that Dock. Environments created before the default changed keep their old value |
+| Provider keys, Environment secrets | Encrypted at rest (AES-256-GCM) with `SECRETS_ENCRYPTION_KEY` | Organization admins, and Docks the Environment passes secrets into (provider keys reach a Dock only in `plain` mode; by default the Dock holds a gateway token instead). New Environments are admins-only by default: a member is refused a launch that would pass something readable into the Dock (a secret variable or file, the Dock API key, or agent credentials while the organization has provider keys or another user's ChatGPT sign-in applies), unless the Environment is marked safe for third parties. If an Environment allows members, any member can create a Dock with it and read its secrets from inside that Dock. Environments created before the default changed keep their old value |
 | Connector credentials (GitHub App private key and webhook secret, OAuth secrets) | Control plane environment (`.env`) | The control plane only |
 | Workspace connections (Figma, Linear, Slack, Sentry) | OAuth tokens or personal access tokens, sealed with `SECRETS_ENCRYPTION_KEY` and opened only by the connector gateway | The control plane only. Organization admins connect them; a Dock holds a Dock-scoped gateway token, never the vendor credential |
 | Hosts and docklets | Your machines; each docklet holds a per-host credential in its state directory | The operator |
@@ -64,11 +64,25 @@ address, so DNS rebinding cannot reach a private target. Setting
 Ordinary Docks can opt in to the same proxy through an Environment's outbound allowlist (`egressAllow`, set by an admin; see [Environments](/concepts/environments#outbound-allowlist)). It is off by default.
 
 **Anything you pass in.** Whatever an Environment passes into a Dock is readable
-by anyone inside that Dock. By default an Environment passes agent credentials:
-the organization's provider keys and, if the Dock's creator signed in with
-ChatGPT, a Dock-scoped token that spends that sign-in through the control plane.
+by anyone inside that Dock. By default an Environment passes agent credentials
+without the organization's provider keys: the Dock gets a Dock-scoped gateway
+token and base URLs, and the control plane attaches the real key to outbound
+model calls (see **LLM gateway token** below). If the Dock's creator signed in with
+ChatGPT, the same token also spends that sign-in through the control plane.
+An admin can set the Environment to `providerKeys: plain`, which writes the real
+keys into the Dock; anyone inside the Dock can then read them.
 Linked GitHub repositories get a read-only clone token. The Dock API key is off
 by default. See [Environments](/concepts/environments).
+
+**LLM gateway token.** A Dock whose Environment passes agent credentials gets a
+Dock-scoped token (`DOCK_LLM_TOKEN`, also used as the value of the provider key
+variables). The control plane stores only its hash and replaces it on every
+apply. It works only while the Dock is `ready`, `idle` or `running`, only for
+the organization's providers the default agent uses, only while the pinned
+Environment still passes agent credentials in gateway mode, and for at most 3000
+requests per Dock per hour. The gateway attaches the real key itself and forwards
+only to the fixed provider hosts. A leaked token can spend that budget while the
+Dock runs; it cannot reveal the provider key.
 
 **Connector gateway token.** Only organization admins can create a Dock with
 connectors. That Dock receives a Dock-scoped gateway token
@@ -210,7 +224,7 @@ unavailable and you accept the larger attack surface.
 - **Noisy neighbours on gVisor.** Every Dock has CPU and memory caps, and gVisor Docks also have a process limit. MicroVMs have disk and network rate limits. The docklet cannot throttle disk I/O for gVisor (the work disk is a loop mount, which Docker cannot limit) and sets no network bandwidth limit there, so one gVisor Dock can degrade disk and network for others on the same host.
 - **Host disk overcommit.** The docklet bounds the summed `diskGiB` of all Docks by the host's disk capacity times `DOCKLET_DISK_OVERCOMMIT` (default `1.0`, no overcommit). The files are sparse, so a ratio above `1.0` promises more than the host has and is bounded only by that ratio. Even at `1.0`, other data on the same filesystem counts against free space. Docks that together grow past the free disk fill that filesystem, and every Dock stored on it sees write errors. Watch host disk usage.
 - **A uid freed while a process may linger.** Destroying a microVM signals only its Firecracker process and then frees its uid for reuse. A process left behind, for example after an escape, could keep that uid while a new Dock is assigned the same one. Killing the Dock's cgroup and waiting for it to empty before freeing the uid is in progress ([usedock/docklet#41](https://github.com/usedock/docklet/issues/41)).
-- **Connector tokens in templates.** A Template captured from a microVM Dock with connectors holds that Dock's `~/.config/dock/mcp.json` and gateway token on its disk, and the capture is not scrubbed. Three controls limit it: the Template records that its source had connectors, and creating a Dock from it needs an organization admin (members get `connector_admin_only`; an unknown source counts as having had connectors); saving the Template re-applies the source Dock, which replaces its token so the captured copy no longer works; and every apply to a Dock without connectors deletes the connector config. An admin who creates from such a Template still reads the stale, already-revoked token.
+- **Connector tokens in templates.** A Template captured from a microVM Dock with connectors holds that Dock's `~/.config/dock/mcp.json` and gateway token on its disk, and the capture is not scrubbed. Three controls limit it: the Template records that its source had connectors, and creating a Dock from it needs an organization admin (members get `connector_admin_only`; an unknown source counts as having had connectors); saving the Template re-applies the source Dock, which replaces its token so the captured copy no longer works; and every apply to a Dock without connectors deletes the connector config. An admin who creates from such a Template still reads the stale, already-revoked token. The same save-time re-apply replaces the source's LLM gateway token (`DOCK_LLM_TOKEN`) whenever it holds one, so a Template captured from a Dock in gateway mode carries only a revoked token, and every apply to the new Dock rewrites `~/.dock/env.sh`.
 - **Open outbound internet for ordinary Docks.** A Dock can send anything it can read to any public host, and can attack the internet from your IP. Confinement is on for GitHub runs; for ordinary Docks it is opt-in per Environment (`egressAllow`, [#42](https://github.com/usedock/dock/issues/42)) and off until an admin sets a list. The list holds only for Docks created, resumed or branched after it is set, on a host whose docklet reports `egress-on-resume` (other hosts are refused with `host_egress_unsupported`, not used), and a Dock can still send data to any host on its list. The proxy admits HTTPS to names only and cannot inspect traffic.
 - **Secrets inside a Dock are readable by the Dock.** Use scoped, revocable keys.
 - **Snapshots.** The self-host stack encrypts Snapshot objects at rest with MinIO server-side encryption (SSE-S3, default bucket encryption), keyed by `MINIO_KMS_SECRET_KEY` from `.env`. That is a single static key with no in-place rotation, kept in `.env` on the same machine as the data: it protects a stolen disk or a copied volume or backup, not a compromised control-plane host, and anyone holding both the bucket and the key, or the running control plane, reads the data. Object names and sizes are not encrypted. Objects written before an upgrade stay unencrypted until re-encrypted, and on an external S3 bucket you must enable default encryption yourself (the API logs a warning at start when it is off). Dock does not encrypt per organization. [Self-hosting](/self-hosting) has the setup and key backup. A Snapshot of a Dock that held secrets contains them on disk, encrypted or not.

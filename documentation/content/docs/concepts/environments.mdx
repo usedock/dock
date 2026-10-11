@@ -8,13 +8,24 @@ organization. Secret values are encrypted at rest and stay masked on reads;
 they are revealed only through the explicit reveal call
 (`POST /v1/environments/:ref/secrets:reveal`), which requires admin rights.
 
+## Provider keys
+
+By default an Environment passes agent credentials without handing over the
+organization's provider keys: the Dock gets a Dock-scoped token as the key
+value and base URLs that point at the control plane's LLM gateway, which attaches
+the real key to outbound model calls. See [Model keys](/docs/connectors/model-keys).
+An admin can set `providerKeys` to `plain` to write the real keys into the Dock
+instead, for tools that cannot use a base URL. That is weaker, because anyone
+inside the Dock can read them. The setting is part of each version, like the
+other posture flags.
+
 Every change creates a new version, and a Dock records the Environment name
 and version pin it was created with.
 
 ## Who can launch docks with secrets
 
 Anything an Environment passes into a Dock (variables, secret files, agent
-provider keys, and the Dock API key) is readable by anyone inside that Dock.
+provider keys in `plain` mode, and the Dock API key) is readable by anyone inside that Dock.
 Masking and the admin-only reveal call protect the stored values, not a running
 Dock, so anyone who can reach a Dock that received them can read them.
 

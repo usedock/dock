@@ -7,6 +7,10 @@ export type EnvProvider = (typeof ENV_PROVIDERS)[number];
 export const SECRETS_ACCESS = ['members', 'admins'] as const;
 export type SecretsAccess = (typeof SECRETS_ACCESS)[number];
 
+/** How org provider keys reach docks: `gateway` keeps them in the control plane, `plain` writes them into the dock env. */
+export const PROVIDER_KEY_MODES = ['gateway', 'plain'] as const;
+export type ProviderKeyMode = (typeof PROVIDER_KEY_MODES)[number];
+
 /** Environment names: 2-64 chars, lowercase/digits/dash/underscore, padded ends. */
 export const ENV_NAME_RE = /^[a-z0-9]([a-z0-9-_]{0,62}[a-z0-9])$/;
 
@@ -70,6 +74,7 @@ export const environmentVersions = pgTable(
     passSecrets: boolean('pass_secrets').notNull().default(true),
     passDockCredentials: boolean('pass_dock_credentials').notNull().default(false),
     passAgentsCredentials: boolean('pass_agents_credentials').notNull().default(true),
+    providerKeys: text('provider_keys', { enum: PROVIDER_KEY_MODES }).notNull().default('gateway'),
     /** HTTPS hosts docks may reach; null leaves egress open (minus private ranges). */
     egressAllow: jsonb('egress_allow').$type<string[]>(),
     repos: jsonb('repos').notNull().$type<EnvRepo[]>(),

@@ -3,13 +3,15 @@ import { eq } from 'drizzle-orm';
 import { RateLimitService } from '../auth/rate-limit.service';
 import { hashToken } from '../crypto/tokens';
 import { DB, Db } from '../database/database.module';
-import { connectorRuns, docks, githubRuns } from '../database/schema';
+import { connectorRuns, docks, githubRuns, workspaces, type Dock } from '../database/schema';
 import { type ChatgptAccess, ChatgptNotConnectedException, ChatgptService } from '../chatgpt/chatgpt.service';
 import { EnvironmentsService } from '../environments/environments.service';
 import { LLM_UPSTREAMS, providerOf } from './runner';
 
 /** Requests per run per hour; bounds what a leaked run token can spend. */
 const RUN_REQUEST_LIMIT = 2000;
+/** Requests per dock per hour, matching the connector gateway. */
+const DOCK_REQUEST_LIMIT = 3000;
 const LIVE_STATES = new Set(['provisioning', 'working']);
 const CONNECTOR_LIVE_STATES = new Set(['pending', 'working']);
 
@@ -17,6 +19,12 @@ const CONNECTOR_LIVE_STATES = new Set(['pending', 'working']);
 interface RunScope {
   organizationId: string | null;
   agent: string;
+}
+interface Caller {
+  rateKey: string;
+  llmUserId: string | null;
+  run: RunScope | null;
+  dock: Dock | null;
 }
 /** Dock tokens work only while the dock can run an agent. */
 const LIVE_DOCK_STATES = new Set(['ready', 'idle', 'running']);
@@ -82,7 +90,7 @@ export class LlmGatewayService {
     if (!upstream || !PATH_RE.test(req.path) || req.path.split('/').includes('..')) {
       throw new HttpException({ code: 'validation_error', message: 'Unsupported gateway path' }, HttpStatus.BAD_REQUEST);
     }
-    const hit = await this.limits.hit(`rl:llm-gw:${caller.rateKey}`, RUN_REQUEST_LIMIT, 3600);
+    const hit = await this.limits.hit(`rl:llm-gw:${caller.rateKey}`, caller.dock ? DOCK_REQUEST_LIMIT : RUN_REQUEST_LIMIT, 3600);
     if (!hit.allowed) throw new HttpException({ code: 'rate_limited', message: 'Run LLM budget exhausted' }, HttpStatus.TOO_MANY_REQUESTS);
     const headers: Record<string, string> = {};
     for (const [name, value] of Object.entries(req.headers)) {
@@ -92,43 +100,54 @@ export class LlmGatewayService {
     if (req.provider === 'chatgpt') {
       Object.assign(headers, await this.chatgptHeaders(caller.llmUserId, req.path));
     } else {
-      const run = caller.run as RunScope;
-      const orgId = run.organizationId;
-      const bundle = orgId ? await this.envs.resolveBundle(orgId, undefined, { agents: [run.agent] }).catch(() => null) : null;
-      const key = bundle?.vars[upstream.key];
+      const key = await this.providerKey(caller, upstream.key);
       if (!key) throw providerNotConfigured();
       if (upstream.auth === 'x-api-key') headers['x-api-key'] = key;
       else headers.authorization = `Bearer ${key}`;
     }
     const hasBody = req.method !== 'GET' && req.method !== 'HEAD' && req.body && req.body.length > 0;
-    return this.fetchFn(`${upstream.base}/${req.path}${req.query}`, {
+    // Clients differ on whether their base URL carries the version segment; the upstream base already does.
+    const path = upstream.base.endsWith('/v1') && req.path.startsWith('v1/') ? req.path.slice(3) : req.path;
+    return this.fetchFn(`${upstream.base}/${path}${req.query}`, {
       method: req.method,
       headers,
       body: hasBody ? new Uint8Array(req.body as Buffer) : undefined,
     });
   }
 
+  /** The org's real key for this caller: a run's bundle, or the dock's environment when it is in gateway mode. */
+  private async providerKey(caller: Caller, keyVar: string): Promise<string | null> {
+    if (caller.dock) {
+      const [workspace] = await this.db.select().from(workspaces).where(eq(workspaces.id, caller.dock.workspaceId)).limit(1);
+      return workspace ? this.envs.gatewayKeyFor(workspace.organizationId, caller.dock, keyVar) : null;
+    }
+    const run = caller.run as RunScope;
+    const orgId = run.organizationId;
+    const bundle = orgId ? await this.envs.resolveBundle(orgId, undefined, { agents: [run.agent] }).catch(() => null) : null;
+    return bundle?.vars[keyVar] ?? null;
+  }
+
   /**
-   * A live run's token reaches its own model provider; a dock token reaches
-   * only the ChatGPT route, as the dock's creator. Docks get org provider
-   * keys as env vars instead, so they never need the gateway for those.
+   * A live run's token reaches its own model provider. A live dock's token
+   * reaches the ChatGPT route as the dock's creator, and the org provider keys
+   * its environment requires while that environment is in gateway mode.
    */
-  private async caller(tokenHash: string, provider: string): Promise<{ rateKey: string; llmUserId: string | null; run: RunScope | null }> {
+  private async caller(tokenHash: string, provider: string): Promise<Caller> {
     const [run] = await this.db.select().from(githubRuns).where(eq(githubRuns.gatewayTokenHash, tokenHash)).limit(1);
     if (run) {
       if (!LIVE_STATES.has(run.state) || !run.model || providerOf(run.model) !== provider) throw new GatewayUnauthorizedException();
-      return { rateKey: run.id, llmUserId: run.llmUserId, run };
+      return { rateKey: run.id, llmUserId: run.llmUserId, run, dock: null };
     }
     const [connectorRun] = await this.db.select().from(connectorRuns).where(eq(connectorRuns.gatewayTokenHash, tokenHash)).limit(1);
     if (connectorRun) {
       // Connector runs never use a ChatGPT sign-in; the token dies when the run settles.
       if (!CONNECTOR_LIVE_STATES.has(connectorRun.state) || !connectorRun.model || providerOf(connectorRun.model) !== provider || provider === 'chatgpt') throw new GatewayUnauthorizedException();
-      return { rateKey: connectorRun.id, llmUserId: null, run: connectorRun };
+      return { rateKey: connectorRun.id, llmUserId: null, run: connectorRun, dock: null };
     }
-    if (provider !== 'chatgpt') throw new GatewayUnauthorizedException();
     const [dock] = await this.db.select().from(docks).where(eq(docks.llmTokenHash, tokenHash)).limit(1);
-    if (!dock || !LIVE_DOCK_STATES.has(dock.state) || !dock.createdBy) throw new GatewayUnauthorizedException();
-    return { rateKey: `dock:${dock.id}`, llmUserId: dock.createdBy, run: null };
+    if (!dock || !LIVE_DOCK_STATES.has(dock.state)) throw new GatewayUnauthorizedException();
+    if (provider === 'chatgpt' && !dock.createdBy) throw new GatewayUnauthorizedException();
+    return { rateKey: `dock:${dock.id}`, llmUserId: dock.createdBy, run: null, dock };
   }
 
   /** The run's ChatGPT user's live token plus the account routing Codex expects. */

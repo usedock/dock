@@ -17,6 +17,7 @@ import { DEFAULT_DOCK_AGENTS, requiredKeysFor } from '../github/run-agents';
 import {
   ENV_NAME_RE,
   ENV_PROVIDERS,
+  PROVIDER_KEY_MODES,
   SECRETS_ACCESS,
   docks,
   environmentVersions,
@@ -24,6 +25,7 @@ import {
   githubInstallations,
   workspaces,
   type EnvProvider,
+  type ProviderKeyMode,
   type EnvRepo,
   type EnvSecretFile,
   type SecretsAccess,
@@ -105,6 +107,7 @@ export interface EnvironmentView {
   /** HTTPS hosts docks on this environment may reach; null leaves egress open. */
   egressAllow: string[] | null;
   passAgentsCredentials: boolean;
+  providerKeys: ProviderKeyMode;
   connections: Record<EnvProvider, ConnectionView>;
   varNames: string[];
   files: { path: string; size: number }[];
@@ -143,6 +146,9 @@ export interface ResolvedBundle {
   passDockCredentials: boolean;
   /** Whether agent credentials (platform keys, the creator's ChatGPT sign-in) may reach the dock. */
   passAgentsCredentials: boolean;
+  providerKeys: ProviderKeyMode;
+  /** Platform-injected key vars the apply swaps for the gateway placeholder; empty unless providerKeys is gateway. */
+  gatewayKeyVars: string[];
 }
 
 export interface UpdateEnvironmentInput {
@@ -155,6 +161,7 @@ export interface UpdateEnvironmentInput {
   passDockCredentials?: boolean;
   egressAllow?: string[] | null;
   passAgentsCredentials?: boolean;
+  providerKeys?: ProviderKeyMode;
 }
 
 export interface AddRepoInput {
@@ -176,6 +183,7 @@ interface VersionContent {
   passSecrets: boolean;
   passDockCredentials: boolean;
   passAgentsCredentials: boolean;
+  providerKeys: ProviderKeyMode;
   egressAllow: string[] | null;
   repos: EnvRepo[];
   envVars: Record<string, SealedValue>;
@@ -444,6 +452,7 @@ export class EnvironmentsService {
       passSecrets: latest.passSecrets,
       passDockCredentials: latest.passDockCredentials,
       passAgentsCredentials: latest.passAgentsCredentials,
+      providerKeys: latest.providerKeys,
       egressAllow: latest.egressAllow,
       repos: latest.repos,
       envVars: this.sealAll(vars),
@@ -640,7 +649,33 @@ export class EnvironmentsService {
       injectedProviders: injected.providers,
       passDockCredentials: !safe && pinned.passDockCredentials,
       passAgentsCredentials: !safe && pinned.passAgentsCredentials,
+      providerKeys: pinned.providerKeys,
+      gatewayKeyVars: pinned.providerKeys === 'gateway' ? Object.keys(injected.vars).filter((n) => !(n in stored) && !(opts.perDockEnv && n in opts.perDockEnv)) : [],
     };
+  }
+
+  /**
+   * The org's real key for a dock's gateway call, or null. Re-checks the
+   * dock's pinned environment on every call, so switching to plain, turning
+   * agent credentials off or removing the key cuts a dock off without a re-apply.
+   */
+  async gatewayKeyFor(
+    organizationId: string,
+    dock: { environment: string; envVersionPin: string | null; noEnv: boolean },
+    keyVar: string,
+  ): Promise<string | null> {
+    if (dock.noEnv || !requiredKeysFor(DEFAULT_DOCK_AGENTS).includes(keyVar)) return null;
+    let version: EnvironmentVersion;
+    try {
+      const current = (await this.resolveVersion(organizationId, dock.environment)).version;
+      const match = dock.envVersionPin ? VERSION_PIN_RE.exec(dock.envVersionPin) : null;
+      version = match ? await this.versionAt(current.environmentId, Number(match[1])) : current;
+    } catch (err) {
+      if (err instanceof EnvironmentNotFoundException) return null;
+      throw err;
+    }
+    if (version.safeForThirdParties || !version.passAgentsCredentials || version.providerKeys !== 'gateway') return null;
+    return (await this.creds.varsFor(organizationId, [keyVar])).vars[keyVar] ?? null;
   }
 
   private async resolveRef(callerId: string, ref: string, organizationId: string | undefined, minRole: 'member' | 'admin'): Promise<Environment> {
@@ -739,6 +774,7 @@ export class EnvironmentsService {
       passSecrets: current.passSecrets,
       passDockCredentials: current.passDockCredentials,
       passAgentsCredentials: current.passAgentsCredentials,
+      providerKeys: current.providerKeys,
       egressAllow: current.egressAllow,
       repos: current.repos.map((r) => ({ ...r })),
       envVars: { ...current.envVars },
@@ -781,6 +817,10 @@ export class EnvironmentsService {
         if (typeof patch[key] !== 'boolean') throw validationError(`${key} must be a boolean`);
         out[key] = patch[key] as boolean;
       }
+    }
+    if (patch.providerKeys !== undefined) {
+      if (!(PROVIDER_KEY_MODES as readonly string[]).includes(patch.providerKeys)) throw validationError('providerKeys must be gateway or plain');
+      out.providerKeys = patch.providerKeys;
     }
     if (patch.egressAllow !== undefined) out.egressAllow = checkedEgressAllow(patch.egressAllow);
     return Object.keys(out).length ? out : null;
@@ -875,6 +915,7 @@ export class EnvironmentsService {
       passSecrets: version.passSecrets,
       passDockCredentials: version.passDockCredentials,
       passAgentsCredentials: version.passAgentsCredentials,
+      providerKeys: version.providerKeys,
       egressAllow: version.egressAllow ?? null,
       connections,
       varNames: Object.keys(version.envVars).sort(),

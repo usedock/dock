@@ -238,6 +238,13 @@ describe('TemplatesService', () => {
       expect(docks.reapply).not.toHaveBeenCalled();
     });
 
+    it('re-applies a source holding an LLM gateway token so the captured token dies', async () => {
+      const dock = dockRow({ connectors: [], llmTokenHash: 'h' });
+      const persisted = await save(dock);
+      expect(persisted.hadConnectors).toBe(false);
+      expect(docks.reapply).toHaveBeenCalledWith(dock, orgId);
+    });
+
     it('still saves when the re-apply fails', async () => {
       docks.reapply.mockRejectedValueOnce(new Error('exec down'));
       const persisted = await save(dockRow({ connectors: ['linear'] }));
