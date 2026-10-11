@@ -150,7 +150,7 @@ describe('DockTransfersService', () => {
       getObject: vi.fn(),
       getObjectRange: vi.fn(),
     };
-    hosts = { listOnline: vi.fn().mockResolvedValue([{ id: 'h1', runtime: 'microvm' }]) };
+    hosts = { listOnline: vi.fn().mockResolvedValue([{ id: 'h1', runtime: 'microvm', features: ['verified-imports'] }]) };
     retention = { policyOn: vi.fn().mockResolvedValue(false) };
     config = { get: vi.fn().mockReturnValue('fake') };
     provider = new FakeComputeProvider();
@@ -225,6 +225,16 @@ describe('DockTransfersService', () => {
       const err = await catchErr(start());
       expect(err).toMatchObject({ status: 409, body: { code: 'runtime_unsupported' } });
       expect(objects.startUpload).not.toHaveBeenCalled();
+    });
+
+    it('answers runtime_unsupported until a microVM host registers verified-imports', async () => {
+      config.get.mockReturnValue('restate');
+      hosts.listOnline.mockResolvedValueOnce([{ id: 'm1', runtime: 'microvm', features: ['egress-on-resume'] }, { id: 'g1', runtime: 'gvisor', features: ['verified-imports'] }]);
+      expect(await catchErr(start())).toMatchObject({ status: 409, body: { code: 'runtime_unsupported' } });
+      expect(objects.startUpload).not.toHaveBeenCalled();
+      hosts.listOnline.mockResolvedValueOnce([{ id: 'm1', runtime: 'microvm', features: ['verified-imports'] }]);
+      queueSelects([{ open: 0 }]);
+      await expect(start()).resolves.toMatchObject({ upload: { mode: 'direct' } });
     });
 
     it('refuses a name already used in the workspace before any upload', async () => {
@@ -385,6 +395,20 @@ describe('DockTransfersService', () => {
       expect(objects.deleteGeneration).toHaveBeenCalledWith('gen-1');
     });
 
+    it('stamps the manifest with the cpu family of the host the boot lands on', async () => {
+      // A docklet refuses a generation whose cpuFamily is not its own, and an empty family matches no host.
+      queueSelects([importRow()]);
+      await service.completeImport('u1', importId, parts);
+      expect(JSON.parse(objects.putSmallObject.mock.calls[0][2].toString()).cpuFamily).toBe('');
+      const { onPlaced } = docks.create.mock.calls[0][1].importedGeneration;
+      await onPlaced({ id: 'h1', cpuFamily: 'GenuineIntel:6:85' });
+      const [generation, name, data] = objects.putSmallObject.mock.calls[1];
+      expect([generation, name]).toEqual(['gen-1', 'manifest.json']);
+      expect(JSON.parse(data.toString())).toMatchObject({ cpuFamily: 'GenuineIntel:6:85', sha256: SHA, sizeBytes: 5 * MIB });
+      await onPlaced(null);
+      expect(objects.putSmallObject).toHaveBeenCalledTimes(2);
+    });
+
     it('records a host checksum refusal as import_checksum_mismatch when the boot fails later', async () => {
       queueSelects([importRow()]);
       await service.completeImport('u1', importId, parts);
@@ -402,13 +426,16 @@ describe('DockTransfersService', () => {
 
   describe('manifest and ranges', () => {
     it('describes the upload as one compressed whole image with its sha256 and size', () => {
-      expect(wholeImageManifest({ id: importId, storeSnapshotId: 'g', sizeBytes: 10, sha256: SHA, image: 'ubuntu-24.04' })).toEqual({
+      expect(wholeImageManifest({ id: importId, storeSnapshotId: 'g', sizeBytes: 10, sha256: SHA, image: 'ubuntu-24.04' }, 'GenuineIntel:6:85')).toEqual({
         snapshotId: 'g',
         dockId: importId,
         parentId: null,
         kind: 'full',
-        cpuFamily: '',
+        cpuFamily: 'GenuineIntel:6:85',
         image: 'ubuntu-24.04',
+        source: 'import',
+        sha256: SHA,
+        sizeBytes: 10,
         files: [{ path: 'rootfs.ext4.zst', size: 10, encoding: 'zstd', sha256: SHA }],
       });
     });
@@ -472,6 +499,7 @@ describe('DockTransfersService', () => {
   });
 
   describe('running an export', () => {
+    beforeEach(() => db.select.mockImplementation(() => selectQ([])));
     const run = (dock = dockRow()) => service.runExport(exportRow() as never, dock as never, orgId);
     const capture = (overrides: Record<string, unknown> = {}) =>
       vi.spyOn(provider, 'captureDisk').mockResolvedValue({ snapshotId: 'gen-x', sizeBytes: 1234, sha256: SHA, baseImage: 'ubuntu-24.04', ...overrides });
@@ -482,9 +510,16 @@ describe('DockTransfersService', () => {
       expect(updated.at(-1)).toEqual({ state: 'ready', sizeBytes: 1234, sha256: SHA, baseImage: 'ubuntu-24.04', storeSnapshotId: 'gen-x' });
     });
 
+    /** Queues the credential reads around the capture: the row and dock keys before, then after the re-apply. */
+    const tokens = (before: { llm?: string | null; connector?: string | null; keys?: string[] }, after?: { llm?: string | null; connector?: string | null; keys?: string[] }) => {
+      const rows = (t: typeof before) => [[{ llm: t.llm ?? null, connector: t.connector ?? null }], (t.keys ?? []).map((id) => ({ id }))];
+      queueSelects(...rows(before), ...(after ? rows(after) : []));
+    };
+
     it('re-applies a dock holding connectors after the capture and before publishing', async () => {
       const order: string[] = [];
       capture();
+      tokens({ connector: 'c1' }, { connector: 'c2' });
       docks.reapply.mockImplementationOnce(async () => void order.push('reapply'));
       db.update.mockImplementationOnce(() => {
         order.push('publish');
@@ -495,19 +530,43 @@ describe('DockTransfersService', () => {
       expect(docks.reapply).toHaveBeenCalledWith(expect.objectContaining({ id: dockId }), orgId);
     });
 
-    it('re-applies a dock that holds a model gateway token, and leaves a plain dock alone', async () => {
+    it('re-applies a dock that holds a model gateway token or a dock API key, and leaves a plain dock alone', async () => {
       capture();
-      await run(dockRow({ llmTokenHash: 'hash' }));
-      expect(docks.reapply).toHaveBeenCalledTimes(1);
-      await run(dockRow());
-      expect(docks.reapply).toHaveBeenCalledTimes(1);
+      tokens({ llm: 'l1' }, { llm: 'l2' });
+      await run();
+      tokens({ keys: ['k1'] }, { keys: ['k2'] });
+      await run();
+      expect(docks.reapply).toHaveBeenCalledTimes(2);
+      expect(updated.at(-1)).toMatchObject({ state: 'ready' });
+      tokens({});
+      await run();
+      expect(docks.reapply).toHaveBeenCalledTimes(2);
+      expect(updated.at(-1)).toMatchObject({ state: 'ready' });
     });
 
-    it('still publishes when the token rotation fails', async () => {
+    it('fails the export and drops the capture when the re-apply throws', async () => {
       capture();
+      tokens({ connector: 'c1' });
       docks.reapply.mockRejectedValueOnce(new Error('host down'));
+      const drop = vi.spyOn(provider, 'deleteBacking');
       await run(dockRow({ connectors: ['linear'] }));
-      expect(updated.at(-1)).toMatchObject({ state: 'ready' });
+      expect(updated.at(-1)).toEqual({ state: 'failed', error: 'export_failed' });
+      expect(drop).toHaveBeenCalledWith('gen-x');
+    });
+
+    it('never publishes a disk whose credentials are still live after the re-apply', async () => {
+      // EnvironmentApplyService.apply records a failure instead of throwing, so the hashes are what prove the rotation.
+      capture();
+      for (const [before, after] of [
+        [{ llm: 'l1' }, { llm: 'l1' }],
+        [{ connector: 'c1' }, { connector: 'c1' }],
+        [{ keys: ['k1'] }, { keys: ['k1'] }],
+        [{ llm: 'l1', keys: ['k1'] }, { llm: 'l2', keys: ['k1'] }],
+      ]) {
+        tokens(before, after);
+        await run();
+        expect(updated.at(-1)).toEqual({ state: 'failed', error: 'export_failed' });
+      }
     });
 
     it('fails with export_base_unsupported and deletes the capture when the base is not a Dockyard image', async () => {
@@ -520,6 +579,7 @@ describe('DockTransfersService', () => {
 
     it('still rotates tokens when the base check fails, since the capture already holds them', async () => {
       capture({ baseImage: '' });
+      tokens({ connector: 'c1' }, { connector: 'c2' });
       await run(dockRow({ connectors: ['linear'] }));
       expect(docks.reapply).toHaveBeenCalledTimes(1);
     });
@@ -629,13 +689,15 @@ describe('DockTransfersService', () => {
     });
 
     it('aborts abandoned uploads and deletes their generation, but never a completed import\'s', async () => {
-      queueSelects([], [importRow({ id: 'i1', status: 'uploading' }), importRow({ id: 'i2', status: 'completed', storeSnapshotId: 'gen-kept', dockId }), importRow({ id: 'i3', status: 'failed', storeSnapshotId: 'gen-3' })]);
+      queueSelects([], [importRow({ id: 'i1', status: 'uploading' }), importRow({ id: 'i2', status: 'completed', storeSnapshotId: 'gen-kept', dockId }), importRow({ id: 'i3', status: 'failed', storeSnapshotId: 'gen-3' }), importRow({ id: 'i4', status: 'failed', storeSnapshotId: 'gen-boot-failed', dockId })]);
       db.update.mockReturnValueOnce(updateQ([]));
       const result = await service.sweep();
-      expect(result.imports).toBe(3);
+      expect(result.imports).toBe(4);
       expect(objects.abortUpload).toHaveBeenCalledTimes(2);
       expect(objects.deleteGeneration.mock.calls.map((c: string[]) => c[0]).sort()).toEqual(['gen-1', 'gen-3']);
       expect(objects.deleteGeneration).not.toHaveBeenCalledWith('gen-kept');
+      // A dock whose boot failed still holds the generation through its snapshot row.
+      expect(objects.deleteGeneration).not.toHaveBeenCalledWith('gen-boot-failed');
     });
 
     it('marks exports pending past the capture deadline as interrupted', async () => {

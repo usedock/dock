@@ -44,7 +44,7 @@ import { EnvironmentNotFoundException, EnvironmentSecretsAdminOnlyException, Env
 import { ConnectorAdminOnlyException, ConnectorsService } from '../connectors/connectors.service';
 import { EnvironmentApplyService } from '../environments/environment-apply.service';
 import { ConfirmRequiredException, DockDeleteForbiddenException, DockNotFoundException, NoHostCapacityException, SnapshotInUseException, TEMPLATE_RE, TemplateSourceMissingException, TemplateNotFoundException, CapacityExhaustedException, DockNameTakenException, ImageUnavailableException, HostEgressUnsupportedException } from './dock-errors';
-import { EGRESS_ON_RESUME } from '../hosts/host-features';
+import { EGRESS_ON_RESUME, VERIFIED_IMPORTS } from '../hosts/host-features';
 import { COMPUTE_PROVIDER, ComputeProvider } from './compute.provider';
 import { DockletException } from '../runtime/docklet.client';
 import { MeteringService } from '../metering/metering.service';
@@ -89,6 +89,8 @@ export interface ImportedGeneration {
   storeSnapshotId: string;
   sizeBytes: number;
   manifest: SnapshotManifest;
+  /** Runs once a host is picked and before it provisions, so the generation can name that host's cpu family. */
+  onPlaced?: (host: Host | null) => Promise<void>;
   /** Runs when the background boot fails, after the dock is marked in error. */
   onBootFailed?: (err: unknown) => Promise<void> | void;
 }
@@ -121,7 +123,14 @@ const MAX_ENV_BYTES = 65536;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** What a boot restores from, constraining which hosts can run it. */
-type PlacementSource = { cpuFamily: string | null | undefined; runtime?: Runtime | null; baseFingerprint?: string | null; feature?: string };
+/** `feature` is the egress requirement a miss is blamed on; `requires` is a further feature the dock cannot place without. */
+type PlacementSource = { cpuFamily: string | null | undefined; runtime?: Runtime | null; baseFingerprint?: string | null; feature?: string; requires?: string };
+
+/** The placement filter for a source's features: one name, every name of a list, or nothing. */
+function featureFilter(source: PlacementSource): { feature?: string | string[] } {
+  const features = [source.feature, source.requires].filter((f): f is string => !!f);
+  return features.length ? { feature: features.length === 1 ? features[0] : features } : {};
+}
 
 type DockSize = { cpus: number; memoryMiB: number; diskGiB: number };
 
@@ -286,7 +295,7 @@ export class DocksService {
       excludeHostIds,
       ...(dock.image ? { image: dock.image } : {}),
       ...(source.baseFingerprint ? { baseFingerprint: source.baseFingerprint } : {}),
-      ...(source.feature ? { feature: source.feature } : {}),
+      ...featureFilter(source),
     });
     if (host) return host;
     // After a docklet refusal the excluded hosts still look placeable, so only a first miss can blame the feature.
@@ -302,7 +311,7 @@ export class DocksService {
   /** A miss that disappears without the feature requirement means the hosts lack the feature. */
   private async assertFeatureNotTheCause(source: PlacementSource, size: DockSize): Promise<void> {
     if (!source.feature) return;
-    const ok = await this.hosts.canPlace({ cpuFamily: source.cpuFamily, runtime: source.runtime ?? null, baseFingerprint: source.baseFingerprint, cpus: size.cpus, memoryMiB: size.memoryMiB });
+    const ok = await this.hosts.canPlace({ cpuFamily: source.cpuFamily, runtime: source.runtime ?? null, baseFingerprint: source.baseFingerprint, ...(source.requires ? { feature: source.requires } : {}), cpus: size.cpus, memoryMiB: size.memoryMiB });
     if (ok) throw new HostEgressUnsupportedException();
   }
 
@@ -319,9 +328,9 @@ export class DocksService {
     if (fit === 'none_online') throw new NoHostCapacityException();
     if (fit === 'too_large') throw validationError(`Requested size (${size.cpus} cpus, ${size.memoryMiB} MiB) exceeds the total capacity of every online host`);
     if (!(await this.hosts.anyOnlineWithHeadroom({ cpus: size.cpus, memoryMiB: size.memoryMiB }))) throw new CapacityExhaustedException();
-    if (!source || (source.cpuFamily == null && source.runtime == null && !source.baseFingerprint && !source.feature)) return;
+    if (!source || (source.cpuFamily == null && source.runtime == null && !source.baseFingerprint && !featureFilter(source).feature)) return;
     // Room exists somewhere, so a miss here is family, runtime or base, as in placeOrThrow.
-    const ok = await this.hosts.canPlace({ cpuFamily: source.cpuFamily, runtime: source.runtime ?? null, baseFingerprint: source.baseFingerprint, ...(source.feature ? { feature: source.feature } : {}), cpus: size.cpus, memoryMiB: size.memoryMiB });
+    const ok = await this.hosts.canPlace({ cpuFamily: source.cpuFamily, runtime: source.runtime ?? null, baseFingerprint: source.baseFingerprint, ...featureFilter(source), cpus: size.cpus, memoryMiB: size.memoryMiB });
     if (!ok) {
       await this.assertFeatureNotTheCause(source, size);
       throw new NoHostCapacityException();
@@ -400,7 +409,11 @@ export class DocksService {
     // A run's own list wins; otherwise the environment's list applies, even with noEnv.
     const egressAllow = input.egressAllow?.length ? input.egressAllow : (version.egressAllow ?? undefined);
     // Only an environment list needs the host to confine on resume; a run's list predates the feature.
-    const placeFeature = !input.egressAllow?.length && egressAllow?.length ? { feature: EGRESS_ON_RESUME } : {};
+    const placeFeature = {
+      ...(!input.egressAllow?.length && egressAllow?.length ? { feature: EGRESS_ON_RESUME } : {}),
+      // An uploaded disk is untrusted bytes: only a docklet that verifies it may boot it.
+      ...(input.importedGeneration ? { requires: VERIFIED_IMPORTS } : {}),
+    };
     let fromTemplate: string | undefined;
     let templateStoreId: string | null | undefined;
     let templateCpuFamily: string | null = null;
@@ -468,13 +481,14 @@ export class DocksService {
     }
     const boot = async (): Promise<Dock> => {
       try {
-        const { machine, runtime } = await this.placeAndRun({ cpuFamily: templateCpuFamily, runtime: templateRuntime, baseFingerprint: templateBase, ...placeFeature }, dock, (host) =>
-          this.provider.provision(dock, {
+        const { machine, runtime } = await this.placeAndRun({ cpuFamily: templateCpuFamily, runtime: templateRuntime, baseFingerprint: templateBase, ...placeFeature }, dock, async (host) => {
+          await input.importedGeneration?.onPlaced?.(host);
+          return this.provider.provision(dock, {
             snapshotId: templateStoreId ?? null,
             hostId: host?.id ?? null,
             ...(egressAllow?.length ? { egressAllow } : {}),
-          }),
-        );
+          });
+        });
         const ready = await this.transition(dock.id, ['provisioning'], { state: 'ready', liveSince: new Date(), ip: machine.ip, hostId: machine.hostId ?? null, runtime: runtime ?? dock.runtime });
         await this.bindKey(orgId, idempotencyKey, ready.id);
         await this.metering.openWindow({ organizationId: orgId, workspaceId: input.workspaceId, dockId: ready.id, ...size });

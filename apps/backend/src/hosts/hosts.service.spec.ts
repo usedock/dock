@@ -334,6 +334,14 @@ describe('HostsService', () => {
       useTx([hostRow({ id: 'old', features: [] })]);
       await expect(service.placeForDock({ cpuFamily: 'x86_64-v4' })).resolves.toMatchObject({ id: 'old' });
     });
+
+    it('requires every feature of a list', async () => {
+      const rows = () => [hostRow({ id: 'egress', usedDocks: 0, features: ['egress-on-resume'] }), hostRow({ id: 'both', usedDocks: 6, features: ['egress-on-resume', 'verified-imports'] })];
+      useTx(rows());
+      await expect(service.placeForDock({ cpuFamily: 'x86_64-v4', feature: ['egress-on-resume', 'verified-imports'] })).resolves.toMatchObject({ id: 'both' });
+      useTx([hostRow({ id: 'egress', features: ['egress-on-resume'] })]);
+      await expect(service.placeForDock({ cpuFamily: 'x86_64-v4', feature: ['verified-imports'] })).resolves.toBeNull();
+    });
   });
 
   describe('placement for a Dockyard image', () => {

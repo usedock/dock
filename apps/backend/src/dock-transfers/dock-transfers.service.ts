@@ -3,12 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { and, count, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { newUuid } from '../crypto/tokens';
 import { DB, Db } from '../database/database.module';
-import { DOCK_IMAGES, dockExports, dockImports, docks, workspaces, type Dock, type DockExport, type DockImport } from '../database/schema';
+import { DOCK_IMAGES, apiKeys, dockExports, dockImports, docks, workspaces, type Dock, type DockExport, type DockImport } from '../database/schema';
 import { COMPUTE_PROVIDER, ComputeProvider } from '../docks/compute.provider';
 import { DockNameTakenException, DockNotFoundException, DockNotRunningException } from '../docks/dock-errors';
 import { DocksService, checkedSize } from '../docks/docks.service';
 import { FleetObjectsService } from '../fleet/fleet-objects.service';
 import { deadlineFromConfig } from '../fleet/host-command-queue';
+import { VERIFIED_IMPORTS } from '../hosts/host-features';
 import { HostsService } from '../hosts/hosts.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { RetentionService } from '../retention/retention.service';
@@ -80,6 +81,12 @@ export interface ExportView {
   urlExpiresAt: Date | null;
 }
 
+interface DockTokens {
+  llm: string | null;
+  connector: string | null;
+  keyIds: string[];
+}
+
 export interface DownloadHandle {
   stream: NodeJS.ReadableStream;
   size: number;
@@ -97,15 +104,19 @@ export function exportDownloadPath(exportId: string): string {
   return `/v1/docks/exports/${exportId}/download`;
 }
 
-/** The manifest the docklet reads to materialize the uploaded disk as a whole image. */
-export function wholeImageManifest(row: Pick<DockImport, 'id' | 'storeSnapshotId' | 'sizeBytes' | 'sha256' | 'image'>): Record<string, unknown> {
+/** The manifest the docklet materializes the upload from; cpuFamily must be the placed host's, as the docklet refuses any other. */
+export function wholeImageManifest(row: Pick<DockImport, 'id' | 'storeSnapshotId' | 'sizeBytes' | 'sha256' | 'image'>, cpuFamily = ''): Record<string, unknown> {
   return {
     snapshotId: row.storeSnapshotId,
     dockId: row.id,
     parentId: null,
     kind: 'full',
-    cpuFamily: '',
+    cpuFamily,
     image: row.image,
+    // Tells the docklet the bytes came from a client, so a missing checksum is an error rather than a legacy generation.
+    source: 'import',
+    sha256: row.sha256,
+    sizeBytes: row.sizeBytes,
     files: [{ path: DISK_OBJECT, size: row.sizeBytes, encoding: 'zstd', sha256: row.sha256 }],
   };
 }
@@ -261,7 +272,7 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
         const message = `uploaded ${size ?? 0} bytes, declared ${row.sizeBytes}`;
         throw size !== null && size > row.diskGiB * GIB ? new ImportTooLargeException(message) : new ImportChecksumMismatchException(message);
       }
-      await this.objects.putSmallObject(row.storeSnapshotId, 'manifest.json', Buffer.from(JSON.stringify(wholeImageManifest(row))));
+      await this.writeManifest(row, '');
     } catch (err) {
       await this.failImport(row, err);
       throw err;
@@ -281,6 +292,9 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
           storeSnapshotId: row.storeSnapshotId,
           sizeBytes: row.sizeBytes,
           manifest: { files: [] },
+          onPlaced: async (host) => {
+            if (host) await this.writeManifest(row, host.cpuFamily);
+          },
           onBootFailed: (err) => this.recordBootFailure(row.id, err),
         },
       });
@@ -294,6 +308,10 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
       }
       throw err;
     }
+  }
+
+  private async writeManifest(row: DockImport, cpuFamily: string): Promise<void> {
+    await this.objects.putSmallObject(row.storeSnapshotId, 'manifest.json', Buffer.from(JSON.stringify(wholeImageManifest(row, cpuFamily))));
   }
 
   private async recordBootFailure(importId: string, err: unknown): Promise<void> {
@@ -351,6 +369,9 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
     if (this.config.get<string>('RUNTIME_DRIVER') !== 'restate') return;
     const online = await this.hosts.listOnline();
     if (!online.some((host) => host.runtime === 'microvm')) throw new RuntimeUnsupportedException();
+    if (!online.some((host) => host.runtime === 'microvm' && host.features.includes(VERIFIED_IMPORTS))) {
+      throw new RuntimeUnsupportedException('No microVM host verifies imported disks yet; upgrade the docklets');
+    }
   }
 
   // Export
@@ -383,15 +404,19 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
   /** Captures, rotates the source's gateway tokens, then publishes: a disk copy never becomes downloadable while its tokens are live. */
   async runExport(row: DockExport, dock: Dock, orgId: string): Promise<void> {
     let capture: Awaited<ReturnType<ComputeProvider['captureDisk']>>;
+    let held: DockTokens;
     try {
+      held = await this.tokensOf(dock.id);
       capture = await this.provider.captureDisk(dock);
     } catch (err) {
       this.log.warn(`Export capture of dock ${dock.id} failed: ${(err as Error).message}`);
       await this.failExport(row.id, EXPORT_FAILED);
       return;
     }
-    if (dock.connectors?.length || dock.llmTokenHash) {
-      await this.docks.reapply(dock, orgId).catch((err) => this.log.warn(`Could not rotate gateway tokens of dock ${dock.id}: ${(err as Error).message}`));
+    if (!(await this.rotated(dock, orgId, held))) {
+      await this.dropGeneration(capture.snapshotId);
+      await this.failExport(row.id, EXPORT_FAILED);
+      return;
     }
     const refusal = !capture.baseImage ? EXPORT_BASE_UNSUPPORTED : !SHA256_RE.test(capture.sha256) ? EXPORT_FAILED : null;
     if (refusal) {
@@ -406,6 +431,28 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
       .returning({ id: dockExports.id });
     // The sweeper gave up on this export while it ran, so its object has no owner.
     if (!ready) await this.dropGeneration(capture.snapshotId);
+  }
+
+  /** The credentials the dock's disk holds: gateway token hashes and its dock-scoped API keys. */
+  private async tokensOf(dockId: string): Promise<DockTokens> {
+    const [row] = await this.db.select({ llm: docks.llmTokenHash, connector: docks.connectorTokenHash }).from(docks).where(eq(docks.id, dockId)).limit(1);
+    const keys = await this.db.select({ id: apiKeys.id }).from(apiKeys).where(eq(apiKeys.dockId, dockId));
+    return { llm: row?.llm ?? null, connector: row?.connector ?? null, keyIds: keys.map((k) => k.id) };
+  }
+
+  /** Re-applies the dock and confirms every credential the capture holds was replaced; apply records its own failures instead of throwing. */
+  private async rotated(dock: Dock, orgId: string, held: DockTokens): Promise<boolean> {
+    if (!held.llm && !held.connector && !held.keyIds.length) return true;
+    try {
+      await this.docks.reapply(dock, orgId);
+      const now = await this.tokensOf(dock.id);
+      const replaced = (!held.llm || now.llm !== held.llm) && (!held.connector || now.connector !== held.connector) && !held.keyIds.some((id) => now.keyIds.includes(id));
+      if (!replaced) this.log.warn(`Export of dock ${dock.id} refused: its credentials did not rotate`);
+      return replaced;
+    } catch (err) {
+      this.log.warn(`Could not rotate the credentials of dock ${dock.id}: ${(err as Error).message}`);
+      return false;
+    }
   }
 
   private async failExport(id: string, error: string): Promise<void> {
@@ -521,8 +568,8 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
     let removed = 0;
     for (const row of rows) {
       try {
-        // A completed import's generation belongs to the dock's snapshot row now.
-        if (row.status !== 'completed') await this.discardUpload(row);
+        // Once a dock was created its snapshot row owns the generation, even when that dock's boot failed.
+        if (!row.dockId) await this.discardUpload(row);
         await this.db.delete(dockImports).where(eq(dockImports.id, row.id));
         removed += 1;
       } catch (err) {

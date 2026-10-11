@@ -1985,11 +1985,28 @@ describe('DocksService', () => {
       const inserts = capture();
       const dock = await service.create('u1', { workspaceId: wsId, importedGeneration: generation() });
       expect(dock.state).toBe('provisioning');
-      expect(hosts.canPlace).toHaveBeenCalledWith(expect.objectContaining({ runtime: 'microvm' }));
+      // Only a docklet that verifies uploaded disks may boot one.
+      expect(hosts.canPlace).toHaveBeenCalledWith(expect.objectContaining({ runtime: 'microvm', feature: 'verified-imports' }));
       expect(inserts[1]).toMatchObject({ dockId, status: 'completed', storeSnapshotId: 'gen-import', sizeBytes: 4096, runtime: 'microvm' });
       await vi.waitFor(() => expect(provision).toHaveBeenCalled());
-      expect(hosts.placeForDock).toHaveBeenCalledWith(expect.objectContaining({ runtime: 'microvm' }));
+      expect(hosts.placeForDock).toHaveBeenCalledWith(expect.objectContaining({ runtime: 'microvm', feature: 'verified-imports' }));
       expect(provision.mock.calls[0][1]).toMatchObject({ snapshotId: 'gen-import', hostId: 'host-1' });
+    });
+
+    it('hands the placed host to the generation before that host provisions', async () => {
+      config.get.mockReturnValue('restate');
+      const host = { id: 'host-1', runtime: 'microvm', cpuFamily: 'GenuineIntel:6:85' };
+      hosts.placeForDock.mockResolvedValue(host);
+      const order: string[] = [];
+      const onPlaced = vi.fn(async () => void order.push('placed'));
+      vi.spyOn(provider, 'provision').mockImplementation(async () => {
+        order.push('provision');
+        return { ip: '10.1.1.1', hostId: 'host-1' };
+      });
+      capture();
+      await service.create('u1', { workspaceId: wsId, importedGeneration: generation({ onPlaced }) });
+      await vi.waitFor(() => expect(order).toEqual(['placed', 'provision']));
+      expect(onPlaced).toHaveBeenCalledWith(host);
     });
 
     it('returns before the boot finishes and reports a failed boot through the callback', async () => {

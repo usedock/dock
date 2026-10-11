@@ -76,8 +76,10 @@ with `part_too_large`.
 List every part exactly once. The control plane joins the parts, checks the
 size, records the file as a whole-image snapshot and creates the dock from it
 on a microVM host. It answers 202 with the new dock in the `provisioning`
-state; the host verifies the sha256 when it materializes the disk, and the dock
-ends in `error` if the file does not match. Repeating the call for a completed
+state; the host verifies the sha256 and size when it materializes the disk,
+and the dock ends in `error` if the file does not match. Imports land only on
+hosts whose docklet registers the `verified-imports` feature, so older docklets
+never boot an unverified disk. Repeating the call for a completed
 import returns the same dock. If no host can take the dock right now the call
 fails with a placement error and can be repeated without uploading again.
 
@@ -90,8 +92,10 @@ uploaded parts.
 
 `POST /v1/docks/:id/export` answers 202 with `{ "exportId": "..." }`. The host
 takes a full, disk-only snapshot of the running dock (the dock keeps running).
-The source dock is then re-applied, so its gateway tokens rotate and the copy
-cannot use them. Exporting needs the same role as opening the dock: a dock with
+The source dock is then re-applied, so its gateway tokens and its dock API key
+(`DOCK_API_KEY`) rotate and the copy cannot use them; if they cannot be
+rotated, the export fails with `export_failed` rather than publish a disk with
+live credentials. Exporting needs the same role as opening the dock: a dock with
 connectors, or with secrets from an admins-only environment, can be exported
 only by its creator or an admin. Exports are disabled while retention (zero data
 retention) is enabled.
@@ -143,7 +147,7 @@ resume.
 | --- | --- |
 | `import_too_large` | `sizeBytes` is above the `diskGiB` limit, or the uploaded object is bigger than declared |
 | `import_checksum_mismatch` | The uploaded size is not the declared one, or the host found a sha256 mismatch while booting the disk |
-| `runtime_unsupported` | No online host runs microVMs, or the dock to export is not a microVM dock |
+| `runtime_unsupported` | No online microVM host has a docklet that verifies imported disks, or the dock to export is not a microVM dock |
 | `export_base_unsupported` | The exported dock's base is not a Dockyard image (reported as the export's `error`) |
 | `import_not_found`, `export_not_found` | Unknown, expired, or not yours to read |
 | `import_limit_reached`, `export_limit_reached` | Too many open imports or live exports |

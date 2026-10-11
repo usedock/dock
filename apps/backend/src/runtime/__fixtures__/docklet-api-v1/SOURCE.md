@@ -3,11 +3,11 @@
 Copied verbatim from `usedock/docklet` `api/v1/testdata/` at commit
 `607f302a268131494491b9c01b72618a8b24f61c` (main after usedock/docklet#47).
 
-Hand-added for the full-snapshot contract of usedock/dock#120 until
-usedock/docklet#72 lands: `full` on the snapshot request
-(`snapshot-export-request.json`, new) and `sha256` and `baseImage` in
-`snapshot-create-response.json`. Replace both files with the docklet's copies
-once that PR merges.
+`snapshot-create-request-full.json` and `snapshot-create-response-full.json`
+are copied verbatim from the open usedock/docklet#75 (branch
+`feat/full-snapshots`, commit `798e3549e8fa20776d11f6a4142287eccfb8ec29`) for
+the full-snapshot contract of usedock/dock#120; refresh them from main once that
+PR merges.
 
 Refresh by copying the folder again and updating this commit. The docklet repo
 owns the files; `docklet.contract.spec.ts` checks the client types and fleet

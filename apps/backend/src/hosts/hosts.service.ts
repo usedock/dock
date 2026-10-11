@@ -144,9 +144,10 @@ export class BaseImageUnavailableException extends ServiceUnavailableException {
  * Hosts that can restore onto `fingerprint`, before capacity and exclusions: those reporting it,
  * else those that never reported (unknown); none of either means the base is nowhere to be had.
  */
-/** Hosts that registered the feature; no requirement keeps every host. */
-function withFeature(rows: Host[], feature: string | undefined): Host[] {
-  return feature ? rows.filter((h) => h.features.includes(feature)) : rows;
+/** Hosts that registered every required feature; no requirement keeps every host. */
+function withFeature(rows: Host[], feature: string | string[] | undefined): Host[] {
+  const required = feature === undefined ? [] : [feature].flat();
+  return required.length ? rows.filter((h) => required.every((f) => h.features.includes(f))) : rows;
 }
 
 function holdingBase(rows: Host[], fingerprint: string, cpuFamily: string | null | undefined, runtime: Runtime | null): Host[] {
@@ -400,7 +401,7 @@ export class HostsService {
     memoryMiB?: number;
     excludeHostIds?: string[];
     baseFingerprint?: string | null;
-    feature?: string;
+    feature?: string | string[];
     /** Requested Dockyard image: hosts serving it are tried first, the rest remain the fallback. */
     image?: string | null;
   }): Promise<Host | null> {
@@ -418,7 +419,7 @@ export class HostsService {
   }
 
   /** Advisory pre-insert twin of placeForDock: whether a host matching family, runtime and base has room; reserves nothing. */
-  async canPlace({ cpuFamily, runtime, baseFingerprint, feature, cpus = DEFAULT_CPUS, memoryMiB = DEFAULT_MEMORY_MIB }: { cpuFamily?: string | null; runtime?: Runtime | null; baseFingerprint?: string | null; feature?: string; cpus?: number; memoryMiB?: number }): Promise<boolean> {
+  async canPlace({ cpuFamily, runtime, baseFingerprint, feature, cpus = DEFAULT_CPUS, memoryMiB = DEFAULT_MEMORY_MIB }: { cpuFamily?: string | null; runtime?: Runtime | null; baseFingerprint?: string | null; feature?: string | string[]; cpus?: number; memoryMiB?: number }): Promise<boolean> {
     const online = await this.db.select().from(hosts).where(eq(hosts.state, 'online'));
     const rows = withFeature(baseFingerprint ? holdingBase(online, baseFingerprint, cpuFamily, runtime ?? null) : online, feature);
     return (await this.fitting(this.db, rows, { cpuFamily, runtime: runtime ?? null, cpus, memoryMiB, excludeHostIds: [] })) !== null;

@@ -50,7 +50,9 @@ const typed: Record<string, string[]> = {
   }),
   'provision-response.json': table<Result<'provision'>>({ ip: true, hostId: true }),
   'snapshot-load-response.json': table<Result<'snapshotLoad'>>({ ip: true, hostId: true }),
-  'snapshot-create-response.json': table<Result<'snapshotCreate'>>({ snapshotId: true, sizeBytes: true, cpuFamily: true, baseFingerprint: true, sha256: true, baseImage: true }),
+  // A delta answers baseFingerprint; a full capture answers sha256 and baseImage instead.
+  'snapshot-create-response.json': ['snapshotId', 'sizeBytes', 'cpuFamily', 'baseFingerprint'],
+  'snapshot-create-response-full.json': ['snapshotId', 'sizeBytes', 'cpuFamily', 'sha256', 'baseImage'],
   'fast-run-create-request.json': table<DockletFastRunCreate>({
     runtimeId: true,
     resources: true,
@@ -90,7 +92,7 @@ const requests: Record<string, (agent: HostAgent, f: Record<string, any>) => Pro
   'pause-request.json': (a, f) => a.pause(f.dockId),
   'destroy-request.json': (a, f) => a.destroy(f.dockId),
   'snapshot-create-request.json': (a, f) => a.snapshotCreate(f.dockId, f.parentId, f.kind, f.resumeAfter, f.memory, f.idempotencyToken),
-  'snapshot-export-request.json': (a, f) => a.snapshotCreate(f.dockId, f.parentId, f.kind, f.resumeAfter, f.memory, f.idempotencyToken, f.full),
+  'snapshot-create-request-full.json': (a, f) => a.snapshotCreate(f.dockId, f.parentId, f.kind, f.resumeAfter, f.memory, f.idempotencyToken, f.full),
   'snapshot-load-request.json': (a, f) => a.snapshotLoad(f.dockId, f.resources, f.snapshotId, f.execAgent, f.egressAllow),
   'fast-run-create-request.json': (a, f) => a.fastRunCreate(f as DockletFastRunCreate),
   'fast-run-exec-request.json': (a, f) => a.fastRunExec(f as DockletFastRunExec),
@@ -130,6 +132,12 @@ describe('docklet api/v1 fixtures vs client types', () => {
     const known = new Set([...Object.keys(typed), ...Object.keys(requests), ...Object.keys(fleetDtos), ...covered]);
     expect(files.filter((f) => !known.has(f))).toEqual([]);
     expect([...known].filter((f) => !files.includes(f))).toEqual([]);
+  });
+
+  it('covers every snapshot answer key between the delta and full fixtures', () => {
+    const client = table<Result<'snapshotCreate'>>({ snapshotId: true, sizeBytes: true, cpuFamily: true, baseFingerprint: true, sha256: true, baseImage: true });
+    const answered = new Set([...typed['snapshot-create-response.json'], ...typed['snapshot-create-response-full.json']]);
+    expect([...answered].sort()).toEqual(client.sort());
   });
 
   it.each(Object.keys(typed))('%s has exactly the client keys', (file) => {
