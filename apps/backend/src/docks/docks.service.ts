@@ -708,6 +708,9 @@ export class DocksService {
     // The host-local latest pointer is gone: resume loads the recorded generation explicitly.
     const snapshotId = latest.storeSnapshotId;
     const size = checkedSize(opts, dock);
+    if (opts.ttlSeconds !== undefined && opts.ttlSeconds !== null && (!Number.isInteger(opts.ttlSeconds) || opts.ttlSeconds < 60 || opts.ttlSeconds > 2592000)) {
+      throw validationError('ttlSeconds must be an integer 60..2592000 or null');
+    }
     this.requireCapacity(size.diskGiB, dock.diskBytes);
     let environment = dock.environment;
     let envVersionPin = dock.envVersionPin;
@@ -723,7 +726,7 @@ export class DocksService {
     await this.transition(id, ['archived'], { state: 'provisioning', liveSince: null });
     let refused = false;
     try {
-      const { machine, runtime } = await this.placeAndRun(latest, { id, ...size }, (host) =>
+      const { machine, runtime } = await this.placeAndRun(latest, { id, image: dock.image, ...size }, (host) =>
         this.provider.resume({ ...dock, ...size }, { snapshotId, hostId: host?.id ?? null }),
       ).catch(async (err: unknown) => {
         // Refused before any machine started: the dock stays archived and resumable, not error.
@@ -745,6 +748,8 @@ export class DocksService {
         noEnv,
         ...(opts.environment !== undefined || noEnv !== dock.noEnv ? { envBoundAt: new Date() } : {}),
         billingPausedAt: null,
+        // The TTL clock restarts here: transition stamps stateChangedAt when the dock is ready.
+        ...(opts.ttlSeconds !== undefined ? { ttlSeconds: opts.ttlSeconds } : {}),
       };
       const resumed = await this.transition(id, ['provisioning'], set);
       await this.metering.moveToCompute({ organizationId: orgId, workspaceId: dock.workspaceId, dockId: id, ...size });
