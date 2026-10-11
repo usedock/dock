@@ -169,8 +169,8 @@ export class TemplatesService {
       await this.releaseGenerationQuietly(fresh.storeSnapshotId);
       throw new TemplateNotFoundException();
     }
-    // The capture holds the source's gateway token; re-applying replaces it so the copy is dead.
-    if (hasConnectors(dock)) await this.docks.reapply(dock, orgId).catch((err) => this.log.warn(`Could not rotate connector token of dock ${dock.id}: ${(err as Error).message}`));
+    // The capture holds the source's gateway tokens (connector, LLM); re-applying replaces them so the copies are dead.
+    if (hasConnectors(dock) || dock.llmTokenHash) await this.docks.reapply(dock, orgId).catch((err) => this.log.warn(`Could not rotate gateway tokens of dock ${dock.id}: ${(err as Error).message}`));
     // Re-saving replaces the generation, so the old one is released; a failure only leaks it.
     await this.releaseGenerationQuietly(reservation.previous?.storeSnapshotId ?? null);
     return saved;
