@@ -100,6 +100,17 @@ describe('HostsService', () => {
       expect(ins.values).toHaveBeenCalledWith(expect.objectContaining({ memBudgetBytes: 6 * 1024 ** 3 }));
     });
 
+    it('stores the features the host registers and an empty list when it sends none', async () => {
+      const first = insertWith([{ id: 'h1' }]);
+      db.insert.mockReturnValueOnce(first);
+      await service.registerUnenrolled({ ...input, features: ['egress-on-resume'] }, false);
+      expect(first.values).toHaveBeenCalledWith(expect.objectContaining({ features: ['egress-on-resume'] }));
+      const second = insertWith([{ id: 'h1' }]);
+      db.insert.mockReturnValueOnce(second);
+      await service.registerUnenrolled(input, false);
+      expect(second.values).toHaveBeenCalledWith(expect.objectContaining({ features: [] }));
+    });
+
     it('claims and updates a credential-less host in one conditional update', async () => {
       db.insert.mockReturnValueOnce(insertWith([]));
       const seen: { set?: any } = {};
@@ -289,6 +300,20 @@ describe('HostsService', () => {
       ]);
     const host = await service.placeForDock({ cpuFamily: 'x86_64-v4' });
     expect(host?.id).toBe('roomy');
+  });
+
+  describe('placement that needs a host feature', () => {
+    it('places only on hosts that registered it', async () => {
+      useTx([hostRow({ id: 'old', usedDocks: 0, features: [] }), hostRow({ id: 'new', usedDocks: 6, features: ['egress-on-resume'] })]);
+      await expect(service.placeForDock({ cpuFamily: 'x86_64-v4', feature: 'egress-on-resume' })).resolves.toMatchObject({ id: 'new' });
+    });
+
+    it('finds no host when none has it, and ignores features when not required', async () => {
+      useTx([hostRow({ id: 'old', features: [] })]);
+      await expect(service.placeForDock({ cpuFamily: 'x86_64-v4', feature: 'egress-on-resume' })).resolves.toBeNull();
+      useTx([hostRow({ id: 'old', features: [] })]);
+      await expect(service.placeForDock({ cpuFamily: 'x86_64-v4' })).resolves.toMatchObject({ id: 'old' });
+    });
   });
 
   describe('placement for a delta generation', () => {

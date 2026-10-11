@@ -1,8 +1,8 @@
 # Source
 
 Copied verbatim from `usedock/docklet` `api/v1/testdata/` at commit
-`51fc790f268c04bfbe914c6498ad61d941ffb7ca` (branch `feat/egress-allowlist-any-dock`,
-usedock/docklet#47, which adds `egressAllow` to `snapshot-load-request.json`).
+`8dd49f6f822e811c0415a59bee4620a98ce0428a` (branch `feat/egress-allowlist-any-dock`,
+usedock/docklet#47, which adds `egressAllow` to `snapshot-load-request.json` and `features` to `fleet-register-request.json`).
 Re-point this to the merged commit on `main` once that PR lands.
 
 Refresh by copying the folder again and updating this commit. The docklet repo

@@ -239,6 +239,63 @@ describe('DocksService', () => {
     spy.mockRestore();
   });
 
+  describe('hosts without egress-on-resume', () => {
+    const archivedResume = () => {
+      db.select
+        .mockReturnValueOnce(selectQ([dockRow({ state: 'archived' })]))
+        .mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]))
+        .mockReturnValueOnce(selectQ([{ id: 'snap-1', status: 'completed', storeSnapshotId: 'gen-1', cpuFamily: 'x86_64-v4' }]));
+      db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
+    };
+
+    it('places a confined resume only on hosts that registered the feature', async () => {
+      config.get.mockReturnValue('restate');
+      envs.egressAllowFor.mockResolvedValueOnce(['github.com']);
+      hosts.placeForDock.mockResolvedValueOnce({ id: 'host-2' });
+      vi.spyOn(provider, 'resume').mockResolvedValueOnce({ ip: '10.9.9.2', hostId: 'host-2' });
+      archivedResume();
+      await service.resume('u1', dockId);
+      expect(hosts.placeForDock).toHaveBeenCalledWith(expect.objectContaining({ feature: 'egress-on-resume' }));
+    });
+
+    it('refuses with host_egress_unsupported and leaves the dock archived when only older hosts have room', async () => {
+      config.get.mockReturnValue('restate');
+      envs.egressAllowFor.mockResolvedValueOnce(['github.com']);
+      hosts.placeForDock.mockResolvedValueOnce(null);
+      hosts.sizeFit.mockResolvedValueOnce('ok');
+      hosts.canPlace.mockResolvedValueOnce(true); // placeable once the feature requirement is dropped
+      archivedResume();
+      const err = await catchErr(service.resume('u1', dockId));
+      expect(err.status).toBe(503);
+      expect(err.body).toMatchObject({ code: 'host_egress_unsupported' });
+    });
+
+    it('does not ask for the feature when the environment has no list', async () => {
+      config.get.mockReturnValue('restate');
+      hosts.placeForDock.mockResolvedValueOnce({ id: 'host-2' });
+      vi.spyOn(provider, 'resume').mockResolvedValueOnce({ ip: '10.9.9.2', hostId: 'host-2' });
+      archivedResume();
+      await service.resume('u1', dockId);
+      expect(hosts.placeForDock.mock.calls[0][0]).not.toHaveProperty('feature');
+    });
+
+    it('requires the feature for an environment list on create, not for a run list', async () => {
+      config.get.mockReturnValue('restate');
+      hosts.placeForDock.mockResolvedValue({ id: 'host-1' });
+      vi.spyOn(provider, 'provision').mockResolvedValue({ ip: '10.9.9.8', hostId: 'host-1' });
+      db.insert.mockReturnValue(insertQ([dockRow({ state: 'provisioning', ip: null })]));
+      db.update.mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.resolve([dockRow()]) }) }) });
+      db.select.mockReturnValue(selectQ([]));
+      envs.resolveVersion.mockResolvedValue({ environment: { name: 'base' }, version: { version: 2, egressAllow: ['github.com'] } });
+      await service.create('u1', { workspaceId: wsId });
+      expect(hosts.canPlace).toHaveBeenCalledWith(expect.objectContaining({ feature: 'egress-on-resume' }));
+      expect(hosts.placeForDock.mock.calls[0][0]).toMatchObject({ feature: 'egress-on-resume' });
+      hosts.placeForDock.mockClear();
+      await service.create('u1', { workspaceId: wsId, egressAllow: ['api.usedock.io'] });
+      expect(hosts.placeForDock.mock.calls[0][0]).not.toHaveProperty('feature');
+    });
+  });
+
   it('places restate creates through the scheduler', async () => {
     config.get.mockReturnValue('restate');
     hosts.placeForDock.mockResolvedValueOnce({ id: 'host-9' });

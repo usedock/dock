@@ -43,7 +43,8 @@ import { assertNotReserved } from '../environments/env-validation';
 import { EnvironmentNotFoundException, EnvironmentSecretsAdminOnlyException, EnvironmentsService } from '../environments/environments.service';
 import { ConnectorAdminOnlyException, ConnectorsService } from '../connectors/connectors.service';
 import { EnvironmentApplyService } from '../environments/environment-apply.service';
-import { ConfirmRequiredException, DockDeleteForbiddenException, DockNotFoundException, NoHostCapacityException, SnapshotInUseException, TEMPLATE_RE, TemplateSourceMissingException, TemplateNotFoundException, CapacityExhaustedException, DockNameTakenException, ImageUnavailableException } from './dock-errors';
+import { ConfirmRequiredException, DockDeleteForbiddenException, DockNotFoundException, NoHostCapacityException, SnapshotInUseException, TEMPLATE_RE, TemplateSourceMissingException, TemplateNotFoundException, CapacityExhaustedException, DockNameTakenException, ImageUnavailableException, HostEgressUnsupportedException } from './dock-errors';
+import { EGRESS_ON_RESUME } from '../hosts/host-features';
 import { COMPUTE_PROVIDER, ComputeProvider } from './compute.provider';
 import { DockletException } from '../runtime/docklet.client';
 import { MeteringService } from '../metering/metering.service';
@@ -108,7 +109,7 @@ const MAX_ENV_BYTES = 65536;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** What a boot restores from, constraining which hosts can run it. */
-type PlacementSource = { cpuFamily: string | null | undefined; runtime?: Runtime | null; baseFingerprint?: string | null };
+type PlacementSource = { cpuFamily: string | null | undefined; runtime?: Runtime | null; baseFingerprint?: string | null; feature?: string };
 
 type DockSize = { cpus: number; memoryMiB: number; diskGiB: number };
 
@@ -182,7 +183,7 @@ function checkedName(name: unknown): string {
 
 /** Placement said no (no host, no room, no base, size over every host); nothing was started. */
 function isPlacementRefusal(err: unknown): boolean {
-  return err instanceof NoHostCapacityException || err instanceof CapacityExhaustedException || err instanceof BaseImageUnavailableException || err instanceof BadRequestException;
+  return err instanceof NoHostCapacityException || err instanceof CapacityExhaustedException || err instanceof BaseImageUnavailableException || err instanceof HostEgressUnsupportedException || err instanceof BadRequestException;
 }
 
 /** Narrows docklet concurrency refusals so recovery can wait for adoption. */
@@ -272,14 +273,23 @@ export class DocksService {
       memoryMiB: dock.memoryMiB,
       excludeHostIds,
       ...(source.baseFingerprint ? { baseFingerprint: source.baseFingerprint } : {}),
+      ...(source.feature ? { feature: source.feature } : {}),
     });
     if (host) return host;
+    await this.assertFeatureNotTheCause(source, dock);
     const fit = await this.hosts.sizeFit({ cpus: dock.cpus, memoryMiB: dock.memoryMiB });
     if (fit === 'none_online') throw new NoHostCapacityException();
     if (fit === 'too_large') throw validationError(`Requested size (${dock.cpus} cpus, ${dock.memoryMiB} MiB) exceeds the total capacity of every online host`);
     // Room exists somewhere but the family or runtime rules it out: not a capacity problem.
     if (await this.hosts.anyOnlineWithHeadroom({ cpus: dock.cpus, memoryMiB: dock.memoryMiB, dockId: dock.id, excludeHostIds })) throw new NoHostCapacityException();
     throw new CapacityExhaustedException();
+  }
+
+  /** A miss that disappears without the feature requirement means the hosts lack the feature. */
+  private async assertFeatureNotTheCause(source: PlacementSource, size: DockSize): Promise<void> {
+    if (!source.feature) return;
+    const ok = await this.hosts.canPlace({ cpuFamily: source.cpuFamily, runtime: source.runtime ?? null, baseFingerprint: source.baseFingerprint, cpus: size.cpus, memoryMiB: size.memoryMiB });
+    if (ok) throw new HostEgressUnsupportedException();
   }
 
   /** The source dock's recorded family (from its host row) and runtime, for the branch pre-check. */
@@ -295,10 +305,14 @@ export class DocksService {
     if (fit === 'none_online') throw new NoHostCapacityException();
     if (fit === 'too_large') throw validationError(`Requested size (${size.cpus} cpus, ${size.memoryMiB} MiB) exceeds the total capacity of every online host`);
     if (!(await this.hosts.anyOnlineWithHeadroom({ cpus: size.cpus, memoryMiB: size.memoryMiB }))) throw new CapacityExhaustedException();
-    if (!source || (source.cpuFamily == null && source.runtime == null && !source.baseFingerprint)) return;
+    if (!source || (source.cpuFamily == null && source.runtime == null && !source.baseFingerprint && !source.feature)) return;
     // Room exists somewhere, so a miss here is family, runtime or base, as in placeOrThrow.
-    const ok = await this.hosts.canPlace({ cpuFamily: source.cpuFamily, runtime: source.runtime ?? null, baseFingerprint: source.baseFingerprint, cpus: size.cpus, memoryMiB: size.memoryMiB });
-    if (!ok) throw new NoHostCapacityException();
+    const ok = await this.hosts.canPlace({ cpuFamily: source.cpuFamily, runtime: source.runtime ?? null, baseFingerprint: source.baseFingerprint, ...(source.feature ? { feature: source.feature } : {}), cpus: size.cpus, memoryMiB: size.memoryMiB });
+    if (!ok) {
+      await this.assertFeatureNotTheCause(source, size);
+      throw new NoHostCapacityException();
+    }
+
   }
 
   /**
@@ -371,6 +385,8 @@ export class DocksService {
     const noEnv = input.noEnv ?? false;
     // A run's own list wins; otherwise the environment's list applies, even with noEnv.
     const egressAllow = input.egressAllow?.length ? input.egressAllow : (version.egressAllow ?? undefined);
+    // Only an environment list needs the host to confine on resume; a run's list predates the feature.
+    const placeFeature = !input.egressAllow?.length && egressAllow?.length ? { feature: EGRESS_ON_RESUME } : {};
     let fromTemplate: string | undefined;
     let templateStoreId: string | null | undefined;
     let templateCpuFamily: string | null = null;
@@ -404,7 +420,7 @@ export class DocksService {
     }
     // After the key replay, so a retry of a named create returns its dock instead of 409.
     const [dock] = await this.withKeyReleased(orgId, idempotencyKey, async () => {
-      await this.assertPlaceable(size, { cpuFamily: templateCpuFamily, runtime: templateRuntime, baseFingerprint: templateBase });
+      await this.assertPlaceable(size, { cpuFamily: templateCpuFamily, runtime: templateRuntime, baseFingerprint: templateBase, ...placeFeature });
       return this.insertDock({
         workspaceId: input.workspaceId,
         name: await this.claimName(input.workspaceId, input.name),
@@ -424,7 +440,7 @@ export class DocksService {
       });
     });
     try {
-      const { machine, runtime } = await this.placeAndRun({ cpuFamily: templateCpuFamily, runtime: templateRuntime, baseFingerprint: templateBase }, dock, (host) =>
+      const { machine, runtime } = await this.placeAndRun({ cpuFamily: templateCpuFamily, runtime: templateRuntime, baseFingerprint: templateBase, ...placeFeature }, dock, (host) =>
         this.provider.provision(dock, {
           snapshotId: templateStoreId ?? null,
           hostId: host?.id ?? null,
@@ -737,7 +753,7 @@ export class DocksService {
     await this.transition(id, ['archived'], { state: 'provisioning', liveSince: null });
     let refused = false;
     try {
-      const { machine, runtime } = await this.placeAndRun(latest, { id, image: dock.image, ...size }, (host) =>
+      const { machine, runtime } = await this.placeAndRun(egressAllow ? { ...latest, feature: EGRESS_ON_RESUME } : latest, { id, image: dock.image, ...size }, (host) =>
         this.provider.resume({ ...dock, ...size }, { snapshotId, hostId: host?.id ?? null, ...(egressAllow ? { egressAllow } : {}) }),
       ).catch(async (err: unknown) => {
         // Refused before any machine started: the dock stays archived and resumable, not error.
@@ -809,7 +825,7 @@ export class DocksService {
       if (existing) return existing;
     }
     const [target] = await this.withKeyReleased(orgId, idempotencyKey, async () => {
-      await this.assertPlaceable(size, await this.branchSource(dock));
+      await this.assertPlaceable(size, { ...(await this.branchSource(dock)), ...(egressAllow ? { feature: EGRESS_ON_RESUME } : {}) });
       return this.insertDock({
         workspaceId: dock.workspaceId,
         name: await this.claimName(dock.workspaceId, opts.name),
@@ -832,7 +848,7 @@ export class DocksService {
       const latest = await this.latestSnapshot(id);
       const capture = await this.provider.captureSnapshot(dock, latest?.id ?? null);
       await this.recordSnapshot(id, capture.sizeBytes, capture.manifest, latest?.id ?? null, capture.snapshotId, capture.cpuFamily, capture.runtime, capture.kernelRelease, capture.baseFingerprint);
-      const { machine, runtime } = await this.placeAndRun(capture, { id: target.id, image, ...size }, (host) =>
+      const { machine, runtime } = await this.placeAndRun(egressAllow ? { ...capture, feature: EGRESS_ON_RESUME } : capture, { id: target.id, image, ...size }, (host) =>
         this.provider.branch(dock, target, { snapshotId: capture.snapshotId, hostId: host?.id ?? null, ...(egressAllow ? { egressAllow } : {}) }),
       );
       const ready = await this.transition(target.id, ['provisioning'], { state: 'ready', liveSince: new Date(), ip: machine.ip, hostId: machine.hostId ?? dock.hostId ?? null, runtime: runtime ?? dock.runtime });

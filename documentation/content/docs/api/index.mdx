@@ -99,6 +99,7 @@ specific to an operation.
 | `dock_delete_forbidden` | 403 | Only the Dock's creator or an organization admin can delete it. |
 | `capacity_exhausted` | 503 | No host has room for the requested `cpus` and `memoryMiB`. |
 | `no_host_capacity` | 503 | No online host can place the Dock. |
+| `host_egress_unsupported` | 503 | The Environment has an outbound allowlist and no suitable host runs a docklet that enforces it on resume. |
 | `base_image_unavailable` | 503 | The host lacks the base image the snapshot needs. |
 | `exec_unavailable` | 409 | The Dock has no exec agent, or a Run drives it. |
 | `exec_timeout` | 504 | The command exceeded `timeoutSeconds` and was killed. |

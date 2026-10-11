@@ -34,6 +34,8 @@ export const hosts = pgTable(
     running: jsonb('running').notNull().$type<HostWorkload[]>().default([]),
     /** Base image fingerprints the host holds; null until a docklet reports them (unknown, not none). */
     baseFingerprints: jsonb('base_fingerprints').$type<string[]>(),
+    /** Optional docklet behaviours reported at registration, such as egress-on-resume; empty for older docklets. */
+    features: jsonb('features').notNull().$type<string[]>().default([]),
     /** SHA-256 of the per-host fleet credential; null until the host (re)registers with the enrollment token. */
     credentialHash: text('credential_hash'),
     state: text('state').notNull().$type<HostState>().default('online'),
