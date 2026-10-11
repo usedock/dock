@@ -18,7 +18,7 @@ import { COMPUTE_PROVIDER, type ComputeProvider } from '../docks/compute.provide
 import { exchangeInstallationToken, mintAppJwtWithRotation } from '../github/github-auth';
 import type { OperationView } from '../retention/operations.service';
 import { SETUP_STATUS_FILE, buildApplyScripts, cloneTokenVar, type ApplyBundle } from './env-apply-script';
-import { EnvironmentNotFoundException, EnvironmentsService } from './environments.service';
+import { EnvironmentNotFoundException, EnvironmentsService, type UpgradeSkipped } from './environments.service';
 
 const APPLY_TIMEOUT_SECONDS = 120;
 const LIVE_STATES = ['ready', 'idle', 'running'] as const;
@@ -85,8 +85,8 @@ export class EnvironmentApplyService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Moves pins, then applies the new version to every moved dock that is live. */
-  async upgrade(callerId: string, ref: string, organizationId: string | undefined, dockIds?: string[]): Promise<{ operation: OperationView }> {
-    const { operation, moved, orgId } = await this.envs.upgrade(callerId, ref, organizationId, dockIds);
+  async upgrade(callerId: string, ref: string, organizationId: string | undefined, dockIds?: string[]): Promise<{ operation: OperationView; skipped: UpgradeSkipped[] }> {
+    const { operation, moved, skipped, orgId } = await this.envs.upgrade(callerId, ref, organizationId, dockIds);
     if (moved.length) {
       const live = await this.db
         .select()
@@ -94,7 +94,7 @@ export class EnvironmentApplyService implements OnModuleInit, OnModuleDestroy {
         .where(and(inArray(docks.id, moved), inArray(docks.state, [...LIVE_STATES])));
       for (const dock of live) await this.apply(dock, orgId);
     }
-    return { operation };
+    return { operation, skipped };
   }
 
   /** Settles live docks whose background setup is running from the guest's setup.status. */
