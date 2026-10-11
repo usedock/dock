@@ -81,13 +81,23 @@ DONE
   printf '    sudo --preserve-env=DOCKLET_FLEET_TOKEN bash scripts/bootstrap-host.sh --fleet-url %s --runtime gvisor\n' "$PUBLIC_URL"
 }
 
-# Runs HOST_CMD (bootstrap-host.sh and its flags) with the fleet token in the
-# environment, never argv, which ps shows to every user.
+# Runs bootstrap-host.sh with the fleet token in the environment, never argv,
+# which ps shows to every user.
 enroll_host() {
+  local cmd=(bash "${DOCKLET_DIR}/scripts/bootstrap-host.sh" --fleet-url "$PUBLIC_URL")
+  case "${RUNTIME:-gvisor}" in
+    gvisor) cmd+=(--runtime gvisor --pool-size 0) ;;
+    microvm) cmd+=(--runtime microvm) ;;
+    *) die "--runtime must be gvisor or microvm" ;;
+  esac
+  if [ -n "$ALLOW_VULNERABLE" ]; then
+    cmd+=(--allow-vulnerable "$ALLOW_VULNERABLE")
+  fi
+  log "enrolling this machine as a host (sudo; first run builds the dock image)"
   if [ "$(id -u)" -eq 0 ]; then
-    DOCKLET_FLEET_TOKEN="$FLEET_TOKEN" "${HOST_CMD[@]}"
+    DOCKLET_FLEET_TOKEN="$FLEET_TOKEN" "${cmd[@]}"
   elif sudo -n true 2>/dev/null || [ -t 0 ]; then
-    DOCKLET_FLEET_TOKEN="$FLEET_TOKEN" sudo --preserve-env=DOCKLET_FLEET_TOKEN "${HOST_CMD[@]}"
+    DOCKLET_FLEET_TOKEN="$FLEET_TOKEN" sudo --preserve-env=DOCKLET_FLEET_TOKEN "${cmd[@]}"
   else
     die "sudo needs a terminal to ask for your password; run this in a terminal: cd ${SELF_DIR} && ./setup.sh --host"
   fi
@@ -314,17 +324,7 @@ done
 [ "$ready" = "1" ] || die "API not healthy at ${PUBLIC_URL}; check: docker compose -f ${SELF_DIR}/docker-compose.yml logs backend caddy"
 log "control plane up at ${PUBLIC_URL}"
 
-HOST_CMD=(bash "${DOCKLET_DIR}/scripts/bootstrap-host.sh" --fleet-url "$PUBLIC_URL")
 if [ "$WITH_HOST" = "1" ]; then
-  case "${RUNTIME:-gvisor}" in
-    gvisor) HOST_CMD+=(--runtime gvisor --pool-size 0) ;;
-    microvm) HOST_CMD+=(--runtime microvm) ;;
-    *) die "--runtime must be gvisor or microvm" ;;
-  esac
-  if [ -n "$ALLOW_VULNERABLE" ]; then
-    HOST_CMD+=(--allow-vulnerable "$ALLOW_VULNERABLE")
-  fi
-  log "enrolling this machine as a host (sudo; first run builds the dock image)"
   enroll_host
 fi
 
