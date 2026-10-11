@@ -14,8 +14,12 @@ const norm = (p: string) => p.replace(/\//g, '\\').toLowerCase();
 export function isSafeWindowsBash(p: string): boolean {
   const n = norm(p);
   if (!/^[a-z]:\\/.test(n)) return false;
+  const segs = n.split('\\').slice(1);
+  // Windows drops `.`/`..`, empty and trailing-dot segments and expands 8.3 names (WINDOW~1),
+  // so only plain segments are accepted or the System32/WindowsApps check could be bypassed.
+  if (segs.some((s) => s === '' || s.endsWith('.') || s.endsWith(' ') || s.includes('~'))) return false;
   if (/\\windows\\(system32|sysnative|syswow64)\\/.test(n)) return false;
-  return !n.split('\\').includes('windowsapps');
+  return !segs.includes('windowsapps');
 }
 
 export function resolveBash({ platform, env, exists }: BashEnv): BashResolution {

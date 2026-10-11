@@ -14,7 +14,8 @@ const repo = (overrides: Partial<ApplyBundle['repos'][number]> = {}) => ({
   ...overrides,
 });
 
-describe('buildApplyScripts', () => {
+// Runs the scripts in bash; on Windows a bare `bash` can be the WSL launcher, so never there.
+describe.skipIf(process.platform === 'win32')('buildApplyScripts', () => {
   let home: string;
   let bin: string;
 

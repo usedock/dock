@@ -197,9 +197,12 @@ describe('scripts', () => {
   });
 });
 
-const hasTools = ['git', 'bash', 'python3', 'curl', 'base64', 'setsid'].every(
-  (bin) => spawnSync('sh', ['-c', `command -v ${bin}`]).status === 0,
-);
+// Never probed on Windows: a bare `bash` there can be the WSL launcher.
+const hasTools =
+  process.platform !== 'win32' &&
+  ['git', 'bash', 'python3', 'curl', 'base64', 'setsid'].every(
+    (bin) => spawnSync('sh', ['-c', `command -v ${bin}`]).status === 0,
+  );
 
 // Executes the generated scripts against a local bare repo, a fake agent,
 // and an in-process callback server: the shell itself is under test.
