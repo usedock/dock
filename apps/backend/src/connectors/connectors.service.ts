@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, eq } from 'drizzle-orm';
 import { DB, Db } from '../database/database.module';
@@ -30,6 +30,13 @@ export class ConnectorNotFoundException extends NotFoundException {
 export class ConnectorNotConnectedException extends ConflictException {
   constructor(kinds: string[]) {
     super({ code: 'connector_not_connected', message: `Connect these first: ${kinds.join(', ')}` });
+  }
+}
+
+/** Docks with connectors act with the workspace's tool credentials, so like admins-only environment secrets they are for admins. */
+export class ConnectorAdminOnlyException extends ForbiddenException {
+  constructor() {
+    super({ code: 'connector_admin_only', message: 'Only organization admins can launch or open docks that use connectors' });
   }
 }
 
@@ -161,18 +168,27 @@ export class ConnectorsService {
     if (!row || row.status !== 'connected') throw new ConnectorNotConnectedException([kind]);
     const cred = JSON.parse(openValue(this.key, row.credentials)) as ConnectorCredential;
     if (!needsRefresh(cred)) return cred;
-    const client = oauthClient(this.config, kind);
-    let fresh: ConnectorCredential | null = null;
-    try {
-      fresh = client ? await refreshCredential(this.fetchFn, kind, client, cred) : null;
-    } catch {
-      fresh = null;
-    }
-    if (!fresh) {
-      await this.db.update(connectors).set({ status: 'reauth_required', updatedAt: new Date() }).where(eq(connectors.id, row.id));
-      throw new ConnectorNotConnectedException([kind]);
-    }
-    await this.db.update(connectors).set({ credentials: sealValue(this.key, JSON.stringify(fresh)), updatedAt: new Date() }).where(eq(connectors.id, row.id));
+    // The row lock makes concurrent calls refresh once; vendors that rotate refresh tokens reject a second use.
+    const fresh = await this.db.transaction(async (tx) => {
+      const [locked] = await tx.select().from(connectors).where(eq(connectors.id, row.id)).for('update');
+      if (!locked || locked.status !== 'connected') return null;
+      const current = JSON.parse(openValue(this.key, locked.credentials)) as ConnectorCredential;
+      if (!needsRefresh(current)) return current;
+      const client = oauthClient(this.config, kind);
+      let next: ConnectorCredential | null = null;
+      try {
+        next = client ? await refreshCredential(this.fetchFn, kind, client, current) : null;
+      } catch {
+        next = null;
+      }
+      if (!next) {
+        await tx.update(connectors).set({ status: 'reauth_required', updatedAt: new Date() }).where(eq(connectors.id, row.id));
+        return null;
+      }
+      await tx.update(connectors).set({ credentials: sealValue(this.key, JSON.stringify(next)), updatedAt: new Date() }).where(eq(connectors.id, row.id));
+      return next;
+    });
+    if (!fresh) throw new ConnectorNotConnectedException([kind]);
     return fresh;
   }
 

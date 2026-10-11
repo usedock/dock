@@ -84,6 +84,23 @@ describe('ConnectorGatewayService', () => {
     expect(fetchFn.mock.calls[1][1].headers.authorization).toBe('Bearer lin_api_x');
   });
 
+  it('sends Sentry tokens to its MCP server as Sentry-Bearer, which reserves Bearer for its own OAuth', async () => {
+    db.select.mockReturnValue(selectQ([dock({ connectors: ['sentry'] })]));
+    connectors.accessFor.mockResolvedValue({ type: 'token', access: 'sntryu_x' });
+    await service.forward(req({ kind: 'sentry', path: 'mcp' }));
+    expect(fetchFn.mock.calls[0][1].headers.authorization).toBe('Sentry-Bearer sntryu_x');
+    await service.forward(req({ kind: 'sentry', path: 'api/0/organizations/', method: 'GET' }));
+    expect(fetchFn.mock.calls[1][1].headers.authorization).toBe('Bearer sntryu_x');
+  });
+
+  it('refuses archived and errored docks', async () => {
+    for (const state of ['archived', 'archiving', 'error', 'unreachable', 'provisioning']) {
+      db.select.mockReturnValue(selectQ([dock({ state })]));
+      await expect(service.forward(req())).rejects.toMatchObject({ status: 401 });
+    }
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it('refuses a missing, malformed, unknown or stopped dock token', async () => {
     await expect(service.forward(req({ headers: {} }))).rejects.toMatchObject({ response: { code: 'invalid_connector_token' } });
     await expect(service.forward(req({ headers: { authorization: 'Basic abc' } }))).rejects.toMatchObject({ status: 401 });

@@ -1,5 +1,5 @@
-import { Controller, Get, Param, Query, Res } from '@nestjs/common';
-import type { Response } from 'express';
+import { Controller, Get, Param, Query, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { RequestUser } from '../auth/jwt-auth.guard';
 import { Public } from '../common/public.decorator';
@@ -24,8 +24,9 @@ export class ConnectorOauthController {
     @Query('code') code: string | undefined,
     @Query('state') state: string | undefined,
     @Query('error') error: string | undefined,
+    @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
-    res.redirect(302, await this.oauth.callback(kind, { code, state, error }));
+    res.redirect(302, await this.oauth.callback(kind, { code, state, error }, req.headers.cookie));
   }
 }

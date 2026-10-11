@@ -128,6 +128,7 @@ describe('DocksService', () => {
     db.insert.mockReset();
     db.insert.mockReturnValue({ values });
     db.update.mockReturnValue(updateQ([dockRow()]));
+    orgs.requireMembership.mockResolvedValue({ role: 'admin' });
     await service.create('u1', { workspaceId: wsId, connectors: ['linear', 'figma'] });
     expect(connectors.assertConnected).toHaveBeenCalledWith(wsId, ['linear', 'figma']);
     expect(values.mock.calls[0][0].connectors).toEqual(['linear', 'figma']);
@@ -1602,6 +1603,26 @@ describe('DocksService', () => {
     db.insert.mockReturnValueOnce({ values: (v: any) => ({ returning: () => Promise.resolve([dockRow({ state: 'provisioning', ip: null, ...v })]) }) });
     db.update.mockReturnValueOnce(updateQ([dockRow()]));
     await expect(service.create('u1', { workspaceId: wsId, noEnv: true, from: 'web-stack' })).resolves.toBeDefined();
+  });
+
+  it('refuses members a dock with connectors, before inserting anything', async () => {
+    orgs.requireMembership.mockResolvedValue({ role: 'member' });
+    const err = await catchErr(service.create('u1', { workspaceId: wsId, connectors: ['slack'] }));
+    expect(err).toMatchObject({ status: 403, body: { code: 'connector_admin_only' } });
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('loadReadableDock refuses members a dock with connectors they did not create, but not its creator or admins', async () => {
+    const row = dockRow({ createdBy: 'admin-1', connectors: ['slack'] });
+    const load = () => db.select.mockReturnValueOnce(selectQ([row])).mockReturnValueOnce(selectQ([{ id: wsId, organizationId: orgId }]));
+    orgs.requireMembership.mockResolvedValue({ role: 'member' });
+    load();
+    expect(await catchErr(service.loadReadableDock('u1', dockId))).toMatchObject({ status: 403, body: { code: 'connector_admin_only' } });
+    load();
+    await expect(service.loadReadableDock('admin-1', dockId)).resolves.toEqual({ dock: row, orgId });
+    orgs.requireMembership.mockResolvedValue({ role: 'admin' });
+    load();
+    await expect(service.loadReadableDock('u1', dockId)).resolves.toEqual({ dock: row, orgId });
   });
 
   it('loadReadableDock asks the guard with the loaded dock', async () => {

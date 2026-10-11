@@ -9,6 +9,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 describe('ConnectorOauthService', () => {
   let connectors: { kindOf: Mock; requireAdmin: Mock; store: Mock };
   let redis: { set: Mock; getdel: Mock };
+  let betterAuth: { getSessionUser: Mock };
   let fetchFn: Mock;
   let config: Record<string, string>;
   let service: ConnectorOauthService;
@@ -20,10 +21,11 @@ describe('ConnectorOauthService', () => {
       store: vi.fn().mockResolvedValue({}),
     };
     redis = { set: vi.fn().mockResolvedValue('OK'), getdel: vi.fn().mockResolvedValue('verifier-1') };
+    betterAuth = { getSessionUser: vi.fn().mockImplementation(async (cookie?: string) => (cookie === 'session=u1' ? { id: 'u1' } : null)) };
     fetchFn = vi.fn();
     config = { SECRETS_ENCRYPTION_KEY: KEY_HEX, PUBLIC_API_URL: 'https://api.example.test', PUBLIC_APP_URL: 'https://app.example.test', LINEAR_CLIENT_ID: 'cid', LINEAR_CLIENT_SECRET: 'cs' };
     const cfg = { getOrThrow: (k: string) => config[k], get: (k: string) => config[k] };
-    service = new ConnectorOauthService(connectors as never, cfg as never, redis as never, { fetchFn: fetchFn as never });
+    service = new ConnectorOauthService(connectors as never, cfg as never, redis as never, betterAuth as never, { fetchFn: fetchFn as never });
   });
 
   const state = (over: Record<string, unknown> = {}) =>
@@ -48,7 +50,7 @@ describe('ConnectorOauthService', () => {
   it('callback exchanges the code, stores the sealed credential for the state user and redirects to the dashboard', async () => {
     fetchFn.mockResolvedValueOnce(json({ access_token: 'at', refresh_token: 'rt', expires_in: 3600, scope: 'read' }));
     fetchFn.mockResolvedValueOnce(json({ data: { viewer: { name: 'Pat', organization: { name: 'Acme' } } } }));
-    const target = await service.callback('linear', { code: 'abc', state: state() });
+    const target = await service.callback('linear', { code: 'abc', state: state() }, 'session=u1');
     expect(Object.fromEntries(fetchFn.mock.calls[0][1].body)).toMatchObject({ code: 'abc', code_verifier: 'verifier-1' });
     expect(connectors.store).toHaveBeenCalledWith('w1', 'linear', expect.objectContaining({ type: 'oauth', access: 'at' }), 'Acme', ['read'], 'u1');
     expect(target).toBe('https://app.example.test/connectors?kind=linear&status=connected');
@@ -65,8 +67,17 @@ describe('ConnectorOauthService', () => {
 
   it('callback re-checks admin rights and reports failures through the redirect, storing nothing', async () => {
     connectors.requireAdmin.mockRejectedValueOnce(Object.assign(new Error('no'), { response: { code: 'forbidden' } }));
-    expect(await service.callback('linear', { code: 'c', state: state() })).toBe('https://app.example.test/connectors?kind=linear&status=error&reason=forbidden');
+    expect(await service.callback('linear', { code: 'c', state: state() }, 'session=u1')).toBe('https://app.example.test/connectors?kind=linear&status=error&reason=forbidden');
     expect(await service.callback('linear', { error: 'access_denied', state: state() })).toContain('status=error&reason=denied');
+    expect(connectors.store).not.toHaveBeenCalled();
+  });
+
+  it('callback refuses a browser not signed in as the user who started the flow, storing nothing', async () => {
+    // An admin's authorize link opened by someone else must not land their account in the admin's workspace.
+    expect(await service.callback('linear', { code: 'c', state: state() })).toBe('https://app.example.test/connectors?kind=linear&status=error&reason=session_mismatch');
+    betterAuth.getSessionUser.mockResolvedValueOnce({ id: 'u2' });
+    expect(await service.callback('linear', { code: 'c', state: state() }, 'session=u2')).toContain('reason=session_mismatch');
+    expect(fetchFn).not.toHaveBeenCalled();
     expect(connectors.store).not.toHaveBeenCalled();
   });
 });

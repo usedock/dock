@@ -178,24 +178,41 @@ describe('ConnectorsService', () => {
       await expect(service.accessFor('w1', 'linear')).rejects.toBeInstanceOf(ConnectorNotConnectedException);
     });
 
-    it('refreshes an expiring OAuth token and stores the new one sealed', async () => {
+    const lockedTx = (rows: Row[]) => {
+      const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) });
+      const tx = { select: vi.fn().mockReturnValue({ from: () => ({ where: () => ({ for: vi.fn().mockResolvedValue(rows) }) }) }), update: vi.fn().mockReturnValue({ set }) };
+      (db as Record<string, unknown>).transaction = vi.fn().mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
+      return { tx, set };
+    };
+
+    it('refreshes an expiring OAuth token under a row lock and stores the new one sealed', async () => {
       config.LINEAR_CLIENT_ID = 'cid';
       config.LINEAR_CLIENT_SECRET = 'cs';
-      db.select.mockReturnValue(selectQ([await sealedRow({ type: 'oauth', access: 'old', refresh: 'rt', expiresAt: Date.now() - 1000 })]));
-      const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) });
-      db.update.mockReturnValue({ set });
+      const expiring = await sealedRow({ type: 'oauth', access: 'old', refresh: 'rt', expiresAt: Date.now() - 1000 });
+      db.select.mockReturnValue(selectQ([expiring]));
+      const { set } = lockedTx([expiring]);
       fetchFn.mockResolvedValue(json({ access_token: 'new', refresh_token: 'rt2', expires_in: 3600 }));
       const out = await service.accessFor('w1', 'linear');
       expect(out).toMatchObject({ access: 'new', refresh: 'rt2' });
       expect(JSON.parse(openValue(KEY, set.mock.calls[0][0].credentials)).access).toBe('new');
     });
 
-    it('marks the connection re-auth-required when the refresh fails', async () => {
+    it('reuses a token another call refreshed while this one waited for the lock, spending the refresh token once', async () => {
       config.LINEAR_CLIENT_ID = 'cid';
       config.LINEAR_CLIENT_SECRET = 'cs';
       db.select.mockReturnValue(selectQ([await sealedRow({ type: 'oauth', access: 'old', refresh: 'rt', expiresAt: Date.now() - 1000 })]));
-      const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) });
-      db.update.mockReturnValue({ set });
+      const { tx } = lockedTx([await sealedRow({ type: 'oauth', access: 'new', refresh: 'rt2', expiresAt: Date.now() + 3600_000 })]);
+      await expect(service.accessFor('w1', 'linear')).resolves.toMatchObject({ access: 'new' });
+      expect(fetchFn).not.toHaveBeenCalled();
+      expect(tx.update).not.toHaveBeenCalled();
+    });
+
+    it('marks the connection re-auth-required when the refresh fails', async () => {
+      config.LINEAR_CLIENT_ID = 'cid';
+      config.LINEAR_CLIENT_SECRET = 'cs';
+      const expiring = await sealedRow({ type: 'oauth', access: 'old', refresh: 'rt', expiresAt: Date.now() - 1000 });
+      db.select.mockReturnValue(selectQ([expiring]));
+      const { set } = lockedTx([expiring]);
       fetchFn.mockResolvedValue(json({ error: 'invalid_grant' }, 400));
       await expect(service.accessFor('w1', 'linear')).rejects.toBeInstanceOf(ConnectorNotConnectedException);
       expect(set.mock.calls[0][0]).toMatchObject({ status: 'reauth_required' });

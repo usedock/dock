@@ -91,6 +91,8 @@ export function upstreamAuth(kind: ConnectorKind, target: 'api' | 'mcp', cred: C
     if (kind === 'figma') return { 'x-figma-token': cred.access };
     if (kind === 'linear') return { authorization: cred.access };
   }
+  // Sentry's MCP server reserves Bearer for its own OAuth tokens; upstream Sentry tokens use Sentry-Bearer.
+  if (kind === 'sentry' && target === 'mcp') return { authorization: `Sentry-Bearer ${cred.access}` };
   return { authorization: `Bearer ${cred.access}` };
 }
 

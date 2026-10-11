@@ -41,7 +41,7 @@ import { OperationsService, type OperationView } from '../retention/operations.s
 import { WorkspaceNotFoundException, WorkspacesService } from '../workspaces/workspaces.service';
 import { assertNotReserved } from '../environments/env-validation';
 import { EnvironmentNotFoundException, EnvironmentSecretsAdminOnlyException, EnvironmentsService } from '../environments/environments.service';
-import { ConnectorsService } from '../connectors/connectors.service';
+import { ConnectorAdminOnlyException, ConnectorsService } from '../connectors/connectors.service';
 import { EnvironmentApplyService } from '../environments/environment-apply.service';
 import { ConfirmRequiredException, DockDeleteForbiddenException, DockNotFoundException, NoHostCapacityException, SnapshotInUseException, TEMPLATE_RE, TemplateSourceMissingException, TemplateNotFoundException, CapacityExhaustedException, DockNameTakenException } from './dock-errors';
 import { COMPUTE_PROVIDER, ComputeProvider } from './compute.provider';
@@ -246,7 +246,13 @@ export class DocksService {
   async loadReadableDock(callerId: string, id: string): Promise<{ dock: Dock; orgId: string }> {
     const loaded = await this.loadDock(callerId, id);
     await this.envs.assertDockSecretsReadable(callerId, loaded.orgId, loaded.dock);
+    // The dock holds a live connector gateway token; only its creator or an admin may reach its shell.
+    if (loaded.dock.connectors?.length && loaded.dock.createdBy !== callerId) await this.refuseConnectorMembers(loaded.orgId, callerId);
     return loaded;
+  }
+
+  private async refuseConnectorMembers(orgId: string, callerId: string): Promise<void> {
+    if ((await this.orgs.requireMembership(orgId, callerId)).role === 'member') throw new ConnectorAdminOnlyException();
   }
 
   /** Scheduler placement for restate-mode writes, reserving the dock's cpus and memory; fake mode places nothing. */
@@ -375,6 +381,7 @@ export class DocksService {
       templateRuntime = source.runtime;
     }
     const connectorKinds = input.connectors?.length ? await this.connectors.assertConnected(input.workspaceId, input.connectors) : [];
+    if (connectorKinds.length) await this.refuseConnectorMembers(orgId, callerId);
     await this.spendGate.requireSpend(orgId);
     if (idempotencyKey) {
       const existing = await this.claimKey(orgId, idempotencyKey, input);
@@ -771,6 +778,7 @@ export class DocksService {
     }
     const noEnv = opts.environment !== undefined ? (opts.noEnv ?? false) : (opts.noEnv ?? dock.noEnv);
     await this.envs.assertSecretsLaunchable(callerId, orgId, environment, { pin: envVersionPin, noEnv });
+    if (dock.connectors?.length) await this.refuseConnectorMembers(orgId, callerId);
     await this.spendGate.requireSpend(orgId);
     if (idempotencyKey) {
       const existing = await this.claimKey(orgId, idempotencyKey, { source: id, ...size, image, name: opts.name, ttlSeconds, env });

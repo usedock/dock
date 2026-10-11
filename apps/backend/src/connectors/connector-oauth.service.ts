@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import type Redis from 'ioredis';
 import { randomBytes } from 'crypto';
+import { BetterAuthService } from '../auth/better-auth/better-auth.service';
 import { publicApiUrl, publicAppUrl } from '../config/instance';
 import { REDIS } from '../redis/redis.module';
 import { CONNECTOR_SPECS, type ConnectorKind } from './connector-kinds';
@@ -19,6 +20,7 @@ export class ConnectorOauthService {
     private readonly connectors: ConnectorsService,
     private readonly config: ConfigService,
     @Inject(REDIS) private readonly redis: Redis,
+    private readonly betterAuth: BetterAuthService,
     @Optional() options: { fetchFn?: typeof fetch } = {},
   ) {
     this.secret = Buffer.from(config.getOrThrow<string>('SECRETS_ENCRYPTION_KEY'), 'hex');
@@ -37,8 +39,8 @@ export class ConnectorOauthService {
     return { url: authorizeUrl(checked, client.id, this.redirectUri(checked), state, usesPkce ? pkce.challenge : null) };
   }
 
-  /** Completes the flow and returns the dashboard URL to send the browser to. */
-  async callback(kind: string, query: { code?: string; state?: string; error?: string }): Promise<string> {
+  /** Completes the flow and returns the dashboard URL to send the browser to; the browser must be signed in as the user who started it. */
+  async callback(kind: string, query: { code?: string; state?: string; error?: string }, cookie?: string): Promise<string> {
     const checked = this.connectors.kindOf(kind);
     const state = verifyState(this.secret, query.state ?? '', checked);
     // Single use: a replayed callback finds the nonce gone.
@@ -46,6 +48,9 @@ export class ConnectorOauthService {
     if (stored === null) throw new BadRequestException({ code: 'invalid_state', message: 'OAuth state is invalid or expired' });
     const back = (status: string, reason?: string) => this.appUrl(checked, status, reason);
     if (query.error || !query.code) return back('error', 'denied');
+    // Without this, a link started by one user would store whoever approves it into that user's workspace.
+    const session = await this.betterAuth.getSessionUser(cookie);
+    if (session?.id !== state.u) return back('error', 'session_mismatch');
     try {
       await this.connectors.requireAdmin(state.u, state.w);
       const result = await exchangeCode(this.fetchFn, checked, this.client(checked), {

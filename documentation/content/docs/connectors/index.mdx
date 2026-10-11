@@ -60,7 +60,9 @@ the tool.
   Linear also use PKCE. Without a client id and secret it answers
   `400 oauth_not_configured`.
 - `GET /v1/connectors/:kind/oauth/callback` is where the tool sends the browser
-  back. It exchanges the code, stores the token and redirects to the dashboard
+  back. The browser must be signed in to Dock as the user who started the flow;
+  otherwise nothing is stored and the redirect carries `reason=session_mismatch`.
+  It exchanges the code, stores the token and redirects to the dashboard
   with `kind` and `status` (`connected` or `error`) in the query. Tokens that
   expire are refreshed by the gateway; if a refresh fails the connector shows
   `reauth_required` until someone signs in again.
@@ -76,6 +78,11 @@ curl -X POST $DOCK_API/v1/docks \
 Every requested kind must be connected in the workspace, otherwise the create is
 refused with `409 connector_not_connected` before anything is provisioned. The
 dock response lists the kinds in `connectors`.
+
+A dock with connectors acts with the workspace's tool credentials, so, like an
+admins-only environment's secrets, it is for organization admins: members are
+refused with `403 connector_admin_only` when they create or branch a dock with
+connectors, or exec into, open ports on or connect to one they did not create.
 
 The dock receives these environment variables (and nothing of the real token):
 
