@@ -379,17 +379,22 @@ from the disk. Only the member who started the import can use it.
 Response: the [Dock object](/api/objects#dock), in the `provisioning` state.
 The host checks the sha256 and size when it materializes the disk; a Dock whose
 file does not match ends in `error`. Repeating the call for a completed import
-returns the same Dock. If no host can take the Dock right now, the call fails
-with a placement error (`no_host_capacity`, `capacity_exhausted`,
-`base_image_unavailable`, `image_unavailable` or `dock_name_taken`) and can be
-repeated without uploading again. Any other failure ends the import and removes
-its uploaded parts; start a new one.
+returns the same Dock. If no host can take the Dock right now, or the name was
+taken meanwhile, the call fails with `no_host_capacity`, `capacity_exhausted`
+or `dock_name_taken` and can be repeated without uploading again. Any other
+failure ends the import and removes its uploaded parts; start a new one. The
+Dock boots in the background, so a host that refuses the image or base later
+leaves the Dock in `error` instead of failing this call.
 
 Errors: `import_not_found`, `validation_error` (the parts are not exactly 1 to N
-with an etag), `import_too_large` or `import_checksum_mismatch` (the assembled
-object is bigger than, or a different size from, the declared `sizeBytes`),
-`conflict` (the import failed, expired or is already being completed), and the
-placement errors above.
+with an etag, or the size is larger than every online host),
+`import_too_large` (413: the assembled object is bigger than the `diskGiB`
+disk), `import_checksum_mismatch` (400: the assembled object is not the declared
+`sizeBytes`), `conflict` (the import failed, expired or is already being
+completed), `environment_secrets_admin_only` (a member, when the organization's
+default Environment passes admins-only secrets), `no_host_capacity`,
+`capacity_exhausted`, `dock_name_taken`, `subscription_required`,
+`concurrency_exceeded`, `budget_exceeded`.
 
 ### `POST /v1/docks/:id/export`
 
@@ -442,5 +447,7 @@ Auth and role: as for reading the export.
 Response: the raw bytes (`application/octet-stream`), 200, or 206 with
 `content-range` for a range. Check the file against the export's `sha256`.
 
-Errors: `export_not_found`, `conflict` (the export is not `ready`),
-`validation_error` (a range past the end of the file).
+Errors: `export_not_found`, `environment_secrets_admin_only`,
+`connector_admin_only`, `conflict` (the export is not `ready`),
+`validation_error` (an unsatisfiable range: start past the end of the file, or
+end before start).

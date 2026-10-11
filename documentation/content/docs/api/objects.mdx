@@ -245,4 +245,4 @@ The export and its object are removed at `expiresAt`, 24 hours after it starts.
 | `baseImage` | string, nullable | Dockyard image whose kernel boots the disk; `null` until ready. |
 | `url` | string, nullable | Download URL of `rootfs.ext4.zst`; `null` until ready. A presigned URL (supports `Range`) or the control-plane path `/v1/docks/exports/:exportId/download`. |
 | `expiresAt` | timestamp | When the export and its object are removed. |
-| `urlExpiresAt` | timestamp, nullable | When `url` stops working: 15 minutes for a presigned URL, `expiresAt` for the control-plane path; `null` until ready. |
+| `urlExpiresAt` | timestamp, nullable | When `url` stops working: for a presigned URL 15 minutes by default (self-hosters set `SNAPSHOT_STORE_PRESIGN_TTL_SECONDS`), `expiresAt` for the control-plane path; `null` until ready. |
