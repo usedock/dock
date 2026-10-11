@@ -31,7 +31,8 @@ describe.skipIf(process.platform === 'win32')('buildApplyScripts', () => {
     chmodSync(join(bin, 'git'), 0o755);
   });
 
-  afterEach(() => rmSync(home, { recursive: true, force: true }));
+  // Background clone/setup jobs can still write into $HOME/.dock; retry so a late write does not fail cleanup.
+  afterEach(() => rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
 
   function run(bundle: ApplyBundle, env: Record<string, string> = {}): void {
     for (const script of buildApplyScripts(bundle).scripts) {
