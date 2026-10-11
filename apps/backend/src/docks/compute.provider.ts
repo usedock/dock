@@ -14,6 +14,15 @@ export interface SnapshotCapture {
   manifest: SnapshotManifest;
 }
 
+/** Whole-disk capture of a dock for export: one compressed ext4 image in the store. */
+export interface DiskExport {
+  snapshotId: string;
+  sizeBytes: number;
+  sha256: string;
+  /** Dockyard image the disk was built from; empty when the base was built on the host. */
+  baseImage: string;
+}
+
 /** Provisioned-machine handle returned by lifecycle calls. */
 export interface MachineHandle {
   ip: string;
@@ -48,6 +57,8 @@ export interface ComputeProvider {
   provision(dock: Dock, opts?: { snapshotId?: string | null; hostId?: string | null; egressAllow?: string[] }): Promise<MachineHandle>;
   captureSnapshot(dock: Dock, parentId: string | null): Promise<SnapshotCapture>;
   captureFinal(dock: Dock, parentId: string | null): Promise<SnapshotCapture>;
+  /** Full (never delta) disk-only capture; the dock keeps running. */
+  captureDisk(dock: Dock): Promise<DiskExport>;
   resume(dock: Dock, opts: { snapshotId: string | null; hostId?: string | null; egressAllow?: string[] }): Promise<MachineHandle>;
   branch(source: Dock, target: Dock, opts?: { snapshotId?: string | null; hostId?: string | null; egressAllow?: string[] }): Promise<MachineHandle>;
   destroyBacking(dock: Dock): Promise<void>;
@@ -93,6 +104,12 @@ export class FakeComputeProvider implements ComputeProvider {
   async captureFinal(dock: Dock, _parentId: string | null): Promise<SnapshotCapture> {
     this.maybeFail('captureFinal');
     return this.captureSnapshot(dock, _parentId);
+  }
+
+  async captureDisk(dock: Dock): Promise<DiskExport> {
+    this.maybeFail('captureDisk');
+    this.captures += 1;
+    return { snapshotId: `fake-export-${this.captures}`, sizeBytes: 6000, sha256: 'f'.repeat(64), baseImage: dock.image };
   }
 
   async resume(dock: Dock): Promise<MachineHandle> {

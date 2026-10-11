@@ -13,6 +13,7 @@ import { AuthModule } from './auth/auth.module';
 import { BetterAuthModule } from './auth/better-auth/better-auth.module';
 import { DatabaseModule } from './database/database.module';
 import { DocksModule } from './docks/docks.module';
+import { DockTransfersModule } from './dock-transfers/dock-transfers.module';
 import { EnvironmentsModule } from './environments/environments.module';
 import { MeteringModule } from './metering/metering.module';
 import { SpendGateModule } from './metering/spend-gate.module';

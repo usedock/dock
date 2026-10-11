@@ -1,0 +1,155 @@
+---
+title: Push and pull
+description: Move a dock's disk between a laptop and a control plane with the import and export routes.
+---
+
+A dock's disk can move between contexts: a local dock goes up to a control
+plane (push), and a fleet dock comes down to a laptop (pull). The `dock push`
+and `dock pull` commands in the CLI drive the routes below; the routes are
+public, so any client can use them.
+
+Only the disk moves, never memory, so a pushed or pulled dock boots fresh. Both directions need a [microVM](/concepts/docks) host:
+a gVisor dock keeps only `/home/user/work`, so it cannot be exported and an
+import needs a microVM host to land on. The disk must come from a
+[Dockyard](/dockyard) image; a dock built from a base made on the host cannot
+be exported.
+
+## Push: import a disk
+
+The file you upload is `rootfs.ext4.zst`: the dock's raw ext4 disk, compressed
+with zstd. Send its size and sha256 up front.
+
+### Start an import
+
+`POST /v1/docks/import` with a JSON body:
+
+| Field | Description |
+| --- | --- |
+| `workspaceId` | Workspace the dock is created in |
+| `name` | Optional dock name, unique per workspace |
+| `image` | The Dockyard image the disk was built from, a name from `GET /v1/images` |
+| `cpus`, `memoryMiB`, `diskGiB` | The size of the new dock, as for `POST /v1/docks` |
+| `sizeBytes` | Size of the compressed file; at most `diskGiB` GiB |
+| `sha256` | Lowercase hex sha256 of the compressed file |
+
+It answers 201:
+
+```json
+{
+  "importId": "0d6f...",
+  "upload": {
+    "mode": "direct",
+    "partSize": 16777216,
+    "parts": [{ "number": 1, "url": "https://store.example.com/..." }]
+  }
+}
+```
+
+Cut the file into `partSize` bytes (the last part may be shorter) and send
+each part to its `url` with a `PUT` and the raw bytes as the body. Part numbers
+start at 1.
+
+- `direct`: the URL is a presigned object-store URL, valid for 24 hours. Keep
+  the `ETag` response header of every part.
+- `proxy`: used when the control plane has no store address clients can reach.
+  The URL is a path on the control plane (see the next route); send the same
+  credentials as for any API call. At most 128 MiB per part.
+
+An organization can hold five open imports at once (`import_limit_reached`,
+HTTP 429).
+
+### Upload a part through the control plane
+
+`PUT /v1/docks/import/:importId/parts/:number` takes the raw part bytes as the
+body (not JSON) and answers `{ "number": 1, "etag": "..." }`. Only the member
+who started the import can use it. A part larger than `partSize` is refused
+with `part_too_large`.
+
+### Complete an import
+
+`POST /v1/docks/import/:importId/complete` with the part numbers and etags:
+
+```json
+{ "parts": [{ "number": 1, "etag": "9b2cf5..." }] }
+```
+
+List every part exactly once. The control plane joins the parts, checks the
+size, records the file as a whole-image snapshot and creates the dock from it
+on a microVM host. It answers 202 with the new dock in the `provisioning`
+state; the host verifies the sha256 and size when it materializes the disk,
+and the dock ends in `error` if the file does not match. Imports land only on
+hosts whose docklet registers the `verified-imports` feature, so older docklets
+never boot an unverified disk. Repeating the call for a completed
+import returns the same dock. If no host can take the dock right now the call
+fails with a placement error and can be repeated without uploading again.
+
+An import that is not completed within 24 hours is removed together with its
+uploaded parts.
+
+## Pull: export a disk
+
+### Start an export
+
+`POST /v1/docks/:id/export` answers 202 with `{ "exportId": "..." }`. The host
+takes a full, disk-only snapshot of the running dock (the dock keeps running).
+The source dock is then re-applied, so its gateway tokens and its dock API key
+(`DOCK_API_KEY`) rotate and the copy cannot use them; if they cannot be
+rotated, the export fails with `export_failed` rather than publish a disk with
+live credentials. Exporting needs the same role as opening the dock: a dock with
+connectors, or with secrets from an admins-only environment, can be exported
+only by its creator or an admin. Exports are disabled while retention (zero data
+retention) is enabled.
+
+A dock must be `ready`, `idle` or `running`. An organization can hold five live
+exports at once (`export_limit_reached`, HTTP 429), and a dock one in progress.
+
+### Read an export
+
+`GET /v1/docks/exports/:exportId` answers:
+
+```json
+{
+  "state": "ready",
+  "image": "ubuntu-24.04",
+  "cpus": 2,
+  "memoryMiB": 4096,
+  "diskGiB": 20,
+  "sizeBytes": 812646400,
+  "sha256": "9f86d0...",
+  "baseImage": "ubuntu-24.04",
+  "url": "https://store.example.com/...",
+  "expiresAt": "2026-10-12T08:00:00.000Z",
+  "urlExpiresAt": "2026-10-11T08:15:00.000Z"
+}
+```
+
+`state` is `pending`, `ready` or `failed`. While pending, `sizeBytes`, `sha256`,
+`baseImage` and `url` are `null`. A failed export carries `error`:
+`export_base_unsupported` (the dock's disk was not built from a Dockyard image),
+`export_failed` or `export_interrupted`.
+
+`url` is a fresh presigned download for `rootfs.ext4.zst` on every call, valid
+for 15 minutes (`urlExpiresAt`); it supports `Range` requests, so a download
+resumes. Check the downloaded file against `sha256`. `baseImage` names the
+Dockyard image whose kernel boots the disk. The export itself, and its object,
+are removed at `expiresAt`, 24 hours after the export starts.
+
+### Download through the control plane
+
+When the control plane has no store address clients can reach, `url` is a path
+on the control plane: `GET /v1/docks/exports/:exportId/download` streams the
+file, with the same permissions, and honors one `Range: bytes=start-` header to
+resume.
+
+## Errors
+
+| Code | When |
+| --- | --- |
+| `import_too_large` | `sizeBytes` is above the `diskGiB` limit, or the uploaded object is bigger than declared |
+| `import_checksum_mismatch` | The uploaded size is not the declared one, or the host found a sha256 mismatch while booting the disk |
+| `runtime_unsupported` | No online microVM host has a docklet that verifies imported disks, or the dock to export is not a microVM dock |
+| `export_base_unsupported` | The exported dock's base is not a Dockyard image (reported as the export's `error`) |
+| `import_not_found`, `export_not_found` | Unknown, expired, or not yours to read |
+| `import_limit_reached`, `export_limit_reached` | Too many open imports or live exports |
+
+Every error uses the usual `{ "ok": false, "code", "message" }` envelope.
