@@ -1,0 +1,1 @@
+ALTER TABLE "environment_versions" ADD COLUMN "provider_keys" text DEFAULT 'gateway' NOT NULL;

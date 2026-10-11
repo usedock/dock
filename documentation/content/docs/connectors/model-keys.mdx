@@ -9,5 +9,40 @@ reports them as the `model-keys` entry: `connected` when the organization has at
 least one key, with the provider names in `scopes` and `readOnly: true`. Values
 are never returned. `PUT` and `DELETE` do not accept `model-keys`.
 
-Provider keys reach a dock as environment variables through its
-[Environment](/docs/concepts/environments).
+## How a dock reaches a provider
+
+By default the real key never enters a dock. When an Environment passes agent
+credentials, each apply (create, resume, branch, upgrade) gives the dock:
+
+- the key variables the default agent reads (`ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY`, `OPENCODE_API_KEY`) set to a Dock-scoped gateway token, not
+  the provider key;
+- base URL variables (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`) and opencode
+  provider base URLs pointing at `<api>/v1/llm/<provider>` on the control plane.
+
+Clients send the token in the key header as usual. The gateway looks up the
+Dock by the token's hash, checks that the Dock is `ready`, `idle` or `running`,
+re-reads its pinned Environment, and attaches the organization's real key to
+the upstream request. Responses, including streamed ones, pass through
+unchanged. The token is replaced on every apply, stops working the moment the
+Dock stops, is limited to the organization's keys for the providers the default
+agent uses, and is capped at 3000 requests per Dock per hour. The control plane
+stores only its hash. A leaked token can spend that budget while the Dock runs,
+but cannot be turned into the provider key.
+
+A key you set yourself in the Environment or per Dock is not replaced: it is
+yours and goes in as written.
+
+## Plain mode
+
+Some tools cannot use a base URL. An admin can set the Environment's
+`providerKeys` to `plain` (`PATCH /v1/environments/:ref`, default `gateway`).
+Then the apply writes the real provider keys into the Dock as environment
+variables, as before. This is weaker: anyone who can run a command in the Dock
+can read the key, so keep such Environments admins-only. Switching to `plain`
+takes effect on the next apply; switching back removes the keys from the Dock
+on its next apply, but a key a Dock already read must be rotated.
+
+Docks created before this change use the gateway from their next apply onward
+(resume, branch or Environment upgrade); until then they keep the keys they
+already hold.

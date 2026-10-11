@@ -17,7 +17,7 @@ report a vulnerability, see [SECURITY.md](https://github.com/usedock/dock/blob/m
 | Dock disks and Snapshots | On the host; Snapshots in the object store (MinIO with SSE-S3 by default, or any S3-compatible bucket) | The organization that owns the Dock |
 | API keys | SHA-256 hashes in Postgres; the raw value is shown once | The user who created the key |
 | Dock-bound keys | Same table, tied to one Dock | The Dock they were issued to |
-| Provider keys, Environment secrets | Encrypted at rest (AES-256-GCM) with `SECRETS_ENCRYPTION_KEY` | Organization admins, and Docks the Environment passes them into. New Environments are admins-only by default: a member is refused a launch that would pass something readable into the Dock (a secret variable or file, the Dock API key, or agent credentials while the organization has provider keys or another user's ChatGPT sign-in applies), unless the Environment is marked safe for third parties. If an Environment allows members, any member can create a Dock with it and read its secrets from inside that Dock. Environments created before the default changed keep their old value |
+| Provider keys, Environment secrets | Encrypted at rest (AES-256-GCM) with `SECRETS_ENCRYPTION_KEY` | Organization admins, and Docks the Environment passes secrets into (provider keys reach a Dock only in `plain` mode; by default the Dock holds a gateway token instead). New Environments are admins-only by default: a member is refused a launch that would pass something readable into the Dock (a secret variable or file, the Dock API key, or agent credentials while the organization has provider keys or another user's ChatGPT sign-in applies), unless the Environment is marked safe for third parties. If an Environment allows members, any member can create a Dock with it and read its secrets from inside that Dock. Environments created before the default changed keep their old value |
 | Connector credentials (GitHub App private key and webhook secret, OAuth secrets) | Control plane environment (`.env`) | The control plane only |
 | Workspace connections (Figma, Linear, Slack, Sentry) | OAuth tokens or personal access tokens, sealed with `SECRETS_ENCRYPTION_KEY` and opened only by the connector gateway | The control plane only. Organization admins connect them; a Dock holds a Dock-scoped gateway token, never the vendor credential |
 | Hosts and docklets | Your machines; each docklet holds a per-host credential in its state directory | The operator |
@@ -64,11 +64,25 @@ address, so DNS rebinding cannot reach a private target. Setting
 Ordinary Docks can opt in to the same proxy through an Environment's outbound allowlist (`egressAllow`, set by an admin; see [Environments](/concepts/environments#outbound-allowlist)). It is off by default.
 
 **Anything you pass in.** Whatever an Environment passes into a Dock is readable
-by anyone inside that Dock. By default an Environment passes agent credentials:
-the organization's provider keys and, if the Dock's creator signed in with
-ChatGPT, a Dock-scoped token that spends that sign-in through the control plane.
+by anyone inside that Dock. By default an Environment passes agent credentials
+without the organization's provider keys: the Dock gets a Dock-scoped gateway
+token and base URLs, and the control plane attaches the real key to outbound
+model calls (see **LLM gateway token** below). If the Dock's creator signed in with
+ChatGPT, the same token also spends that sign-in through the control plane.
+An admin can set the Environment to `providerKeys: plain`, which writes the real
+keys into the Dock; anyone inside the Dock can then read them.
 Linked GitHub repositories get a read-only clone token. The Dock API key is off
 by default. See [Environments](/concepts/environments).
+
+**LLM gateway token.** A Dock whose Environment passes agent credentials gets a
+Dock-scoped token (`DOCK_LLM_TOKEN`, also used as the value of the provider key
+variables). The control plane stores only its hash and replaces it on every
+apply. It works only while the Dock is `ready`, `idle` or `running`, only for
+the organization's providers the default agent uses, only while the pinned
+Environment still passes agent credentials in gateway mode, and for at most 3000
+requests per Dock per hour. The gateway attaches the real key itself and forwards
+only to the fixed provider hosts. A leaked token can spend that budget while the
+Dock runs; it cannot reveal the provider key.
 
 **Connector gateway token.** Only organization admins can create a Dock with
 connectors. That Dock receives a Dock-scoped gateway token

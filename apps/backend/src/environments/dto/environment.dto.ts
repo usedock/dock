@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
-import { ENV_NAME_RE, SECRETS_ACCESS, type SecretsAccess } from '../../database/schema';
+import { ENV_NAME_RE, PROVIDER_KEY_MODES, SECRETS_ACCESS, type ProviderKeyMode, type SecretsAccess } from '../../database/schema';
 
 /** Environment creation payload; content starts as an empty v1. */
 export class CreateEnvironmentDto {
@@ -54,6 +54,11 @@ export class UpdateEnvironmentDto {
   @IsOptional()
   @IsBoolean()
   passAgentsCredentials?: boolean;
+
+  @IsOptional()
+  @IsIn(PROVIDER_KEY_MODES)
+  @ApiProperty({ required: false, enum: PROVIDER_KEY_MODES, description: "How the organization's provider keys reach docks: `gateway` (default) keeps them in the control plane and gives the dock a placeholder plus gateway base URLs; `plain` writes the real key into the dock's environment, so anyone who can run a command in the dock can read it." })
+  providerKeys?: ProviderKeyMode;
 
   @IsOptional()
   @IsArray()

@@ -33,6 +33,7 @@ const versionRow = (overrides: Record<string, unknown> = {}) => ({
   passSecrets: true,
   passDockCredentials: true,
   passAgentsCredentials: true,
+  providerKeys: 'gateway',
   egressAllow: null,
   repos: [],
   envVars: {},
@@ -271,7 +272,7 @@ describe('EnvironmentsService', () => {
     db.select.mockReturnValueOnce(selectQ([envRow()])); // resolveVersion env
     db.select.mockReturnValueOnce(selectQ([version])); // latest
     const bundle = await service.resolveBundle(orgId, 'base', { perDockEnv: { OWN: '1' } });
-    expect(bundle).toEqual({ version: 3, vars: { OWN: '1' }, files: [], repos: [], injectedProviders: [], passDockCredentials: false, passAgentsCredentials: false });
+    expect(bundle).toEqual({ version: 3, vars: { OWN: '1' }, files: [], repos: [], injectedProviders: [], passDockCredentials: false, passAgentsCredentials: false, providerKeys: 'gateway', gatewayKeyVars: [] });
   });
 
   it('merges per-dock env over stored vars with per-dock winning', async () => {
@@ -297,6 +298,51 @@ describe('EnvironmentsService', () => {
     expect(creds.varsFor).toHaveBeenCalledWith(orgId, ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENCODE_API_KEY']);
     expect(bundle.vars).toEqual({ STRIPE_KEY: 'shared', OPENAI_API_KEY: 'sk-dock', ANTHROPIC_API_KEY: 'sk-a' });
     expect(bundle.injectedProviders).toEqual(['openai', 'anthropic']);
+  });
+
+  it('names the injected key vars for the gateway swap, but not ones the environment or dock set itself', async () => {
+    db.select.mockReturnValueOnce(selectQ([envRow()]));
+    db.select.mockReturnValueOnce(selectQ([versionRow()]));
+    creds.varsFor.mockResolvedValueOnce({
+      vars: { OPENAI_API_KEY: 'sk-o', ANTHROPIC_API_KEY: 'sk-a' },
+      providers: ['openai', 'anthropic'],
+    });
+    const gateway = await service.resolveBundle(orgId, 'base', { agents: ['opencode'], perDockEnv: { OPENAI_API_KEY: 'sk-dock' } });
+    expect(gateway.gatewayKeyVars).toEqual(['ANTHROPIC_API_KEY']);
+    db.select.mockReturnValueOnce(selectQ([envRow()]));
+    db.select.mockReturnValueOnce(selectQ([versionRow({ providerKeys: 'plain' })]));
+    creds.varsFor.mockResolvedValueOnce({ vars: { ANTHROPIC_API_KEY: 'sk-a' }, providers: ['anthropic'] });
+    const plain = await service.resolveBundle(orgId, 'base', { agents: ['opencode'] });
+    expect(plain.providerKeys).toBe('plain');
+    expect(plain.gatewayKeyVars).toEqual([]);
+    expect(plain.vars).toEqual({ ANTHROPIC_API_KEY: 'sk-a' });
+  });
+
+  describe('gatewayKeyFor', () => {
+    const dockRef = { environment: 'base', envVersionPin: null, noEnv: false };
+    const pinTo = (version: Record<string, unknown>) => {
+      db.select.mockReturnValueOnce(selectQ([envRow()])); // resolveVersion env
+      db.select.mockReturnValueOnce(selectQ([version])); // latest
+    };
+
+    it('returns the org key only in gateway mode for a key the dock agents require', async () => {
+      creds.varsFor.mockResolvedValue({ vars: { ANTHROPIC_API_KEY: 'sk-a' }, providers: ['anthropic'] });
+      pinTo(versionRow());
+      expect(await service.gatewayKeyFor(orgId, dockRef, 'ANTHROPIC_API_KEY')).toBe('sk-a');
+      pinTo(versionRow({ providerKeys: 'plain' }));
+      expect(await service.gatewayKeyFor(orgId, dockRef, 'ANTHROPIC_API_KEY')).toBeNull();
+      pinTo(versionRow({ passAgentsCredentials: false }));
+      expect(await service.gatewayKeyFor(orgId, dockRef, 'ANTHROPIC_API_KEY')).toBeNull();
+      pinTo(versionRow({ safeForThirdParties: true }));
+      expect(await service.gatewayKeyFor(orgId, dockRef, 'ANTHROPIC_API_KEY')).toBeNull();
+    });
+
+    it('refuses noEnv docks and keys the dock agents do not require', async () => {
+      creds.varsFor.mockResolvedValue({ vars: { OPENROUTER_API_KEY: 'sk-r' }, providers: ['openrouter'] });
+      expect(await service.gatewayKeyFor(orgId, { ...dockRef, noEnv: true }, 'ANTHROPIC_API_KEY')).toBeNull();
+      expect(await service.gatewayKeyFor(orgId, dockRef, 'OPENROUTER_API_KEY')).toBeNull();
+      expect(creds.varsFor).not.toHaveBeenCalled();
+    });
   });
 
   it('excludes keys for unselected agents and ignores unknown agents', async () => {

@@ -122,6 +122,70 @@ describe('EnvironmentApplyService', () => {
 
   });
 
+  describe('provider keys through the gateway', () => {
+    const gatewayBundle = (over: Record<string, unknown> = {}) =>
+      bundle({
+        vars: { ANTHROPIC_API_KEY: 'sk-ant-REAL', OPENAI_API_KEY: 'sk-oai-REAL', PER_DOCK: '1' },
+        passAgentsCredentials: true,
+        providerKeys: 'gateway',
+        gatewayKeyVars: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
+        ...over,
+      });
+    const envFileOf = (call = 0) => decodeEnvFile(provider.exec.mock.calls[call][1].script as string);
+
+    it('writes a placeholder token and base URLs instead of the real keys', async () => {
+      envs.resolveBundle.mockResolvedValue(gatewayBundle());
+      await service.apply(dock() as never, orgId);
+      const envFile = envFileOf();
+      expect(envFile).not.toContain('REAL');
+      const token = /export DOCK_LLM_TOKEN='([0-9a-f]{64})'/.exec(envFile)?.[1] ?? '';
+      expect(envFile).toContain(`export ANTHROPIC_API_KEY='${token}'`);
+      expect(envFile).toContain(`export OPENAI_API_KEY='${token}'`);
+      expect(envFile).toContain("export ANTHROPIC_BASE_URL='https://api.example.test/v1/llm/anthropic'");
+      expect(envFile).toContain("export OPENAI_BASE_URL='https://api.example.test/v1/llm/openai'");
+      expect(envFile).toContain("export PER_DOCK='1'");
+      expect(sets).toContainEqual({ llmTokenHash: hashToken(token) });
+    });
+
+    it('rotates the token on every apply and clears it once no provider uses the gateway', async () => {
+      envs.resolveBundle.mockResolvedValue(gatewayBundle());
+      await service.apply(dock() as never, orgId);
+      await service.apply(dock({ llmTokenHash: 'old' }) as never, orgId);
+      const tokens = [0, 1].map((i) => /export DOCK_LLM_TOKEN='([0-9a-f]{64})'/.exec(envFileOf(i))?.[1]);
+      expect(tokens[0]).toBeTruthy();
+      expect(tokens[1]).not.toBe(tokens[0]);
+      envs.resolveBundle.mockResolvedValue(gatewayBundle({ vars: { PER_DOCK: '1' }, gatewayKeyVars: [] }));
+      await service.apply(dock({ llmTokenHash: 'old' }) as never, orgId);
+      expect(sets.at(-2)).toEqual({ llmTokenHash: null });
+      expect(envFileOf(2)).not.toContain('DOCK_LLM_TOKEN');
+    });
+
+    it('points opencode at the gateway for the zen providers too', async () => {
+      envs.resolveBundle.mockResolvedValue(gatewayBundle({ vars: { OPENCODE_API_KEY: 'oc-REAL' }, gatewayKeyVars: ['OPENCODE_API_KEY'] }));
+      await service.apply(dock() as never, orgId);
+      const envFile = envFileOf();
+      expect(envFile).not.toContain('REAL');
+      expect(envFile).toContain('"opencode":{"options":{"baseURL":"https://api.example.test/v1/llm/opencode"}}');
+      expect(envFile).toContain('"opencode-go":{"options":{"baseURL":"https://api.example.test/v1/llm/opencode-go"}}');
+    });
+
+    it('leaves a key the environment or dock sets itself alone, with no gateway token', async () => {
+      envs.resolveBundle.mockResolvedValue(gatewayBundle({ vars: { ANTHROPIC_API_KEY: 'sk-own' }, gatewayKeyVars: [] }));
+      await service.apply(dock() as never, orgId);
+      expect(envFileOf()).toContain("export ANTHROPIC_API_KEY='sk-own'");
+      expect(envFileOf()).not.toContain('ANTHROPIC_BASE_URL');
+    });
+
+    it('keeps the old behavior in plain mode', async () => {
+      envs.resolveBundle.mockResolvedValue(gatewayBundle({ providerKeys: 'plain', gatewayKeyVars: [] }));
+      await service.apply(dock() as never, orgId);
+      const envFile = envFileOf();
+      expect(envFile).toContain("export ANTHROPIC_API_KEY='sk-ant-REAL'");
+      expect(envFile).not.toContain('BASE_URL');
+      expect(envFile).not.toContain('DOCK_LLM_TOKEN');
+    });
+  });
+
   it('wires connectors to the gateway with a fresh dock token and writes the MCP config', async () => {
     await service.apply(dock({ connectors: ['linear', 'slack'] }) as never, orgId);
     const envFile = decodeEnvFile(provider.exec.mock.calls[0][1].script);

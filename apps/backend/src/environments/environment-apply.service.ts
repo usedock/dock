@@ -5,7 +5,8 @@ import { randomUUID } from 'crypto';
 import { and, eq, inArray, lt } from 'drizzle-orm';
 import { hashToken, newToken } from '../crypto/tokens';
 import { DB, Db } from '../database/database.module';
-import { apiKeys, docks, githubInstallations, workspaces, type Dock, type EnvRepo } from '../database/schema';
+import { PROVIDER_ENV_VARS, PROVIDER_NAMES, apiKeys, docks, githubInstallations, workspaces, type Dock, type EnvRepo, type ProviderName } from '../database/schema';
+import { providerGatewayBundle } from '../agent-credentials/provider-gateway-dock';
 import { API_KEY_PREFIX } from '../api-keys/api-keys.service';
 import { CHATGPT_DOCK_AGENTS, chatgptDockBundle } from '../chatgpt/chatgpt-dock';
 import { DEFAULT_DOCK_AGENTS } from '../github/run-agents';
@@ -30,6 +31,11 @@ const WATCH_SETTLE_MS = 15_000;
 interface PreparedBundle extends Omit<ApplyBundle, 'setupScript'> {
   /** Exec-only env: short-lived clone tokens that never reach the disk. */
   execEnv: Record<string, string>;
+}
+
+/** Copy of the vars without the named keys. */
+function withoutKeys(vars: Record<string, string>, names: Set<string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(vars).filter(([name]) => !names.has(name)));
 }
 
 /**
@@ -150,6 +156,7 @@ export class EnvironmentApplyService implements OnModuleInit, OnModuleDestroy {
       repos: EnvRepo[];
       passDockCredentials: boolean;
       passAgentsCredentials: boolean;
+      gatewayKeyVars: string[];
     };
     try {
       resolved = await this.envs.resolveBundle(orgId, dock.environment, {
@@ -161,14 +168,17 @@ export class EnvironmentApplyService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       // A deleted environment withholds everything it held; per-dock env still applies.
       if (!(err instanceof EnvironmentNotFoundException)) throw err;
-      resolved = { vars: { ...dock.env }, files: [], repos: [], passDockCredentials: false, passAgentsCredentials: false };
+      resolved = { vars: { ...dock.env }, files: [], repos: [], passDockCredentials: false, passAgentsCredentials: false, gatewayKeyVars: [] };
     }
     const credential = await this.rotateCredential(dock, resolved.passDockCredentials);
-    const chatgpt = await this.rotateLlmToken(dock, resolved.passAgentsCredentials);
+    // Gateway mode: real provider keys never leave the control plane; the dock gets the token as the key instead.
+    const gatewayVars = new Set(resolved.gatewayKeyVars);
+    const gatewayProviders = PROVIDER_NAMES.filter((p) => PROVIDER_ENV_VARS[p].some((n) => gatewayVars.has(n)));
+    const chatgpt = await this.rotateLlmToken(dock, resolved.passAgentsCredentials, gatewayProviders);
     const connectors = await this.rotateConnectorToken(dock);
     return {
       // Environment and per-dock vars win over the ChatGPT and connector wiring, as they do over platform keys.
-      vars: { ...connectors.vars, ...chatgpt.vars, ...resolved.vars, ...neutral, ...(credential ? { DOCK_API_KEY: credential } : {}) },
+      vars: { ...connectors.vars, ...chatgpt.vars, ...withoutKeys(resolved.vars, gatewayVars), ...neutral, ...(credential ? { DOCK_API_KEY: credential } : {}) },
       files: [...resolved.files, ...chatgpt.files, ...connectors.files],
       repos: resolved.repos,
       removeFiles: connectors.files.length ? [] : [MCP_CONFIG_PATH],
@@ -192,18 +202,23 @@ export class EnvironmentApplyService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * The creator's own ChatGPT sign-in reaches the dock's codex/opencode only
-   * as a dock-scoped gateway token; every apply rotates it, and losing the
-   * sign-in, the agents, or the credential posture clears it.
+   * One dock-scoped gateway token covers the creator's ChatGPT sign-in (codex,
+   * opencode) and the org provider keys (placeholder plus base URLs). Every
+   * apply replaces it; losing both uses, or the credential posture, clears it.
    */
-  private async rotateLlmToken(dock: Dock, allowed: boolean): Promise<ReturnType<typeof chatgptDockBundle>> {
+  private async rotateLlmToken(dock: Dock, allowed: boolean, providers: ProviderName[]): Promise<{ vars: Record<string, string>; files: { path: string; contents: string }[] }> {
     const agents = DEFAULT_DOCK_AGENTS.filter((a) => (CHATGPT_DOCK_AGENTS as readonly string[]).includes(a));
-    const usable = allowed && agents.length > 0 && !!dock.createdBy && !!(await this.chatgpt?.usable(dock.createdBy));
-    const raw = usable ? newToken() : null;
+    const chatgptUsable = allowed && agents.length > 0 && !!dock.createdBy && !!(await this.chatgpt?.usable(dock.createdBy));
+    const gateway = allowed ? providers : [];
+    const raw = chatgptUsable || gateway.length ? newToken() : null;
     if (raw || dock.llmTokenHash) {
       await this.db.update(docks).set({ llmTokenHash: raw ? hashToken(raw) : null }).where(eq(docks.id, dock.id));
     }
-    return raw ? chatgptDockBundle(raw, `${publicApiUrl(this.config)}/v1/llm/chatgpt`, agents) : { vars: {}, files: [] };
+    if (!raw) return { vars: {}, files: [] };
+    const base = `${publicApiUrl(this.config)}/v1/llm`;
+    const chatgpt = chatgptUsable ? chatgptDockBundle(raw, `${base}/chatgpt`, agents) : { vars: {}, files: [] };
+    const keys = providerGatewayBundle(raw, base, gateway, chatgpt.vars.OPENCODE_CONFIG_CONTENT);
+    return { vars: { ...chatgpt.vars, ...keys.vars }, files: chatgpt.files };
   }
 
   /** Docks created with connectors get a fresh gateway token on every apply; the old one stops working. */
