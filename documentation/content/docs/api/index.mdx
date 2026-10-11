@@ -125,14 +125,14 @@ specific to an operation.
 | `import_too_large` | 413 | An import is bigger than the Dock's disk, declared at start or found at complete; in `proxy` mode also a disk whose part size would pass 128 MiB. |
 | `part_too_large` | 400 | A proxied import part is bigger than `partSize`. |
 | `part_upload_busy` | 429 | Too many proxied import parts are uploading; retryable, send the same part again. |
-| `import_checksum_mismatch` | 400 | The uploaded import is not the declared size. |
+| `import_checksum_mismatch` | 400 | The uploaded import is not the declared size; the same value is an import's `error` when the host finds the disk does not match the declared `sha256`. |
 | `import_egress_unsupported` | 409 | No host that verifies imports enforces the default Environment's egress allowlist. |
 | `import_limit_reached` | 429 | The organization has too many open imports. |
 | `import_not_found` | 404 | No such import, or it is not yours. |
 | `export_limit_reached` | 429 | The organization has too many live exports. |
 | `export_not_found` | 404 | No such export, or it is not yours. |
 | `export_base_unsupported` | n/a | An export's `error` value: the Dock's base is not a Dockyard image. |
-| `range_not_satisfiable` | 416 | An export download `Range` starts past the end of the file. |
+| `range_not_satisfiable` | 416 | An export download `Range` starts past the end of the file or ends before it starts; the response carries `Content-Range: bytes */<size>`. |
 | `runtime_unsupported` | 409 | Import and export need a microVM host. |
 | `zdr_blocks_exports` | 403 | Exports are disabled while retention is enabled. |
 | `organization_not_found` | 404 | No such organization, or you are not a member. |
