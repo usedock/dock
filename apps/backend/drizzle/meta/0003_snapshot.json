@@ -1,5 +1,5 @@
 {
-  "id": "b3a4a914-464e-4bfd-bc73-b5a498612543",
+  "id": "c7dc3451-eb34-4a36-ba34-277063e0d6c1",
   "prevId": "e5d2da66-8db0-42b8-af26-5f222005c560",
   "version": "7",
   "dialect": "postgresql",
@@ -4803,6 +4803,21 @@
           "columns": [
             {
               "expression": "state",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "connector_runs_gateway_token_idx": {
+          "name": "connector_runs_gateway_token_idx",
+          "columns": [
+            {
+              "expression": "gateway_token_hash",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

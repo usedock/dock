@@ -1,4 +1,5 @@
 import { HttpException } from '@nestjs/common';
+import { getTableConfig } from 'drizzle-orm/pg-core';
 import { vi } from 'vitest';
 import { hashToken } from '../crypto/tokens';
 import { connectorRuns } from '../database/schema';
@@ -75,5 +76,10 @@ describe('LlmGatewayService for connector runs', () => {
 
   it('refuses an unknown token', async () => {
     expect(await status(setup(null).service.forward(request()))).toBe(401);
+  });
+
+  it('looks connector run tokens up through an index, since every ChatGPT dock call checks this table too', () => {
+    const indexed = getTableConfig(connectorRuns).indexes.map((i) => i.config.columns.map((c) => (c as { name: string }).name));
+    expect(indexed).toContainEqual(['gateway_token_hash']);
   });
 });

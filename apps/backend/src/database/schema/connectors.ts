@@ -102,7 +102,12 @@ export const connectorRuns = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('connector_runs_workspace_id_idx').on(table.workspaceId), index('connector_runs_state_idx').on(table.state)],
+  (table) => [
+    index('connector_runs_workspace_id_idx').on(table.workspaceId),
+    index('connector_runs_state_idx').on(table.state),
+    // The LLM gateway looks up every non-GitHub-run token here, ChatGPT dock calls included.
+    index('connector_runs_gateway_token_idx').on(table.gatewayTokenHash),
+  ],
 );
 
 export type ConnectorRun = typeof connectorRuns.$inferSelect;

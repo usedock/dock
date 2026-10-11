@@ -36,4 +36,5 @@ ALTER TABLE "connector_runs" ADD CONSTRAINT "connector_runs_workspace_id_workspa
 CREATE INDEX "connector_deliveries_received_at_idx" ON "connector_deliveries" USING btree ("received_at");--> statement-breakpoint
 CREATE INDEX "connector_runs_workspace_id_idx" ON "connector_runs" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "connector_runs_state_idx" ON "connector_runs" USING btree ("state");--> statement-breakpoint
+CREATE INDEX "connector_runs_gateway_token_idx" ON "connector_runs" USING btree ("gateway_token_hash");--> statement-breakpoint
 CREATE UNIQUE INDEX "connectors_kind_external_id_unique" ON "connectors" USING btree ("kind","external_id") WHERE "connectors"."external_id" is not null;
