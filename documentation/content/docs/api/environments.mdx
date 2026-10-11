@@ -100,7 +100,14 @@ Move Docks pinned to an older version to the current version (202). Role:
 |---|---|---|---|---|
 | `dockIds` | array of uuid | no | Docks that use this Environment | Limit the move to these Docks; omitted moves every older Dock. |
 
-Response: `{ "operation": { ... } }`, an [operation](/api/objects#operation).
+A Dock bound before the current Environment was created (an Environment of the
+same name was deleted and re-created) is not moved: its disk still holds the old
+Environment's files. It is listed in `skipped`; resume it onto the Environment
+to rebind it.
+
+Response: `{ "operation": { ... }, "skipped": [{ "id": "...", "name": "...", "reason": "..." }] }`,
+an [operation](/api/objects#operation) and the Docks that were not moved (`name`
+is `null` for an unnamed Dock; `skipped` is empty when every Dock moved).
 Errors: `validation_error`, `environment_not_found`, `dock_not_found`.
 
 ### `GET /v1/environments/:ref/repos`

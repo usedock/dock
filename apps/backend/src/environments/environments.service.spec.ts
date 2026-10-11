@@ -257,7 +257,7 @@ describe('EnvironmentsService', () => {
     db.select.mockReturnValueOnce(selectQ([currentDock])); // d2
     db.update.mockReturnValue(updateQ([{ ...oldDock, envVersionPin: 'v3' }]));
     const res = await service.upgrade(callerId, envId, undefined, [oldDock.id, currentDock.id]);
-    expect(res).toEqual({ operation: { id: 'op_1', status: 'completed' }, moved: [oldDock.id], orgId });
+    expect(res).toEqual({ operation: { id: 'op_1', status: 'completed' }, moved: [oldDock.id], skipped: [], orgId });
     expect(db.update).toHaveBeenCalledTimes(1);
   });
 
@@ -762,6 +762,28 @@ describe('EnvironmentsService', () => {
     expect(res).toMatchObject({ operation: { id: 'op_1', status: 'completed' }, moved: [oldDock.id] });
     expect(sets).toHaveLength(1);
     expect(sets[0]).toMatchObject({ envVersionPin: 'v3' });
+    expect(Object.keys(sets[0]).sort()).toEqual(['envVersionPin', 'updatedAt']);
+  });
+
+  it('upgrade skips and reports docks bound before the environment was re-created', async () => {
+    const stale = { id: '44444444-4444-4444-8444-444444444444', name: 'old', workspaceId: 'ws-1', environment: 'base', envVersionPin: 'v1', createdAt: new Date('2025-06-01'), envBoundAt: null };
+    const rebound = { id: '55555555-5555-4555-8555-555555555555', name: 'new', workspaceId: 'ws-1', environment: 'base', envVersionPin: 'v1', createdAt: new Date('2025-06-01'), envBoundAt: new Date('2026-03-01') };
+    db.select.mockReturnValueOnce(selectQ([envRow()])); // resolveRef (createdAt 2026-01-01)
+    db.select.mockReturnValueOnce(selectQ([versionRow({ version: 3 })])); // latest
+    db.select.mockReturnValueOnce(selectQ([{ id: 'ws-1' }])); // workspaces
+    db.select.mockReturnValueOnce(selectQ([stale]));
+    db.select.mockReturnValueOnce(selectQ([rebound]));
+    const sets: any[] = [];
+    db.update.mockImplementation(() => ({
+      set: (values: unknown) => {
+        sets.push(values);
+        return { where: () => Promise.resolve([]) };
+      },
+    }));
+    const res = await service.upgrade(callerId, envId, undefined, [stale.id, rebound.id]);
+    expect(res.moved).toEqual([rebound.id]);
+    expect(res.skipped).toEqual([{ id: stale.id, name: 'old', reason: expect.stringContaining('resume the dock onto the environment') }]);
+    expect(sets).toHaveLength(1);
     expect(Object.keys(sets[0]).sort()).toEqual(['envVersionPin', 'updatedAt']);
   });
 });
