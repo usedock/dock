@@ -11,7 +11,7 @@ the other images become usable as hosts learn to serve Dockyard images.
 
 | Image | Contents | Arch |
 |---|---|---|
-| `ubuntu-24.04` | Minimal Ubuntu 24.04: systemd, openssh-server, git, curl, python3. The default. | amd64 |
+| `ubuntu-24.04` | Minimal Ubuntu 24.04: systemd, openssh-server, Docker, git, curl, python3. The default. | amd64 |
 | `node-22` | `ubuntu-24.04` with Node.js 22 | amd64 |
 | `python-3.12` | `ubuntu-24.04` with Python 3.12, pip and venv | amd64 |
 | `browser` | `ubuntu-24.04` with Chromium and its dependencies | amd64 |
@@ -34,10 +34,10 @@ curl -sS "$DOCK_URL/v1/images" \
   "data": [
     {
       "name": "ubuntu-24.04",
-      "description": "Minimal Ubuntu 24.04: systemd, openssh-server, git, curl, python3",
+      "description": "Minimal Ubuntu 24.04: systemd, openssh-server, Docker, git, curl, python3",
       "arch": ["amd64"],
-      "sizeMiB": 1536,
-      "contents": "Ubuntu 24.04 with systemd, openssh-server, git, curl and python3",
+      "sizeMiB": 2048,
+      "contents": "Ubuntu 24.04 with systemd, openssh-server, Docker, git, curl and python3",
       "available": true
     }
   ]
