@@ -22,7 +22,8 @@ Times are in milliseconds. Success rate was 100% in every scenario and no sandbo
 | Branch to 3 copies, until all answer `exec` | 10 | 100% | 19,737 | 20,139 | 20,139 |
 | Branch to 10 copies, until all answer `exec` | 10 | 100% | 51,158 | 53,536 | 53,536 |
 
-With 10 iterations the P95 and P99 are the slowest sample, so read them as a maximum, not a tail estimate.
+With nearest-rank percentiles and this few samples the tails are single samples, not estimates. At 50 iterations
+the P99 is the slowest sample and the P95 the third slowest; at 10 iterations both are the slowest sample.
 
 Run: [Bench workflow run 38139031011](https://github.com/usedock/dock/actions/runs/38139031011).
 
@@ -41,9 +42,14 @@ Expect the same shape but not the same digits when you rerun it.
 
 ## Method
 
-The method follows ComputeSDK's sandbox benchmarks. The clock for a create stops at the first
+The clock boundaries follow ComputeSDK's sandbox benchmarks. The clock for a create stops at the first
 successful `exec('true')`; a resume starts after the stop has finished; a branch starts at the
-`dock branch` call and stops when every copy answers `exec('true')`.
+`dock branch` call and stops when every copy answers `exec('true')`. Each operation is a call to
+the `dock` CLI, so every time includes starting the CLI process.
+
+These numbers are not comparable with published results for hosted sandboxes: the client runs on the
+same machine as the engine, so there is no network round trip, and the iteration counts are lower
+than ComputeSDK's 100.
 
 - Percentiles use nearest rank over the successful samples. A failed iteration counts against the
   success rate and is listed with its error; it is never dropped.
@@ -54,7 +60,7 @@ successful `exec('true')`; a resume starts after the stop has finished; a branch
 ## Limits
 
 - One runner, one run. It shows the order of magnitude on a shared 4 vCPU machine, not a distribution across machines.
-- The runner is nested-virtualised, so cold starts are slower than on bare metal.
+- The runner is nested-virtualised, so cold starts are expected to be slower than on bare metal; bare metal was not measured.
 - Create at 4 concurrent docks is slower per dock than one at a time because the four VMs share 4 vCPUs.
 - Resume was measured at concurrency 1. An attempt at concurrency 100 on this runner did not finish in over an hour, and it is not a supported configuration of a 4 vCPU, 16 GiB host.
 - Branch scenarios use 10 iterations, not 50, because branching to 10 copies takes about a minute per iteration. A first attempt with 20 iterations of both branch scenarios in one step exceeded the 20 minute step timeout; it was the time budget, not a hang.
@@ -62,5 +68,5 @@ successful `exec('true')`; a resume starts after the stop has finished; a branch
 
 ## Reproduce
 
-Run the [Bench workflow](https://github.com/usedock/dock/actions/workflows/bench.yml) (it also runs monthly and on changes to `bench/`),
+Run the [Bench workflow](https://github.com/usedock/dock/actions/workflows/bench.yml) (it also runs monthly, and as a short smoke run on pull requests that change the harness),
 or run it yourself against your own Dock. See the [harness README](https://github.com/usedock/dock/tree/main/bench).

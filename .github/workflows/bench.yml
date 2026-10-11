@@ -15,6 +15,8 @@ on:
   pull_request:
     paths:
       - bench/**
+      - "!bench/results/**"
+      - "!bench/**/*.md"
       - .github/workflows/bench.yml
 
 permissions:
@@ -29,9 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
-      ITERATIONS: ${{ inputs.iterations || '50' }}
+      # Pull requests get a short smoke run; the baseline comes from dispatch or the schedule.
+      ITERATIONS: ${{ github.event_name == 'pull_request' && '3' || inputs.iterations || '50' }}
       # Branching to 10 copies takes about a minute per iteration on this runner, so it gets fewer iterations.
-      BRANCH_ITERATIONS: "10"
+      BRANCH_ITERATIONS: ${{ github.event_name == 'pull_request' && '1' || '10' }}
       DOCK_VERSION: ${{ inputs.dock_version || 'v0.3.2' }}
       DOCK_DATA_DIR: ${{ github.workspace }}/../dockdata
       DOCK_BENCH_MEMORY_MIB: "1024"
