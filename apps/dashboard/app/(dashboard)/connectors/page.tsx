@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getDefaultApi, type Connector, type ConnectorCredentialType } from '@/lib/dock-api';
 import { formatDate, messageOf } from '@/lib/format';
+import { ConnectorRepoLinks } from '@/components/dashboard/connector-repo-links';
 import { useOrg } from '@/components/dashboard/org-context';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import {
@@ -270,6 +271,9 @@ function ConnectorsView() {
                       </a>
                     </AlertDescription>
                   </Alert>
+                ) : null}
+                {c.status === 'connected' && c.type === 'tool' && selectedWorkspaceId ? (
+                  <ConnectorRepoLinks workspaceId={selectedWorkspaceId} kind={c.kind} label={entry.label} isAdmin={isAdmin} />
                 ) : null}
                 <div className="mt-auto flex flex-wrap items-center gap-2">
                   {c.readOnly ? (
