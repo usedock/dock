@@ -40,7 +40,8 @@ For a self-hosted control plane, set `DOCK_API_URL` to your origin
   operation you can poll with the operations call.
 - Create and branch take an idempotency key, sent as the `idempotency-key`
   header. A retry with the same key returns the original Dock; reusing a key for
-  a different request fails with `idempotency_key_reused`.
+  a different request fails with `idempotency_key_reused`. The Python SDK also
+  sends one on `exec`.
 - Failures carry the API's stable `snake_case` code, the HTTP status, and a
   message. Match on the code, not the message. See the [API guide](/api/v1).
 - Responses rely only on `id`, `name`, and `state`; other fields are kept when

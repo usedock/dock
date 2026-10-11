@@ -83,18 +83,20 @@ its compute. `POST /v1/docks/:id/resume` boots the same Dock from that Snapshot.
 
 ## Use the CLI or an SDK
 
-The same flow without curl. Both read the key and origin from the environment
-or, for the CLI, from a context.
+The same flow without curl. The CLI keeps the origin and key in a context; the
+SDKs read `DOCK_API_KEY` and take the origin as an option or `DOCK_API_URL`.
+Dock names are unique per workspace, so these examples use new names next to
+the `scratch` Dock from step 3.
 
 ```bash
 # CLI: see /cli for install
 dock context add home --url "$DOCK_URL" --workspace <workspace-id>
 dock context use home
 echo "$DOCK_API_KEY" | dock login
-dock new scratch
-dock exec scratch -- uname -a
-dock stop scratch && dock resume scratch
-dock rm scratch
+dock new scratch-cli
+dock exec scratch-cli -- uname -a
+dock stop scratch-cli && dock resume scratch-cli
+dock rm scratch-cli
 ```
 
 ```ts
@@ -102,18 +104,18 @@ dock rm scratch
 import { Dock } from '@usedock/sdk'
 
 const dock = new Dock({ baseUrl: process.env.DOCK_URL }) // reads DOCK_API_KEY
-const box = await dock.docks.create({ workspaceId: '<workspace-id>', name: 'scratch' })
-const res = await dock.docks.exec(box.id, 'uname -a')
+const d = await dock.docks.create({ workspaceId: '<workspace-id>', name: 'scratch-ts' })
+const res = await dock.docks.exec(d.id, 'uname -a')
 console.log(res.stdout)
-await dock.docks.delete(box.id)
+await dock.docks.delete(d.id)
 ```
 
-The [CLI](/cli) and the [SDKs](/sdks) (TypeScript, Python, Go) are early and not
-published to package registries yet; their pages show how to install them.
+The [CLI](/cli) installs as a signed release binary. The [SDKs](/sdks)
+(TypeScript, Python, Go) are early and not published to package registries yet;
+their pages show how to install them from GitHub.
 
 ## Next steps
 
 - [CLI](/cli) and [SDKs](/sdks): the full command and method lists.
-
 - [API guide](/api/v1): envelopes, errors, idempotency, and confirmation headers.
 - [Self-hosting](/self-hosting): run the control plane and hosts yourself.

@@ -24,7 +24,7 @@ Layout (no root workspace; each app runs on its own):
 - Headline: "Isolated Linux machines for agents. On your laptop, your servers, or our cloud."
 - A Dock has an image (`ubuntu-24.04`, the only one today, or a saved dock), a size as numbers (`cpus`, `memoryMiB`, `diskGiB`; default 2 vCPU, 4 GB, 20 GB) and a runtime chosen by its host: `microvm` (Firecracker on KVM, whole disk persists) or `gvisor` (runsc on Docker, only `/home/user/work` persists). The runtime is read-only on the dock.
 - Dock never installs or versions coding agents; users bring their own (install them in the environment setup script).
-- Self-hosting is free; Dock Cloud is coming soon. The `dock` CLI (usedock/docklet) and the TypeScript, Python and Go SDKs (usedock/dock-js, dock-python, dock-go) work against a control plane but are not published to npm, PyPI or a release channel yet; document install from GitHub or source. A local engine without a control plane is planned, not built; `dock cp` does not exist.
+- Self-hosting is free; Dock Cloud is coming soon. The `dock` CLI (usedock/docklet) and the TypeScript, Python and Go SDKs (usedock/dock-js, dock-python, dock-go) work against a control plane. The CLI ships as cosign-signed docklet release binaries (from v0.1.0) installed by `https://usedock.io/install` or `/install.ps1`; the SDKs are not published to npm, PyPI or a Go module tag yet, so document install from GitHub or source. A local engine without a control plane is planned, not built; `dock cp` does not exist.
 - Vocabulary: `Dock`, `Image`, `Size`, `Runtime`, `Environment`, `Snapshot`, `Branch`, `Host`, `Connector`, `Template`, `Run`, `Workspace`. Never `box`, `computer`, `tier`, `class`, `toolbox`.
 
 ## Working Agreements

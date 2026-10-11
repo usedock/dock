@@ -9,9 +9,19 @@ or Bun). It is ESM only. Source:
 
 ## Install
 
-The package is not on npm yet, and the repository has no `prepare` script, so a
-GitHub install does not build `dist/`. Build it from source and install from the
-path:
+The package is not on npm yet. Install it from GitHub with npm; a `prepare`
+script builds `dist/` during the install:
+
+```sh
+npm install github:usedock/dock-js
+```
+
+npm warns that the package runs an install script; that script is the build.
+`bun add github:usedock/dock-js` does not work: Bun does not run the `prepare`
+script of a Git dependency, so `dist/` is missing and the import fails.
+
+With Bun, or if the install from GitHub fails, build from source and install
+from the path:
 
 ```sh
 git clone https://github.com/usedock/dock-js
@@ -22,7 +32,7 @@ cd ../your-project
 bun add ../dock-js
 ```
 
-`npm install ../dock-js` works the same way. When it is published:
+`npm install ../dock-js` works the same way. When the package is published:
 `npm install @usedock/sdk`.
 
 ## Configure
@@ -39,24 +49,24 @@ key the constructor throws `DockError` with code `missing_api_key`.
 ## Quickstart
 
 ```ts
-const box = await dock.docks.create(
+const d = await dock.docks.create(
   { workspaceId: '<workspace-id>', name: 'demo', cpus: 2, memoryMiB: 4096 },
   { idempotencyKey: 'demo-1' },
 )
 
-const res = await dock.docks.exec(box.id, 'echo hello', { cwd: '/home/user/work' })
+const res = await dock.docks.exec(d.id, 'echo hello', { cwd: '/home/user/work' })
 console.log(res.exitCode, res.stdout)
 
-await dock.docks.files.write(box.id, '/home/user/work/notes/hello.txt', 'hello\n')
-console.log(await dock.docks.files.read(box.id, '/home/user/work/notes/hello.txt'))
-console.log(await dock.docks.files.list(box.id, '/home/user/work/notes')) // ['hello.txt']
+await dock.docks.files.write(d.id, '/home/user/work/notes/hello.txt', 'hello\n')
+console.log(await dock.docks.files.read(d.id, '/home/user/work/notes/hello.txt'))
+console.log(await dock.docks.files.list(d.id, '/home/user/work/notes')) // ['hello.txt']
 
-await dock.docks.stop(box.id) // { id, state }
-await dock.docks.resume(box.id)
+await dock.docks.stop(d.id) // { id, state }
+await dock.docks.resume(d.id)
 
-const copy = await dock.docks.branch(box.id, { name: 'demo-copy' })
+const copy = await dock.docks.branch(d.id, { name: 'demo-copy' })
 
-const { operation } = await dock.docks.delete(box.id)
+const { operation } = await dock.docks.delete(d.id)
 console.log((await dock.operations.get(operation.id)).status)
 await dock.docks.delete(copy.id)
 ```
@@ -103,10 +113,10 @@ UTF-8 text.
 ## Turn off auto-stop
 
 Auto-stop is off unless you set `ttlSeconds`. Pass `null` to switch it off on
-create, branch, or update:
+create, branch, resume, or update:
 
 ```ts
-await dock.docks.update(box.id, { ttlSeconds: null })
+await dock.docks.update(d.id, { ttlSeconds: null })
 ```
 
 `undefined` leaves the field out, which keeps the current value.

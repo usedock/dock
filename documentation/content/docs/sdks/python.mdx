@@ -51,7 +51,7 @@ with Dock() as client:
     print(client.docks.files.read(dock.id, "/home/user/work/notes/hello.txt"))
     print(client.docks.files.list(dock.id, "/home/user/work/notes"))  # ['hello.txt']
 
-    client.docks.stop(dock.id)
+    client.docks.stop(dock.id)  # DockState(id=..., state=...)
     client.docks.resume(dock.id)
 
     copy = client.docks.branch(dock.id, name="demo-copy")
@@ -63,15 +63,19 @@ with Dock() as client:
 
 ## Methods
 
-On `client.docks`: `create`, `list(filter=, all=)`, `get`, `update`, `exec`,
-`stop(force=)`, `resume`, `branch`, `delete`, and `files.write`, `files.read`,
-`files.list`. `client.operations.get(id)` polls an operation. Sizes are
-`cpus`, `memory_mib`, and `disk_gib`; `create` and `branch` also take `env`,
-`environment`, and `no_env`. Arguments you leave out are not sent.
+On `client.docks`: `create`, `list(filter=, all=)`, `get`, `update`,
+`exec(timeout_seconds=, env=, cwd=, idempotency_key=)`, `stop(force=)`,
+`resume`, `branch`, `delete`, and `files.write`, `files.read`,
+`files.read_bytes`, `files.list`. `client.operations.get(id)` polls an
+operation. Sizes are `cpus`, `memory_mib`, and `disk_gib`; `create` and
+`branch` also take `env`, `environment`, and `no_env`. Arguments you leave out
+are not sent.
 
-Results are dataclasses: `DockInfo`, `ExecResult`, and `Operation`. Only `id`,
-`name`, and `state` are relied on. The full response, including fields this SDK
-does not know yet, is in `.raw`.
+Results are dataclasses: `DockInfo` from `create`, `get`, `list`, `update`, and
+`branch`; `DockState` (`id` and `state` only) from `stop` and `resume`;
+`ExecResult`; and `Operation` from `delete`. Only `id`, `name`, and `state` are
+relied on. The full response, including fields this SDK does not know yet, is
+in `.raw`.
 
 ## Errors
 
@@ -88,7 +92,8 @@ except DockError as err:
 
 `code` is the API's code, such as `dock_not_found` or `validation_error`.
 `status` is the HTTP status, and 0 for failures with no response or raised by
-the SDK: `network_error`, `file_command_failed`, `output_truncated`. A response
+the SDK: `network_error`, `file_command_failed`, `output_truncated`,
+`file_not_utf8`. A response
 that is not a Dock envelope raises `invalid_response`.
 
 ## File helpers
@@ -97,24 +102,27 @@ See [File helpers](/sdks#file-helpers) for the limits. In this SDK:
 
 - `files.write` takes `str` or `bytes`. Content above about 48 KB, less the
   path, raises `ValueError` before anything is sent.
-- `files.read` returns decoded UTF-8 text.
+- `files.read` returns UTF-8 text and raises `DockError` with code
+  `file_not_utf8` when the file is not valid UTF-8. `files.read_bytes` returns
+  the raw `bytes`.
 - A non-zero exit raises `DockError` with code `file_command_failed`. A read of
   a file over about 768 KB raises `output_truncated`.
 
 ## Turn off auto-stop
 
-Auto-stop is off unless you set `ttl_seconds`. The SDK drops `None` arguments,
-so this version cannot send `ttlSeconds: null` and cannot clear a TTL you set
-earlier. Until it can, clear it with the REST API:
+Auto-stop is off unless you set `ttl_seconds`. To clear one you set earlier,
+pass `None` to `update`, which sends `ttlSeconds: null`:
 
-```sh
-curl -sS -X PATCH "$DOCK_API_URL/v1/docks/<dock-id>" \
-  -H "Authorization: Bearer $DOCK_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"ttlSeconds":null}'
+```python
+client.docks.update(dock.id, ttl_seconds=None)
 ```
+
+Leaving `ttl_seconds` out of `update` keeps the current value. On `create`,
+`branch`, and `resume`, `None` means the argument is not sent.
 
 ## Idempotency keys
 
-`create` and `branch` take `idempotency_key=`. Use a stable key per intended
-Dock, so a retry after a crash returns the original.
+`create`, `branch`, and `exec` take `idempotency_key=`, sent as the
+`idempotency-key` header. Use a stable key per intended Dock or command, so a
+retry after a crash returns the original result instead of doing the work
+twice.

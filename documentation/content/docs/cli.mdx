@@ -23,14 +23,37 @@ Windows PowerShell:
 irm https://usedock.io/install.ps1 | iex
 ```
 
-Both installers download the release binary, verify `checksums.txt` and the
-cosign signatures, and stop on a missing or bad checksum or signature. The
-binary goes to `~/.local/bin/dock` (set `DOCK_INSTALL_DIR` to change it) or
-`%LOCALAPPDATA%\dock\bin\dock.exe`. `DOCK_VERSION` picks a release tag instead
-of the latest.
+These URLs redirect to `scripts/install.sh` and `scripts/install.ps1` in the
+docklet repository; you can also run them from
+`https://raw.githubusercontent.com/usedock/docklet/main/scripts/`. Release
+binaries exist for Linux and macOS (amd64, arm64) and Windows (amd64, arm64).
 
-The installers need a docklet release that includes the CLI. Until the first
-one is cut, build it from a checkout of the docklet repository (Go 1.25):
+Both installers download the release binary, `checksums.txt`, and their cosign
+signature bundles, then check that the signatures come from the docklet release
+workflow for that tag and that the checksum matches. They stop on any missing or
+bad file. If cosign v2.4.1 is not installed, they fetch that version and check
+its pinned SHA-256 first.
+
+| Variable | Effect |
+| --- | --- |
+| `DOCK_VERSION` | Release tag to install, such as `v0.1.0`. Default: the latest release |
+| `DOCK_INSTALL_DIR` | Install directory. Default: `~/.local/bin`, or `%LOCALAPPDATA%\dock\bin` on Windows |
+| `DOCK_NO_MODIFY_PATH` | Windows only. `1` leaves your user `PATH` alone |
+
+On Windows the installer adds the directory to your user `PATH`; open a new
+terminal afterwards. On macOS and Linux it prints the `export PATH=...` line to
+add when the directory is not on your `PATH`.
+
+Check the installed version:
+
+```sh
+dock version
+dock --version
+```
+
+Both print the release tag, or `dev` for a binary built from source.
+
+To build from source instead, you need Go 1.25:
 
 ```sh
 git clone https://github.com/usedock/docklet
@@ -75,8 +98,8 @@ active context for one invocation, which suits CI.
 
 ## Commands
 
-Every command takes `--json`, which prints the API's `data` as JSON instead of
-text. `<dock>` is a Dock name or id; a name shared by several Docks fails with
+Every command except `version` takes `--json`, which prints the API's `data`
+as JSON instead of text. `<dock>` is a Dock name or id; a name shared by several Docks fails with
 `ambiguous_dock`, so use the id.
 
 ### new
@@ -171,7 +194,7 @@ dock rm web
 Deletes a Dock. The CLI sends the required `x-confirm-delete` header for you,
 so there is no prompt: the delete is immediate.
 
-### login, context
+### login, context, version
 
 Described above.
 
