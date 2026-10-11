@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
+import { domainToASCII } from 'url';
 import { RateLimitService } from '../auth/rate-limit.service';
 import { MailService } from '../mail/mail.service';
 import { CONTACT_TOPICS, type ContactTopic } from './dto/contact.dto';
@@ -10,6 +11,18 @@ const RATE_LIMIT = 3;
 const RATE_WINDOW_SECONDS = 3600;
 const CONFIRM_WINDOW_SECONDS = 24 * 3600;
 const DEFAULT_INBOX = 'hello@usedock.io';
+
+/** The mailbox a send actually reaches, so quoting, IDN and case variants share one confirmation key. */
+export function confirmationAddress(email: string): string {
+  const trimmed = email.trim().normalize('NFC');
+  const at = trimmed.lastIndexOf('@');
+  let local = trimmed.slice(0, at);
+  const domain = trimmed.slice(at + 1);
+  if (local.length >= 2 && local.startsWith('"') && local.endsWith('"')) {
+    local = local.slice(1, -1).replace(/\\(.)/g, '$1');
+  }
+  return `${local}@${domainToASCII(domain) || domain}`.toLowerCase();
+}
 
 export interface ContactSubmission {
   name: string;
@@ -80,7 +93,7 @@ export class ContactService {
   /** One confirmation per address per 24 h. Never throws; a limiter error means no mail. */
   private async confirmWaitlist(email: string): Promise<void> {
     try {
-      const digest = createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+      const digest = createHash('sha256').update(confirmationAddress(email)).digest('hex');
       const { allowed } = await this.limits.hit(
         `rl:contact-confirm:${digest}`,
         1,

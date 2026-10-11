@@ -1,4 +1,4 @@
-import { ContactService } from './contact.service';
+import { ContactService, confirmationAddress } from './contact.service';
 import { vi, type Mock } from 'vitest';
 
 function makeService(overrides: { allowed?: boolean } = {}) {
@@ -159,3 +159,20 @@ describe('ContactService waitlist confirmation', () => {
   });
 });
 
+describe('confirmationAddress', () => {
+  it('maps quoted, IDN and case variants of one mailbox to the same key', () => {
+    const variants = [
+      'victim@bücher.de',
+      'victim@xn--bcher-kva.de',
+      '"victim"@bücher.de',
+      ' Victim@BÜCHER.de ',
+      'victim@bu\u0308cher.de',
+    ];
+    expect(new Set(variants.map(confirmationAddress))).toEqual(new Set(['victim@xn--bcher-kva.de']));
+  });
+
+  it('keeps plus-addressed and distinct mailboxes apart', () => {
+    expect(confirmationAddress('ada+waitlist@acme.dev')).toBe('ada+waitlist@acme.dev');
+    expect(confirmationAddress('"a\\"b"@acme.dev')).toBe('a"b@acme.dev');
+  });
+});
