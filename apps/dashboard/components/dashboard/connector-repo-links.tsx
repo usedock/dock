@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getDefaultApi, type ConnectorRepoLink } from '@/lib/dock-api';
 import { formatDate, messageOf } from '@/lib/format';
 import { ErrorNote } from '@/components/dashboard/data-states';
@@ -22,6 +22,20 @@ import { Label } from '@/components/ui/label';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 
 const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.usedock.io';
+
+// Same rules as apps/backend/src/connectors/connector-repo-links.service.ts.
+const REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+const SCOPE_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+function scopeProblem(scope: string): string | null {
+  if (scope === '*' || SCOPE_RE.test(scope)) return null;
+  return 'Use * or an id of at most 128 letters, digits, and _ . : -';
+}
+
+function repoProblem(repo: string): string | null {
+  if (REPO_RE.test(repo) && repo.split('/')[1].replace(/\./g, '') !== '') return null;
+  return 'Use the form owner/name, for example acme/api.';
+}
 
 /** What the scope of a link means for each tool; the API accepts these as opaque ids. */
 const SCOPE_HINTS: Record<string, { noun: string; example: string }> = {
@@ -71,16 +85,24 @@ export function ConnectorRepoLinks({
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState<ConnectorRepoLink | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const seq = useRef(0);
+  const reposSeq = useRef(0);
   const hint = SCOPE_HINTS[kind] ?? { noun: 'scope id', example: 'an id' };
+  const scopeError = scope.trim() ? scopeProblem(scope.trim()) : null;
+  const repoError = repo.trim() ? repoProblem(repo.trim()) : null;
 
+  // A response only lands if no newer request started and the workspace has not changed (the effect cleanup bumps the counter).
   const refresh = useCallback(() => {
+    const id = ++seq.current;
     api
       .listConnectorRepoLinks(workspaceId, kind)
       .then(({ links: rows }) => {
+        if (id !== seq.current) return;
         setLinks(rows);
         setLoadError(null);
       })
       .catch((e: unknown) => {
+        if (id !== seq.current) return;
         setLinks([]);
         setLoadError(errorText(e, 'Could not load repository links.'));
       });
@@ -88,6 +110,12 @@ export function ConnectorRepoLinks({
 
   useEffect(() => {
     if (isAdmin) refresh();
+    return () => {
+      /* eslint-disable react-hooks/exhaustive-deps -- bump the live counters to drop in-flight responses */
+      seq.current++;
+      reposSeq.current++;
+      /* eslint-enable react-hooks/exhaustive-deps */
+    };
   }, [isAdmin, refresh]);
 
   function openAdd() {
@@ -97,14 +125,17 @@ export function ConnectorRepoLinks({
     setReposError(null);
     setRepos(null);
     setAdding(true);
+    const id = ++reposSeq.current;
     api
       .listInstallations(workspaceId)
       .then((rows) => {
+        if (id !== reposSeq.current) return;
         const names = new Set<string>();
         for (const inst of rows as Array<{ repos?: string[] }>) for (const r of inst.repos ?? []) names.add(r);
         setRepos([...names].sort());
       })
       .catch((e: unknown) => {
+        if (id !== reposSeq.current) return;
         setRepos([]);
         setReposError(messageOf(e, 'Could not load the repositories of your GitHub installations.'));
       });
@@ -199,7 +230,7 @@ export function ConnectorRepoLinks({
               A link lets anyone who can start a run read the repository and trigger its CI with its secrets.{' '}
               <a
                 className="text-foreground underline underline-offset-4"
-                href={`${DOCS_URL}/connectors/triggers`}
+                href={`${DOCS_URL}/connectors/triggers#open-pull-requests-in-a-linked-repository`}
                 target="_blank"
                 rel="noreferrer"
               >
@@ -213,45 +244,60 @@ export function ConnectorRepoLinks({
               id={`repo-link-scope-${kind}`}
               autoComplete="off"
               spellCheck={false}
+              aria-invalid={scopeError !== null}
               value={scope}
               onChange={(e) => setScope(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
-              A {hint.noun} ({hint.example}), or <span className="font-mono text-foreground">*</span> for every one without its own link.
-            </p>
+            {scopeError ? (
+              <p className="text-xs text-destructive" role="alert">
+                {scopeError}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                A {hint.noun} ({hint.example}), or <span className="font-mono text-foreground">*</span> for every one without its own link.
+              </p>
+            )}
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor={`repo-link-repo-${kind}`}>Repository</Label>
             {repos !== null && repos.length > 0 ? (
-              <NativeSelect id={`repo-link-repo-${kind}`} className="w-full" value={repo} onChange={(e) => setRepo(e.target.value)}>
-                <NativeSelectOption value="">Choose a repository</NativeSelectOption>
+              <NativeSelect
+                aria-label="Pick from your installations"
+                className="w-full"
+                value={repos.includes(repo.trim()) ? repo.trim() : ''}
+                onChange={(e) => setRepo(e.target.value)}
+              >
+                <NativeSelectOption value="">Pick from your installations</NativeSelectOption>
                 {repos.map((r) => (
                   <NativeSelectOption key={r} value={r}>
                     {r}
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
+            ) : null}
+            <Input
+              id={`repo-link-repo-${kind}`}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="owner/name"
+              aria-invalid={repoError !== null}
+              value={repo}
+              onChange={(e) => setRepo(e.target.value)}
+            />
+            {repoError ? (
+              <p className="text-xs text-destructive" role="alert">
+                {repoError}
+              </p>
             ) : (
-              <Input
-                id={`repo-link-repo-${kind}`}
-                autoComplete="off"
-                spellCheck={false}
-                placeholder="owner/name"
-                disabled={repos === null}
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-              />
+              <p className="text-xs text-muted-foreground">
+                {reposError ??
+                  'Pick a repository or type any owner/name your workspace GitHub App installations can reach. The Dock GitHub App is checked when you save.'}
+              </p>
             )}
-            <p className="text-xs text-muted-foreground">
-              {reposError ??
-                (repos !== null && repos.length === 0
-                  ? 'No repositories found on your GitHub installations. Install the Dock GitHub App from Developers, GitHub, or type owner/name.'
-                  : 'Repositories your workspace GitHub App installations can reach.')}
-            </p>
           </div>
           {formError ? <ErrorNote message={formError} /> : null}
           <DialogFooter>
-            <Button type="button" disabled={!scope.trim() || !repo.trim() || busy} onClick={save}>
+            <Button type="button" disabled={!scope.trim() || !repo.trim() || scopeError !== null || repoError !== null || busy} onClick={save}>
               {busy ? 'Saving…' : 'Save link'}
             </Button>
           </DialogFooter>
