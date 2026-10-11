@@ -81,4 +81,4 @@ Self-host: `cd deploy/self-host && ./setup.sh [--host] [--url https://dock.examp
 
 - Backend: Vitest, colocated `src/**/*.spec.ts`.
 - CI (`.github/workflows/ci.yml`) runs the backend build and tests, the bench typecheck and tests, the dashboard lint and build, the docs typecheck and build, and a gitleaks scan.
-- Known baseline: backend `env-apply-script.spec.ts` fails on Windows only (argv length limit); it passes on Linux CI.
+- Known baseline: backend `env-apply-script.spec.ts` and the runner execution tests skip on Windows (bash there can be the WSL launcher); they run on Linux CI.

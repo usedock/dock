@@ -32,4 +32,4 @@ Every PR is reviewed with `.claude/skills/pr-review/SKILL.md` (`/pr-review <numb
 
 ## Platform
 
-Developed from Windows and Linux. Backend `env-apply-script.spec.ts` fails on Windows only (argv length limit); CI on Linux runs it.
+Developed from Windows and Linux. Backend `env-apply-script.spec.ts` and the runner execution tests skip on Windows (they need bash, which can be the WSL launcher there); CI on Linux runs them.

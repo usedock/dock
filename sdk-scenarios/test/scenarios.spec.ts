@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
+import { resolveBash } from './resolve-bash';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const backendSrc = join(root, '..', 'apps', 'backend', 'src');
@@ -224,16 +225,25 @@ describe('fixture replay', () => {
 });
 
 // The file templates run in bash with GNU coreutils, as in the dock image.
-const bash = spawnSync('bash', ['-c', 'base64 -w0 </dev/null'], { encoding: 'utf8' });
+// On Windows only Git Bash (or DOCK_TEST_BASH) is used, never the WSL launcher.
+const resolved = resolveBash({ platform: process.platform, env: process.env, exists: existsSync });
+if (resolved.reason) console.warn(`composite file commands skipped: ${resolved.reason}`);
+const bashPath = resolved.bash;
+const bashRun = (command: string, cwd?: string) =>
+  bashPath ? spawnSync(bashPath, ['-c', command], { cwd, env: resolved.env, encoding: 'utf8' }) : undefined;
+const bash = bashRun('base64 -w0 </dev/null');
 // Some filesystems (NTFS) cannot hold newlines in names; the newline cases skip there.
-const nl = spawnSync('bash', ['-c', 'd=$(mktemp -d) && touch "$d/a"$\'\\n\'"b" && rm -r "$d"'], { encoding: 'utf8' });
-const canNewline = bash.status === 0 && nl.status === 0;
+const nl = bashRun('d=$(mktemp -d) && touch "$d/a"$\'\\n\'"b" && rm -r "$d"');
+const canNewline = bash?.status === 0 && nl?.status === 0;
 const hostileNames = ["it's.txt", '-n.txt', 'dir with space/$(touch pwned).txt', "x'; touch pwned; echo '", 'a\nb.txt', 'trail\n', '\nlead.txt', 'a\n\nb'];
 const names = hostileNames.filter((n) => canNewline || !n.includes('\n'));
 const flat = (name: string) => name.replace(/\//g, '_');
 
-describe.skipIf(bash.status !== 0)('composite file commands', () => {
-  const run = (cwd: string, command: string) => spawnSync('bash', ['-c', command], { cwd, encoding: 'utf8' });
+// CI must run these, never skip them silently.
+if (process.env.CI) it('bash with GNU coreutils is usable in CI', () => expect(bash?.status, resolved.reason).toBe(0));
+
+describe.skipIf(bash?.status !== 0)('composite file commands', () => {
+  const run = (cwd: string, command: string) => bashRun(command, cwd)!;
   const inTempDir = (fn: (cwd: string) => void) => {
     const cwd = mkdtempSync(join(tmpdir(), 'sdk-scenarios-'));
     try {
