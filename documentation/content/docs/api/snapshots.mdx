@@ -105,7 +105,11 @@ Dock has no completed Snapshot), `service_unavailable` (the capture failed).
 
 When the Dock has connectors, a running Dock is re-applied after the capture so its
 connector gateway token is replaced: the copy held by the Template stops working,
-and the Template is marked as coming from a connector Dock.
+and the Template is marked as coming from a connector Dock. Processes already
+running in the source Dock keep the old token until they reload
+`~/.config/dock/mcp.json` or the environment. The rotation is best effort: if the
+apply fails before the token is replaced, the save still succeeds and the captured
+token works until the source Dock is applied again or stops.
 
 ### `GET /v1/templates`
 

@@ -43,7 +43,7 @@ function savingMarker(tpl: Template): Date | null {
   return tpl.savingSince ?? (tpl.status === 'saving' ? tpl.updatedAt : null);
 }
 
-/** Unknown connectors count as present: the disk may hold a gateway token. */
+/** A dock with connectors holds a gateway token on its disk. */
 function hasConnectors(dock: Dock): boolean {
   return (dock.connectors ?? []).length > 0;
 }

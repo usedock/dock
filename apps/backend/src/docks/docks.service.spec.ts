@@ -840,6 +840,18 @@ describe('DocksService', () => {
     expect(dock.fromTemplate).toBe('web-stack');
   });
 
+  it('re-applies the current row, not the one read before a template capture', async () => {
+    db.select.mockReturnValueOnce(selectQ([dockRow({ envVersionPin: 'v2' })]));
+    await service.reapply(dockRow({ envVersionPin: 'v1' }) as never, orgId);
+    expect(applier.apply).toHaveBeenCalledWith(expect.objectContaining({ id: dockId, envVersionPin: 'v2' }), orgId);
+  });
+
+  it('skips the re-apply when the dock is gone', async () => {
+    db.select.mockReturnValueOnce(selectQ([]));
+    await service.reapply(dockRow() as never, orgId);
+    expect(applier.apply).not.toHaveBeenCalled();
+  });
+
   describe('create from a template that had connectors', () => {
     const arrange = (tpl: Record<string, unknown>, sourceRows: any[]) => {
       db.select.mockReturnValueOnce(selectQ([{ name: 'web-stack', status: 'ready', sourceDockId: dockId, ...tpl }])).mockReturnValueOnce(selectQ(sourceRows));

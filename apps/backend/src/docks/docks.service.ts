@@ -251,9 +251,10 @@ export class DocksService {
     return loaded;
   }
 
-  /** Re-applies the dock's bundle, replacing its connector gateway token. */
+  /** Re-applies the dock's bundle, replacing its connector gateway token; reloads the row so a pin moved meanwhile is not reverted. */
   async reapply(dock: Dock, orgId: string): Promise<void> {
-    await this.applier.apply(dock, orgId);
+    const [fresh] = await this.db.select().from(docks).where(eq(docks.id, dock.id)).limit(1);
+    if (fresh) await this.applier.apply(fresh, orgId);
   }
 
   private async refuseConnectorMembers(orgId: string, callerId: string): Promise<void> {
