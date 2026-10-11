@@ -4,7 +4,7 @@ import { connect, type AddressInfo } from 'net';
 import { vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { CommandFailedException } from '../fleet/host-command-queue';
-import { DockPortsService, hostHeader, MAX_PORTS_PER_DOCK, withoutHeader } from './dock-ports.service';
+import { DockPortsService, hostHeader, MAX_PORTS_PER_DOCK, forUpstream } from './dock-ports.service';
 import { EDGE_PROOF_HEADER, edgeProof } from './port-access-token';
 import { DockTunnelService } from './dock-tunnel.service';
 
@@ -204,9 +204,20 @@ describe('DockPortsService', () => {
 
     it('removes only the proof header from the buffered request', () => {
       const request = Buffer.from('POST /x HTTP/1.1\r\nHost: a\r\nX-Dock-Port-Auth: abc\r\nX-Other: 1\r\n\r\nbody');
-      expect(withoutHeader(request, EDGE_PROOF_HEADER).toString()).toBe('POST /x HTTP/1.1\r\nHost: a\r\nX-Other: 1\r\n\r\nbody');
+      expect(forUpstream(request, false).toString()).toBe('POST /x HTTP/1.1\r\nHost: a\r\nX-Other: 1\r\n\r\nbody');
       const plain = 'GET / HTTP/1.1\r\nHost: a\r\n\r\n';
-      expect(withoutHeader(Buffer.from(plain), EDGE_PROOF_HEADER).toString()).toBe(plain);
+      expect(forUpstream(Buffer.from(plain), true).toString()).toBe(plain);
+    });
+
+    it('keeps port credentials away from the dock but leaves the app its own cookies and auth', () => {
+      const request = (auth: string) => Buffer.from(`GET / HTTP/1.1\r\nHost: a\r\nCookie: app=1; dock_port_access=tok; theme=dark\r\nAuthorization: ${auth}\r\n\r\n`);
+      expect(forUpstream(request('Bearer dock_secret'), true).toString()).toBe('GET / HTTP/1.1\r\nHost: a\r\nCookie: app=1; theme=dark\r\n\r\n');
+      expect(forUpstream(request('Basic dXNlcjpwYXNz'), true).toString()).toContain('Authorization: Basic dXNlcjpwYXNz\r\n');
+      expect(forUpstream(request('Bearer app-token'), true).toString()).toContain('Authorization: Bearer app-token\r\n');
+      // A public port's app may take dock keys itself; the port cookie never belongs to it.
+      expect(forUpstream(request('Bearer dock_secret'), false).toString()).toContain('Authorization: Bearer dock_secret\r\n');
+      const only = Buffer.from('GET / HTTP/1.1\r\nHost: a\r\ncookie: dock_port_access=tok\r\n\r\n');
+      expect(forUpstream(only, true).toString()).toBe('GET / HTTP/1.1\r\nHost: a\r\n\r\n');
     });
 
     it('refuses requests without a Host header or with oversized headers', async () => {

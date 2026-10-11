@@ -49,6 +49,9 @@ export function verifyPortToken(config: ConfigReader, kind: PortTokenKind, label
   }
 }
 
+/** Host-only cookie on a private port host holding a `session` token. */
+export const PORT_COOKIE = 'dock_port_access';
+
 /** Header the edge sets after the access check passes; the proxy refuses private ports without it. */
 export const EDGE_PROOF_HEADER = 'x-dock-port-auth';
 

@@ -232,13 +232,15 @@ A private port answers only requests that carry one of two credentials:
   Dock's organization, they are sent back to the port URL with a 60-second
   token, which the edge trades for an 8-hour `HttpOnly` cookie that is valid for
   that one port URL only. A signed-out user is sent to the dashboard sign-in
-  first. Removing the user from the organization ends access on the next request.
+  first. Removing the user from the organization, or closing their account, ends
+  access on the next request.
 - `Authorization: Bearer dock_...` with an API key bound to that Dock. Other
   keys, including your own user keys, are not accepted. Without a credential,
   requests that do not ask for HTML get `401`.
 
-The cookie and the `Authorization` header are passed on to the service in the
-Dock. Switch a port to `public` for webhooks or other callers that cannot sign
+The service in the Dock never sees the port cookie or an `Authorization: Bearer dock_...`
+header sent to a private port; its own cookies and other `Authorization` values pass
+through. Switch a port to `public` for webhooks or other callers that cannot sign
 in.
 
 ### `GET /v1/ports/access`

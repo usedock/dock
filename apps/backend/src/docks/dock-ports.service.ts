@@ -9,7 +9,8 @@ import { dockPorts, docks, type DockPort } from '../database/schema';
 import { EXEC_STATES } from './dock-exec.service';
 import { DockTunnelService, TunnelOpenException, type TunnelFailure } from './dock-tunnel.service';
 import { DocksService } from './docks.service';
-import { EDGE_PROOF_HEADER, edgeProofValid } from './port-access-token';
+import { API_KEY_PREFIX } from '../api-keys/api-keys.service';
+import { EDGE_PROOF_HEADER, edgeProofValid, PORT_COOKIE } from './port-access-token';
 
 export const MAX_PORTS_PER_DOCK = 10;
 /** The guest agent's own port is never reachable from outside. */
@@ -70,12 +71,40 @@ function headerValue(head: string, name: string): string | null {
   return values.length === 1 ? values[0] : null;
 }
 
-/** The buffered request without the edge's proof header, so the dock never sees it. */
-export function withoutHeader(buffered: Buffer, name: string): Buffer {
+/** `Bearer dock_...`: a Dock API key used as the port credential. */
+function isDockKey(value: string): boolean {
+  const [type, token] = value.trim().split(/\s+/);
+  return type?.toLowerCase() === 'bearer' && !!token?.startsWith(API_KEY_PREFIX);
+}
+
+/** Drops the port cookie from one Cookie header line; null when nothing else is left. */
+function withoutPortCookie(line: string): string | null {
+  const colon = line.indexOf(':');
+  const kept = line
+    .slice(colon + 1)
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part && part.split('=')[0].trim() !== PORT_COOKIE);
+  return kept.length ? `${line.slice(0, colon)}: ${kept.join('; ')}` : null;
+}
+
+/** The request as the dock sees it: no edge proof, no port cookie, and no dock key on a private port. */
+export function forUpstream(buffered: Buffer, isPrivate: boolean): Buffer {
   const end = buffered.indexOf(CRLF + CRLF);
   if (end === -1) return buffered;
   const [first, ...lines] = buffered.subarray(0, end).toString('latin1').split(CRLF);
-  const kept = lines.filter((line) => !line.toLowerCase().startsWith(`${name}:`));
+  const kept: string[] = [];
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    if (lower.startsWith(`${EDGE_PROOF_HEADER}:`)) continue;
+    if (isPrivate && lower.startsWith('authorization:') && isDockKey(line.slice(line.indexOf(':') + 1))) continue;
+    if (lower.startsWith('cookie:')) {
+      const cookie = withoutPortCookie(line);
+      if (cookie) kept.push(cookie);
+      continue;
+    }
+    kept.push(line);
+  }
   return Buffer.concat([Buffer.from([first, ...kept].join(CRLF), 'latin1'), buffered.subarray(end)]);
 }
 
@@ -269,6 +298,6 @@ export class DockPortsService implements OnModuleDestroy {
       host.close();
       return;
     }
-    this.tunnels.bridge(client, host, withoutHeader(buffered, EDGE_PROOF_HEADER));
+    this.tunnels.bridge(client, host, forUpstream(buffered, target.visibility === 'private'));
   }
 }

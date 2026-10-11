@@ -1,6 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { forwardRef, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { eq } from 'drizzle-orm';
+import { AccountClosureService } from '../account-closure/account-closure.service';
 import { API_KEY_PREFIX } from '../api-keys/api-keys.service';
 import { BetterAuthService } from '../auth/better-auth/better-auth.service';
 import { publicApiUrl, publicAppUrl } from '../config/instance';
@@ -9,11 +10,10 @@ import { DB, Db } from '../database/database.module';
 import { apiKeys, dockPorts } from '../database/schema';
 import { DockPortsService } from './dock-ports.service';
 import { DocksService } from './docks.service';
-import { edgeProof, EXCHANGE_TTL_SECONDS, SESSION_TTL_SECONDS, signPortToken, verifyPortToken } from './port-access-token';
+import { edgeProof, EXCHANGE_TTL_SECONDS, PORT_COOKIE, SESSION_TTL_SECONDS, signPortToken, verifyPortToken } from './port-access-token';
 
 /** Path on a port host where the edge check turns an exchange token into a cookie. */
 export const PORT_AUTH_PATH = '/__dock/auth';
-const COOKIE = 'dock_port_access';
 
 export interface PortAuthInput {
   host?: string;
@@ -60,6 +60,7 @@ export class DockPortAccessService {
     private readonly ports: DockPortsService,
     private readonly betterAuth: BetterAuthService,
     private readonly config: ConfigService,
+    @Inject(forwardRef(() => AccountClosureService)) private readonly closures: AccountClosureService,
   ) {}
 
   /** Edge forward-auth decision for one request to a port host. */
@@ -76,7 +77,7 @@ export class DockPortAccessService {
     const [type, bearer] = (input.authorization ?? '').split(' ');
     if (type === 'Bearer' && bearer && (await this.dockKeyMatches(bearer, port.dockId))) return granted;
 
-    const session = cookieValue(input.cookie, COOKIE);
+    const session = cookieValue(input.cookie, PORT_COOKIE);
     const userId = session ? verifyPortToken(this.config, 'session', label, session) : null;
     if (userId && (await this.isMember(userId, port.dockId))) return granted;
 
@@ -112,7 +113,7 @@ export class DockPortAccessService {
     return {
       status: 302,
       location: safePath(url.searchParams.get('next')),
-      setCookie: `${COOKIE}=${token}; Path=/; Max-Age=${SESSION_TTL_SECONDS}; HttpOnly; SameSite=Lax${secure}`,
+      setCookie: `${PORT_COOKIE}=${token}; Path=/; Max-Age=${SESSION_TTL_SECONDS}; HttpOnly; SameSite=Lax${secure}`,
     };
   }
 
@@ -121,8 +122,10 @@ export class DockPortAccessService {
     return row ?? null;
   }
 
+  /** Open account and current org membership; a closed account loses port access like it loses the API. */
   private async isMember(userId: string, dockId: string): Promise<boolean> {
     try {
+      if ((await this.closures.guardCheck(userId)) !== 'ok') return false;
       await this.docks.loadDock(userId, dockId);
       return true;
     } catch {
@@ -130,11 +133,12 @@ export class DockPortAccessService {
     }
   }
 
-  /** Only a live API key bound to this very dock opens its private ports. */
+  /** Only a live API key bound to this very dock, whose owner may still use the dock, opens its private ports. */
   private async dockKeyMatches(raw: string, dockId: string): Promise<boolean> {
     if (!raw.startsWith(API_KEY_PREFIX)) return false;
     const [key] = await this.db.select().from(apiKeys).where(eq(apiKeys.keyHash, hashToken(raw))).limit(1);
     if (!key || key.revokedAt || key.dockId !== dockId) return false;
-    return !key.expiresAt || key.expiresAt.getTime() >= Date.now();
+    if (key.expiresAt && key.expiresAt.getTime() < Date.now()) return false;
+    return this.isMember(key.userId, dockId);
   }
 }

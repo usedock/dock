@@ -87,12 +87,14 @@ its ports, read files from its Snapshots, resume it or branch it.
 it; treat that URL as public, not as a secret. A private port needs a credential
 at the edge: a cookie obtained by signing in as a member of the Dock's
 organization (a 60-second token in a redirect, traded for an 8-hour cookie bound
-to that one port host, rechecked against membership on every request), or an API
-key bound to that Dock as a bearer token. The edge proxy asks the API before
+to that one port host, rechecked against membership and account closure on every
+request), or an API key bound to that Dock as a bearer token, accepted only while
+its owner is still a member. The edge proxy asks the API before
 each request, and the ports proxy refuses private ports unless the API's answer
 reached it in a signed header, so an edge without the check fails closed with
-`403`. The cookie and `Authorization` header still reach the service in the
-Dock, which can replay them to that port while they are valid. Ports exposed
+`403`. The ports proxy removes the port cookie and a `Bearer dock_...`
+`Authorization` header before the request reaches the service in the Dock, so a
+service cannot collect members' port credentials. Ports exposed
 before this setting existed stay public.
 
 Port hostnames carry 80 bits of randomness, but by default each name gets its

@@ -33,20 +33,22 @@ function fakeDb(results: unknown[][]) {
 }
 
 const portRow = (visibility: 'public' | 'private') => ({ dockId, visibility });
-const keyRow = (overrides: Record<string, unknown> = {}) => ({ keyHash: hashToken('dock_abc'), dockId, revokedAt: null, expiresAt: null, ...overrides });
+const keyRow = (overrides: Record<string, unknown> = {}) => ({ userId: 'u1', keyHash: hashToken('dock_abc'), dockId, revokedAt: null, expiresAt: null, ...overrides });
 
 describe('DockPortAccessService', () => {
   let docks: { loadDock: ReturnType<typeof vi.fn> };
   let betterAuth: { getSessionUser: ReturnType<typeof vi.fn> };
+  let closures: { guardCheck: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
+    closures = { guardCheck: vi.fn().mockResolvedValue('ok') };
     docks = { loadDock: vi.fn().mockResolvedValue({ dock: { id: dockId }, orgId: 'o1' }) };
     betterAuth = { getSessionUser: vi.fn().mockResolvedValue({ id: 'u1' }) };
   });
 
   function service(results: unknown[][]) {
     const ports = new DockPortsService(fakeDb([]), {} as never, {} as never, reader as never);
-    return new DockPortAccessService(fakeDb(results), docks as never, ports, betterAuth as never, reader as never);
+    return new DockPortAccessService(fakeDb(results), docks as never, ports, betterAuth as never, reader as never, closures as never);
   }
 
   const proof = edgeProof(reader, label);
@@ -73,6 +75,16 @@ describe('DockPortAccessService', () => {
     await expect(service([[portRow('private')]]).authorize({ host, cookie: session(), wantsHtml: false })).resolves.toEqual({ status: 401 });
   });
 
+  it('refuses a cookie, an exchange and the landing for a closed account', async () => {
+    closures.guardCheck.mockResolvedValue('closed');
+    await expect(service([[portRow('private')]]).authorize({ host, cookie: session(), wantsHtml: false })).resolves.toEqual({ status: 401 });
+    const token = signPortToken(reader, 'exchange', label, 'u1', 60);
+    await expect(service([[portRow('private')]]).authorize({ host, uri: `${PORT_AUTH_PATH}?token=${token}`, wantsHtml: true })).resolves.toEqual({ status: 401 });
+    await expect(service([[portRow('private')]]).access(host, '/', 'cookie')).resolves.toEqual({ status: 404 });
+    expect(closures.guardCheck).toHaveBeenCalledWith('u1');
+    expect(docks.loadDock).not.toHaveBeenCalled();
+  });
+
   it('refuses an expired cookie, a cookie for another port, and a forged one', async () => {
     const expired = session('u1', 60, Date.now() - 3600_000);
     await expect(service([[portRow('private')]]).authorize({ host, cookie: expired, wantsHtml: false })).resolves.toEqual({ status: 401 });
@@ -90,6 +102,12 @@ describe('DockPortAccessService', () => {
   it('lets a key bound to this dock through as a bearer token', async () => {
     const result = await service([[portRow('private')], [keyRow()]]).authorize({ host, authorization: 'Bearer dock_abc', wantsHtml: false });
     expect(result).toEqual({ status: 200, headers: { 'X-Dock-Port-Auth': proof } });
+    expect(docks.loadDock).toHaveBeenCalledWith('u1', dockId);
+  });
+
+  it('refuses a dock-bound key whose owner left the organization', async () => {
+    docks.loadDock.mockRejectedValue(new Error('not found'));
+    await expect(service([[portRow('private')], [keyRow()]]).authorize({ host, authorization: 'Bearer dock_abc', wantsHtml: false })).resolves.toEqual({ status: 401 });
   });
 
   it('refuses keys bound to another dock, unbound, revoked, or expired', async () => {
