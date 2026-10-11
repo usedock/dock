@@ -54,6 +54,8 @@ export interface DockletSnapshot {
   baseFingerprint?: string;
   /** Hex sha256 of the compressed rootfs.ext4.zst of a full capture. */
   sha256?: string;
+  /** Space the flattened disk's data takes decompressed and written sparse; absent from hosts that predate it. */
+  dataBytes?: number;
   /** Dockyard image the disk was built from; empty when the base was built on the host. */
   baseImage?: string;
 }

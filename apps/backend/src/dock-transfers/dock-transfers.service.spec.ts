@@ -69,6 +69,7 @@ describe('DockTransfersService', () => {
     diskGiB: 20,
     sizeBytes: null,
     sha256: null,
+    dataBytes: null,
     baseImage: null,
     storeSnapshotId: null,
     createdAt: new Date(),
@@ -633,12 +634,12 @@ describe('DockTransfersService', () => {
     beforeEach(() => db.select.mockImplementation(() => selectQ([])));
     const run = (dock = dockRow()) => service.runExport(exportRow() as never, dock as never, orgId);
     const capture = (overrides: Record<string, unknown> = {}) =>
-      vi.spyOn(provider, 'captureDisk').mockResolvedValue({ snapshotId: 'gen-x', sizeBytes: 1234, sha256: SHA, baseImage: 'ubuntu-24.04', ...overrides });
+      vi.spyOn(provider, 'captureDisk').mockResolvedValue({ snapshotId: 'gen-x', sizeBytes: 1234, sha256: SHA, dataBytes: 9999, baseImage: 'ubuntu-24.04', ...overrides });
 
     it('publishes the size, checksum and base of a full capture', async () => {
       capture();
       await run();
-      expect(updated.at(-1)).toEqual({ state: 'ready', sizeBytes: 1234, sha256: SHA, baseImage: 'ubuntu-24.04', storeSnapshotId: 'gen-x' });
+      expect(updated.at(-1)).toEqual({ state: 'ready', sizeBytes: 1234, sha256: SHA, dataBytes: 9999, baseImage: 'ubuntu-24.04', storeSnapshotId: 'gen-x' });
     });
 
     /** Queues the credential reads around the capture: the row and dock keys before, then after the re-apply. */
@@ -738,7 +739,7 @@ describe('DockTransfersService', () => {
 
   describe('reading an export', () => {
     const ready = (overrides: Record<string, unknown> = {}) =>
-      exportRow({ state: 'ready', sizeBytes: 1234, sha256: SHA, baseImage: 'ubuntu-24.04', storeSnapshotId: 'gen-x', ...overrides });
+      exportRow({ state: 'ready', sizeBytes: 1234, sha256: SHA, dataBytes: 9999, baseImage: 'ubuntu-24.04', storeSnapshotId: 'gen-x', ...overrides });
 
     it('answers a fresh presigned URL on every call', async () => {
       queueSelects([ready()], [{ id: dockId }], [ready()], [{ id: dockId }]);
@@ -746,7 +747,7 @@ describe('DockTransfersService', () => {
       const first = await service.getExport('u1', exportId);
       const second = await service.getExport('u1', exportId);
       expect([first.url, second.url]).toEqual(['https://store/get-1', 'https://store/get-2']);
-      expect(first).toMatchObject({ state: 'ready', image: 'ubuntu-24.04', cpus: 2, memoryMiB: 4096, diskGiB: 20, sizeBytes: 1234, sha256: SHA, baseImage: 'ubuntu-24.04' });
+      expect(first).toMatchObject({ state: 'ready', image: 'ubuntu-24.04', cpus: 2, memoryMiB: 4096, diskGiB: 20, sizeBytes: 1234, sha256: SHA, dataBytes: 9999, baseImage: 'ubuntu-24.04' });
       expect(objects.presignObject).toHaveBeenCalledWith('gen-x', 'rootfs.ext4.zst', 'get');
       expect(first.urlExpiresAt!.getTime() - Date.now()).toBeGreaterThan(14 * 60_000);
     });
@@ -760,7 +761,7 @@ describe('DockTransfersService', () => {
     it('has no url while pending, and reports the failure code of a failed export', async () => {
       queueSelects([exportRow()], [{ id: dockId }], [exportRow({ state: 'failed', error: 'export_base_unsupported' })], [{ id: dockId }]);
       const pending = await service.getExport('u1', exportId);
-      expect(pending).toMatchObject({ state: 'pending', url: null, sizeBytes: null, sha256: null, baseImage: null });
+      expect(pending).toMatchObject({ state: 'pending', url: null, sizeBytes: null, sha256: null, dataBytes: null, baseImage: null });
       expect(pending).not.toHaveProperty('error');
       expect(await service.getExport('u1', exportId)).toMatchObject({ state: 'failed', error: 'export_base_unsupported', url: null });
       expect(objects.presignObject).not.toHaveBeenCalled();

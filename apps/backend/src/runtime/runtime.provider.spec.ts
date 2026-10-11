@@ -88,17 +88,17 @@ describe('RestateComputeProvider', () => {
 
   it('captures a whole disk with the full flag and returns its checksum and base image', async () => {
     const docklet = {
-      snapshotCreate: vi.fn().mockResolvedValue({ snapshotId: 's9', sizeBytes: 99, cpuFamily: 'icelake', sha256: 'ab'.repeat(32), baseImage: 'ubuntu-24.04' }),
+      snapshotCreate: vi.fn().mockResolvedValue({ snapshotId: 's9', sizeBytes: 99, cpuFamily: 'icelake', sha256: 'ab'.repeat(32), dataBytes: 5000, baseImage: 'ubuntu-24.04' }),
     };
     const provider = new RestateComputeProvider(factoryFor(docklet) as never);
-    await expect(provider.captureDisk(dockRow({ hostId: 'h1' }) as never)).resolves.toEqual({ snapshotId: 's9', sizeBytes: 99, sha256: 'ab'.repeat(32), baseImage: 'ubuntu-24.04' });
+    await expect(provider.captureDisk(dockRow({ hostId: 'h1' }) as never)).resolves.toEqual({ snapshotId: 's9', sizeBytes: 99, sha256: 'ab'.repeat(32), dataBytes: 5000, baseImage: 'ubuntu-24.04' });
     expect(docklet.snapshotCreate).toHaveBeenCalledWith('d1', null, 'full', true, false, expect.any(String), true);
   });
 
   it('reports an older docklet that sends no checksum or base as empty', async () => {
     const docklet = { snapshotCreate: vi.fn().mockResolvedValue({ snapshotId: 's9', sizeBytes: 99, cpuFamily: 'icelake' }) };
     const provider = new RestateComputeProvider(factoryFor(docklet) as never);
-    await expect(provider.captureDisk(dockRow() as never)).resolves.toMatchObject({ sha256: '', baseImage: '' });
+    await expect(provider.captureDisk(dockRow() as never)).resolves.toMatchObject({ sha256: '', baseImage: '', dataBytes: null });
   });
 
   it('captures diff snapshots inline and full snapshots on final', async () => {

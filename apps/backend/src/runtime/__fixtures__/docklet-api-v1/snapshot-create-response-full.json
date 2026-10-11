@@ -1,1 +1,1 @@
-{"snapshotId":"snap_01JC8Z6H9K","sizeBytes":734003200,"cpuFamily":"intel-icelake","sha256":"9b2f4c6e8a0d1f3b5c7e9a1d3f5b7c9e0a2d4f6b8c0e1a3d5f7b9c1e3a5d7f90","baseImage":"ubuntu-24.04"}
+{"snapshotId":"snap_01JC8Z6H9K","sizeBytes":734003200,"cpuFamily":"intel-icelake","dataBytes":2147483648,"sha256":"9b2f4c6e8a0d1f3b5c7e9a1d3f5b7c9e0a2d4f6b8c0e1a3d5f7b9c1e3a5d7f90","baseImage":"ubuntu-24.04"}
