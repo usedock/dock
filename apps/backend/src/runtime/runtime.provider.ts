@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import type { Dock } from '../database/schema';
 import type { SnapshotManifest } from '../database/schema/snapshots';
-import type { ComputeProvider, ExecOutcome, ExecRequest, MachineHandle, SnapshotCapture } from '../docks/compute.provider';
+import type { ComputeProvider, DiskExport, ExecOutcome, ExecRequest, MachineHandle, SnapshotCapture } from '../docks/compute.provider';
 import { DockletException, resourcesOf } from './docklet.client';
 import type { DockletFactory } from '../hosts/docklets.factory';
 import { FleetObjectsService } from '../fleet/fleet-objects.service';
@@ -48,6 +48,12 @@ export class RestateComputeProvider implements ComputeProvider {
     const client = await this.docklets(dock.hostId ?? null);
     const res = await client.snapshotCreate(dock.id, parentId, 'full', false, false, finalCaptureToken(dock.id, parentId));
     return { snapshotId: res.snapshotId, sizeBytes: res.sizeBytes, cpuFamily: res.cpuFamily, runtime: dock.runtime, kernelRelease: null, baseFingerprint: fingerprintOf(res.baseFingerprint), manifest: cpuFamilyManifest(res.cpuFamily, dock.id) };
+  }
+
+  async captureDisk(dock: Dock): Promise<DiskExport> {
+    const client = await this.docklets(dock.hostId ?? null);
+    const res = await client.snapshotCreate(dock.id, null, 'full', true, false, randomUUID(), true);
+    return { snapshotId: res.snapshotId, sizeBytes: res.sizeBytes, sha256: res.sha256 ?? '', baseImage: res.baseImage ?? '' };
   }
 
   async resume(dock: Dock, opts: { snapshotId: string | null; hostId?: string | null; egressAllow?: string[] }): Promise<MachineHandle> {

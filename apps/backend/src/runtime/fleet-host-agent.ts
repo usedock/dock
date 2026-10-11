@@ -12,6 +12,7 @@ import type {
   DockletProvision,
   DockletResources,
   DockletSample,
+  DockletSnapshot,
   DockletStatus,
 } from './docklet.client';
 
@@ -68,9 +69,10 @@ export class FleetHostAgent implements HostAgent {
     resumeAfter: boolean,
     memory = false,
     idempotencyToken?: string,
-  ): Promise<{ snapshotId: string; sizeBytes: number; cpuFamily: string; baseFingerprint?: string }> {
+    full = false,
+  ): Promise<DockletSnapshot> {
     const token = idempotencyToken ?? randomUUID();
-    return this.send('snapshot.create', { dockId, parentId, kind, resumeAfter, memory, idempotencyToken: token }, token);
+    return this.send('snapshot.create', { dockId, parentId, kind, resumeAfter, memory, ...(full ? { full: true } : {}), idempotencyToken: token }, token);
   }
 
   snapshotLoad(

@@ -478,6 +478,48 @@ describe('FleetObjectsService', () => {
     });
   });
 
+  describe('multipart uploads', () => {
+    const noDirect = { client: unusedPresigner(), ttlSeconds: 900, directTransfers: false };
+
+    it('opens an upload, presigns part URLs with the upload id and a long ttl, and joins the parts', async () => {
+      const initiate = vi.fn().mockResolvedValue('up-1');
+      const complete = vi.fn().mockResolvedValue({ etag: 'x', versionId: null });
+      const presignedUrl = vi.fn().mockResolvedValue('https://store/part');
+      const multipart = new FleetObjectsService(() => ({
+        client: { initiateNewMultipartUpload: initiate, completeMultipartUpload: complete } as unknown as Client,
+        presign: { client: { presignedUrl } as unknown as Client, ttlSeconds: 900, directTransfers: true },
+        bucket: BUCKET,
+      }));
+      expect(multipart.directTransfers).toBe(true);
+      await expect(multipart.startUpload(SNAPSHOT, NAME)).resolves.toBe('up-1');
+      expect(initiate).toHaveBeenCalledWith(BUCKET, `snapshots/${SNAPSHOT}/${NAME}`, {});
+      await multipart.presignPart(SNAPSHOT, NAME, 'up-1', 3, 86400);
+      expect(presignedUrl).toHaveBeenCalledWith('PUT', BUCKET, `snapshots/${SNAPSHOT}/${NAME}`, 86400, { partNumber: '3', uploadId: 'up-1' });
+      await multipart.completeUpload(SNAPSHOT, NAME, 'up-1', [{ part: 1, etag: 'e' }]);
+      expect(complete).toHaveBeenCalledWith(BUCKET, `snapshots/${SNAPSHOT}/${NAME}`, 'up-1', [{ part: 1, etag: 'e' }]);
+    });
+
+    it('uploads a buffered part and returns its etag', async () => {
+      const uploadPart = vi.fn().mockResolvedValue({ etag: 'etag-7', key: 'k', part: 7 });
+      const multipart = new FleetObjectsService(() => ({ client: { uploadPart } as unknown as Client, presign: noDirect, bucket: BUCKET }));
+      await expect(multipart.uploadPart(SNAPSHOT, NAME, 'up-1', 7, Buffer.from('abc'))).resolves.toBe('etag-7');
+      expect(uploadPart).toHaveBeenCalledWith(expect.objectContaining({ uploadID: 'up-1', partNumber: 7, headers: { 'Content-Length': '3' } }), Buffer.from('abc'));
+    });
+
+    it('aborts an upload and treats an already gone upload as done', async () => {
+      const abort = vi.fn().mockRejectedValueOnce(storeError('NoSuchUpload')).mockRejectedValueOnce(storeError('InternalError'));
+      const multipart = new FleetObjectsService(() => ({ client: { abortMultipartUpload: abort } as unknown as Client, presign: noDirect, bucket: BUCKET }));
+      await expect(multipart.abortUpload(SNAPSHOT, NAME, 'up-1')).resolves.toBeUndefined();
+      await expect(multipart.abortUpload(SNAPSHOT, NAME, 'up-1')).rejects.toThrow('InternalError');
+    });
+
+    it('reports an object size, or null for a missing object, and stores small objects', async () => {
+      await service.putSmallObject(SNAPSHOT, 'manifest.json', Buffer.from('{}'));
+      await expect(service.objectSize(SNAPSHOT, 'manifest.json')).resolves.toBe(2);
+      await expect(service.objectSize(SNAPSHOT, 'missing')).resolves.toBeNull();
+    });
+  });
+
   describe('deleteGeneration', () => {
     it('deletes only the requested generation and reports the count', async () => {
       fake.objects.set(`snapshots/${SNAPSHOT}/${NAME}`, Buffer.from('AAAA'));

@@ -1963,4 +1963,57 @@ describe('DocksService', () => {
     expect(sets).toHaveLength(2);
     expect(sets[1]).toMatchObject({ cpus: 4, memoryMiB: 8192, diskGiB: 40 });
   });
+
+  describe('imported generation', () => {
+    const generation = (extra: Record<string, unknown> = {}) => ({ storeSnapshotId: 'gen-import', sizeBytes: 4096, manifest: { files: [] }, ...extra });
+    const capture = () => {
+      const inserts: Array<Record<string, unknown>> = [];
+      db.insert.mockImplementation(() => ({
+        values: (value: Record<string, unknown>) => {
+          inserts.push(value);
+          return { returning: () => Promise.resolve([dockRow({ state: 'provisioning', ip: null })]) };
+        },
+      }));
+      db.update.mockReturnValue(updateQ([dockRow()]));
+      return inserts;
+    };
+
+    it('records the upload as the first snapshot of the dock and places it on a microVM host', async () => {
+      config.get.mockReturnValue('restate');
+      hosts.placeForDock.mockResolvedValue({ id: 'host-1', runtime: 'microvm' });
+      const provision = vi.spyOn(provider, 'provision').mockResolvedValue({ ip: '10.1.1.1', hostId: 'host-1' });
+      const inserts = capture();
+      const dock = await service.create('u1', { workspaceId: wsId, importedGeneration: generation() });
+      expect(dock.state).toBe('provisioning');
+      expect(hosts.canPlace).toHaveBeenCalledWith(expect.objectContaining({ runtime: 'microvm' }));
+      expect(inserts[1]).toMatchObject({ dockId, status: 'completed', storeSnapshotId: 'gen-import', sizeBytes: 4096, runtime: 'microvm' });
+      await vi.waitFor(() => expect(provision).toHaveBeenCalled());
+      expect(hosts.placeForDock).toHaveBeenCalledWith(expect.objectContaining({ runtime: 'microvm' }));
+      expect(provision.mock.calls[0][1]).toMatchObject({ snapshotId: 'gen-import', hostId: 'host-1' });
+    });
+
+    it('returns before the boot finishes and reports a failed boot through the callback', async () => {
+      let fail: (err: Error) => void = () => undefined;
+      vi.spyOn(provider, 'provision').mockReturnValue(new Promise((_resolve, reject) => { fail = reject; }));
+      capture();
+      const onBootFailed = vi.fn();
+      const dock = await service.create('u1', { workspaceId: wsId, importedGeneration: generation({ onBootFailed }) });
+      expect(dock.state).toBe('provisioning');
+      expect(onBootFailed).not.toHaveBeenCalled();
+      const boom = Object.assign(new Error('sha256 mismatch'), { code: 'checksum_mismatch' });
+      fail(boom);
+      await vi.waitFor(() => expect(onBootFailed).toHaveBeenCalledWith(boom));
+      expect(webhooks.record).toHaveBeenCalledWith(expect.objectContaining({ type: 'dock.error', dockId }));
+    });
+
+    it('removes the dock row when the snapshot row cannot be written', async () => {
+      db.insert
+        .mockReturnValueOnce(insertQ([dockRow({ state: 'provisioning', ip: null })]))
+        .mockReturnValueOnce({ values: () => Promise.reject(new Error('db down')) });
+      const removed = vi.fn().mockReturnValue({ where: () => Promise.resolve([]) });
+      db.delete.mockImplementation(removed);
+      await expect(service.create('u1', { workspaceId: wsId, importedGeneration: generation() })).rejects.toThrow('db down');
+      expect(removed).toHaveBeenCalled();
+    });
+  });
 });

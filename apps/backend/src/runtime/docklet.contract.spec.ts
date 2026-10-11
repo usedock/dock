@@ -50,7 +50,7 @@ const typed: Record<string, string[]> = {
   }),
   'provision-response.json': table<Result<'provision'>>({ ip: true, hostId: true }),
   'snapshot-load-response.json': table<Result<'snapshotLoad'>>({ ip: true, hostId: true }),
-  'snapshot-create-response.json': table<Result<'snapshotCreate'>>({ snapshotId: true, sizeBytes: true, cpuFamily: true, baseFingerprint: true }),
+  'snapshot-create-response.json': table<Result<'snapshotCreate'>>({ snapshotId: true, sizeBytes: true, cpuFamily: true, baseFingerprint: true, sha256: true, baseImage: true }),
   'fast-run-create-request.json': table<DockletFastRunCreate>({
     runtimeId: true,
     resources: true,
@@ -90,6 +90,7 @@ const requests: Record<string, (agent: HostAgent, f: Record<string, any>) => Pro
   'pause-request.json': (a, f) => a.pause(f.dockId),
   'destroy-request.json': (a, f) => a.destroy(f.dockId),
   'snapshot-create-request.json': (a, f) => a.snapshotCreate(f.dockId, f.parentId, f.kind, f.resumeAfter, f.memory, f.idempotencyToken),
+  'snapshot-export-request.json': (a, f) => a.snapshotCreate(f.dockId, f.parentId, f.kind, f.resumeAfter, f.memory, f.idempotencyToken, f.full),
   'snapshot-load-request.json': (a, f) => a.snapshotLoad(f.dockId, f.resources, f.snapshotId, f.execAgent, f.egressAllow),
   'fast-run-create-request.json': (a, f) => a.fastRunCreate(f as DockletFastRunCreate),
   'fast-run-exec-request.json': (a, f) => a.fastRunExec(f as DockletFastRunExec),

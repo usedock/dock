@@ -50,6 +50,34 @@ http:
     # The value is the dock id being deleted; the API refuses the call without it.
     headers:
       x-confirm-delete: "{dockId}"
+  docks.import:
+    method: POST
+    path: /v1/docks/import
+    status: 201
+    body: [workspaceId, name, image, cpus, memoryMiB, diskGiB, sizeBytes, sha256]
+  # Raw part bytes as the body, not JSON; only for imports whose upload mode is proxy.
+  docks.importPart:
+    method: PUT
+    path: /v1/docks/import/{importId}/parts/{number}
+    status: 200
+  docks.importComplete:
+    method: POST
+    path: /v1/docks/import/{importId}/complete
+    status: 202
+    body: [parts]
+  docks.export:
+    method: POST
+    path: /v1/docks/{dockId}/export
+    status: 202
+  docks.exportGet:
+    method: GET
+    path: /v1/docks/exports/{exportId}
+    status: 200
+  # Streams the file, not JSON; used when exportGet returns a control-plane path as url.
+  docks.exportDownload:
+    method: GET
+    path: /v1/docks/exports/{exportId}/download
+    status: 200
   images.list:
     method: GET
     path: /v1/images

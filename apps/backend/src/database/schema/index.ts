@@ -12,6 +12,7 @@ export * from './dock-stats';
 export * from './dock-ports';
 export * from './snapshots';
 export * from './templates';
+export * from './dock-transfers';
 export * from './operations';
 export * from './idempotency-keys';
 export * from './retention-policies';
@@ -42,6 +43,7 @@ import * as dockStatsModule from './dock-stats';
 import * as dockPortsModule from './dock-ports';
 import * as snapshotsModule from './snapshots';
 import * as templatesModule from './templates';
+import * as dockTransfersModule from './dock-transfers';
 import * as operationsModule from './operations';
 import * as idempotencyKeysModule from './idempotency-keys';
 import * as retentionPoliciesModule from './retention-policies';
@@ -70,6 +72,7 @@ export const schema = {
   ...dockPortsModule,
   ...snapshotsModule,
   ...templatesModule,
+  ...dockTransfersModule,
   ...operationsModule,
   ...idempotencyKeysModule,
   ...retentionPoliciesModule,

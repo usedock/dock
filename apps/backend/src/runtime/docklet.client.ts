@@ -46,6 +46,18 @@ export interface DockletProvision {
   idempotencyToken: string;
 }
 
+/** Answer of /v1/snapshots/create; sha256 and baseImage come with a full (whole disk) capture. */
+export interface DockletSnapshot {
+  snapshotId: string;
+  sizeBytes: number;
+  cpuFamily: string;
+  baseFingerprint?: string;
+  /** Hex sha256 of the compressed rootfs.ext4.zst of a full capture. */
+  sha256?: string;
+  /** Dockyard image the disk was built from; empty when the base was built on the host. */
+  baseImage?: string;
+}
+
 export interface DockletFastRunCapabilities {
   version: number;
   target: string;
@@ -213,13 +225,15 @@ export class DockletClient {
     resumeAfter: boolean,
     memory = false,
     idempotencyToken?: string,
-  ): Promise<{ snapshotId: string; sizeBytes: number; cpuFamily: string; baseFingerprint?: string }> {
+    full = false,
+  ): Promise<DockletSnapshot> {
     return this.call('/v1/snapshots/create', {
       dockId,
       parentId,
       kind,
       resumeAfter,
       memory,
+      ...(full ? { full: true } : {}),
       idempotencyToken: idempotencyToken ?? randomUUID(),
     });
   }

@@ -53,6 +53,7 @@ import { BaseImageUnavailableException, HostsService } from '../hosts/hosts.serv
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { Host } from '../database/schema';
+import type { SnapshotManifest } from '../database/schema/snapshots';
 
 /** Recovery waits for an orphaned capture this long: 60 tries every 5s. */
 export const RECOVERY_CAPTURE_ATTEMPTS = 60;
@@ -79,6 +80,17 @@ export interface CreateDockInput extends DockSizeInput {
   connectors?: string[];
   /** Internal only: confines the dock to these HTTPS hosts (GitHub runs). */
   egressAllow?: string[];
+  /** Internal only: boots from an uploaded whole-disk generation on a microVM host and returns before the boot finishes. */
+  importedGeneration?: ImportedGeneration;
+}
+
+/** An uploaded disk the new dock restores from; its snapshot row takes over the generation. */
+export interface ImportedGeneration {
+  storeSnapshotId: string;
+  sizeBytes: number;
+  manifest: SnapshotManifest;
+  /** Runs when the background boot fails, after the dock is marked in error. */
+  onBootFailed?: (err: unknown) => Promise<void> | void;
 }
 
 export interface UpdateDockInput extends DockSizeInput {
@@ -394,6 +406,10 @@ export class DocksService {
     let templateCpuFamily: string | null = null;
     let templateBase: string | null = null;
     let templateRuntime: Runtime | null = null;
+    if (input.importedGeneration) {
+      templateStoreId = input.importedGeneration.storeSnapshotId;
+      templateRuntime = 'microvm';
+    }
     if (input.from !== undefined) {
       const resolved = await this.resolveTemplate(orgId, input.from);
       fromTemplate = resolved.name;
@@ -441,26 +457,44 @@ export class DocksService {
         setupStatus: input.egressAllow?.length ? 'done' : 'pending',
       });
     });
-    try {
-      const { machine, runtime } = await this.placeAndRun({ cpuFamily: templateCpuFamily, runtime: templateRuntime, baseFingerprint: templateBase, ...placeFeature }, dock, (host) =>
-        this.provider.provision(dock, {
-          snapshotId: templateStoreId ?? null,
-          hostId: host?.id ?? null,
-          ...(egressAllow?.length ? { egressAllow } : {}),
-        }),
-      );
-      const ready = await this.transition(dock.id, ['provisioning'], { state: 'ready', liveSince: new Date(), ip: machine.ip, hostId: machine.hostId ?? null, runtime: runtime ?? dock.runtime });
-      await this.bindKey(orgId, idempotencyKey, ready.id);
-      await this.metering.openWindow({ organizationId: orgId, workspaceId: input.workspaceId, dockId: ready.id, ...size });
-      // Internal run docks are egress-confined and clone through their own runner.
-      const applied = input.egressAllow?.length ? ready : await this.applier.apply(ready, orgId, { setupScript: input.setupScript });
-      await this.emitDockEvent('dock.ready', ready.id, input.workspaceId, orgId, 'ready');
-      return applied;
-    } catch (err) {
-      await this.db.update(docks).set({ state: 'error', stateChangedAt: new Date(), updatedAt: new Date() }).where(eq(docks.id, dock.id));
-      await this.emitDockEvent('dock.error', dock.id, input.workspaceId, orgId, 'error');
-      throw err;
+    if (input.importedGeneration) {
+      const gen = input.importedGeneration;
+      try {
+        await this.db.insert(snapshots).values({ dockId: dock.id, status: 'completed', sizeBytes: gen.sizeBytes, manifest: gen.manifest, storeSnapshotId: gen.storeSnapshotId, runtime: 'microvm' });
+      } catch (err) {
+        await this.db.delete(docks).where(eq(docks.id, dock.id));
+        throw err;
+      }
     }
+    const boot = async (): Promise<Dock> => {
+      try {
+        const { machine, runtime } = await this.placeAndRun({ cpuFamily: templateCpuFamily, runtime: templateRuntime, baseFingerprint: templateBase, ...placeFeature }, dock, (host) =>
+          this.provider.provision(dock, {
+            snapshotId: templateStoreId ?? null,
+            hostId: host?.id ?? null,
+            ...(egressAllow?.length ? { egressAllow } : {}),
+          }),
+        );
+        const ready = await this.transition(dock.id, ['provisioning'], { state: 'ready', liveSince: new Date(), ip: machine.ip, hostId: machine.hostId ?? null, runtime: runtime ?? dock.runtime });
+        await this.bindKey(orgId, idempotencyKey, ready.id);
+        await this.metering.openWindow({ organizationId: orgId, workspaceId: input.workspaceId, dockId: ready.id, ...size });
+        // Internal run docks are egress-confined and clone through their own runner.
+        const applied = input.egressAllow?.length ? ready : await this.applier.apply(ready, orgId, { setupScript: input.setupScript });
+        await this.emitDockEvent('dock.ready', ready.id, input.workspaceId, orgId, 'ready');
+        return applied;
+      } catch (err) {
+        await this.db.update(docks).set({ state: 'error', stateChangedAt: new Date(), updatedAt: new Date() }).where(eq(docks.id, dock.id));
+        await this.emitDockEvent('dock.error', dock.id, input.workspaceId, orgId, 'error');
+        throw err;
+      }
+    };
+    if (!input.importedGeneration) return boot();
+    const onBootFailed = input.importedGeneration.onBootFailed;
+    void boot().catch(async (err) => {
+      new Logger('DocksService').warn(`Boot of imported dock ${dock.id} failed: ${err instanceof Error ? err.message : err}`);
+      await Promise.resolve(onBootFailed?.(err)).catch(() => undefined);
+    });
+    return dock;
   }
 
   async list(callerId: string, filter = 'r', all = false): Promise<Dock[]> {

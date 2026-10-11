@@ -8,6 +8,7 @@ import type {
   DockletProvision,
   DockletResources,
   DockletSample,
+  DockletSnapshot,
   DockletStatus,
 } from './docklet.client';
 
@@ -39,7 +40,8 @@ export interface HostAgent {
     resumeAfter: boolean,
     memory?: boolean,
     idempotencyToken?: string,
-  ): Promise<{ snapshotId: string; sizeBytes: number; cpuFamily: string; baseFingerprint?: string }>;
+    full?: boolean,
+  ): Promise<DockletSnapshot>;
   snapshotLoad(
     dockId: string,
     resources: DockletResources,

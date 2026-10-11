@@ -284,6 +284,69 @@ export class FleetObjectsService implements OnModuleInit {
     return { mode: 'direct', url, expiresInSeconds: presign.ttlSeconds };
   }
 
+  /** True when callers can be handed signed URLs; otherwise transfers go through the control plane. */
+  get directTransfers(): boolean {
+    return this.store.presign.directTransfers;
+  }
+
+  /** Opens a multipart upload for one object of a generation and returns its upload id. */
+  async startUpload(snapshotId: string, name: string): Promise<string> {
+    const { client, bucket } = this.store;
+    return client.initiateNewMultipartUpload(bucket, this.objectKey(snapshotId, name), {});
+  }
+
+  /** Signed PUT for one part of an open upload; `ttlSeconds` outlives the default so a long upload keeps its later URLs. */
+  async presignPart(snapshotId: string, name: string, uploadId: string, part: number, ttlSeconds: number): Promise<string> {
+    const { presign, bucket } = this.store;
+    return presign.client.presignedUrl('PUT', bucket, this.objectKey(snapshotId, name), ttlSeconds, {
+      partNumber: String(part),
+      uploadId,
+    });
+  }
+
+  /** Stores one buffered part of an open upload and returns its etag. */
+  async uploadPart(snapshotId: string, name: string, uploadId: string, part: number, body: Buffer): Promise<string> {
+    const { client, bucket } = this.store;
+    const stored = await client.uploadPart(
+      { bucketName: bucket, objectName: this.objectKey(snapshotId, name), uploadID: uploadId, partNumber: part, headers: { 'Content-Length': String(body.length) } },
+      body,
+    );
+    return stored.etag;
+  }
+
+  /** Joins the uploaded parts into the final object. */
+  async completeUpload(snapshotId: string, name: string, uploadId: string, parts: Array<{ part: number; etag: string }>): Promise<void> {
+    const { client, bucket } = this.store;
+    await client.completeMultipartUpload(bucket, this.objectKey(snapshotId, name), uploadId, parts);
+  }
+
+  /** Drops an open upload and its uploaded parts; a missing upload is not an error. */
+  async abortUpload(snapshotId: string, name: string, uploadId: string): Promise<void> {
+    const { client, bucket } = this.store;
+    try {
+      await client.abortMultipartUpload(bucket, this.objectKey(snapshotId, name), uploadId);
+    } catch (error) {
+      if (!hasCode(error, ['NoSuchUpload'])) throw error;
+    }
+  }
+
+  /** Size of an assembled object, or null when it does not exist. */
+  async objectSize(snapshotId: string, name: string): Promise<number | null> {
+    const { client, bucket } = this.store;
+    try {
+      return (await client.statObject(bucket, this.objectKey(snapshotId, name))).size;
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+  }
+
+  /** Stores a small object in one call, such as a generation manifest. */
+  async putSmallObject(snapshotId: string, name: string, data: Buffer): Promise<void> {
+    const { client, bucket } = this.store;
+    await client.putObject(bucket, this.objectKey(snapshotId, name), data, data.length);
+  }
+
   /** Streams an assembled object, or reports a missing one as a host-facing 404. */
   async getObject(snapshotId: string, name: string): Promise<{ stream: Readable; size: number }> {
     const { client, bucket } = this.store;
@@ -296,6 +359,12 @@ export class FleetObjectsService implements OnModuleInit {
       throw new NotFoundException({ code: 'object_not_found', message: `no such object: ${name}` });
     }
     return { stream: await client.getObject(bucket, key), size: stat.size };
+  }
+
+  /** Streams `length` bytes of an assembled object from `offset`, for resumable downloads. */
+  async getObjectRange(snapshotId: string, name: string, offset: number, length: number): Promise<Readable> {
+    const { client, bucket } = this.store;
+    return client.getPartialObject(bucket, this.objectKey(snapshotId, name), offset, length);
   }
 
   /** Drops staging parts left behind by an interrupted upload of one object. */
