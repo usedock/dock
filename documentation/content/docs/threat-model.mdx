@@ -89,8 +89,8 @@ its ports, read files from its Snapshots, resume it or branch it.
 it; treat that URL as public, not as a secret. A private port needs a credential
 at the edge: a cookie obtained by signing in as a member of the Dock's
 organization (a 60-second token in a redirect, traded for an 8-hour cookie bound
-to that one port host, rechecked against membership and account closure on every
-request), or an API key bound to that Dock as a bearer token, accepted only while
+to that one port host, rechecked against membership and account closure at most
+every 5 seconds), or an API key bound to that Dock as a bearer token, accepted only while
 its owner is still a member. Opening a private port follows the same rule as
 opening the Dock's shell: a plain member is refused on a connector Dock someone
 else created and on a Dock that received admins-only Environment secrets, so a
