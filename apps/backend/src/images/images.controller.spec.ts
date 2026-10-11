@@ -12,7 +12,7 @@ describe('ImagesController', () => {
     const list = await new ImagesController(new ImagesService(hosts as never)).list();
     expect(list.map((i) => i.name)).toEqual(names);
     expect(list.filter((i) => i.available).map((i) => i.name)).toEqual(['ubuntu-24.04']);
-    expect(list[0]).toMatchObject({ arch: ['amd64'], sizeMiB: 1536 });
+    expect(list[0]).toMatchObject({ arch: ['amd64'], sizeMiB: 2048 });
     expect(list[0].description).toContain('Ubuntu 24.04');
   });
 
