@@ -195,16 +195,21 @@ Mention `@dock` in an issue comment to start a run.
 ## Add hosts
 
 Hosts only make outbound connections to `DOCK_PUBLIC_URL`; they need no
-inbound port. `./setup.sh --host` enrolls the control plane machine itself. On
-any other Linux machine, from a checkout of `usedock/docklet` (`FLEET_TOKEN` is
-in `.env`):
+inbound port. `./setup.sh --host` enrolls the control plane machine itself. To
+enroll any other Linux machine, print the token on the control plane machine
+with `grep ^FLEET_TOKEN= .env` (in `deploy/self-host`). Then, from a checkout of
+`usedock/docklet` on the new machine, paste it at the silent prompt:
 
 ```sh
-sudo bash scripts/bootstrap-host.sh \
+read -rs DOCKLET_FLEET_TOKEN && export DOCKLET_FLEET_TOKEN
+sudo --preserve-env=DOCKLET_FLEET_TOKEN bash scripts/bootstrap-host.sh \
   --fleet-url https://dock.example.com \
-  --fleet-token "$FLEET_TOKEN" \
   --runtime microvm
 ```
+
+The token goes in `DOCKLET_FLEET_TOKEN` rather than `--fleet-token` because
+other users on the machine can read command lines with `ps`. `setup.sh` never
+prints the token.
 
 `FLEET_TOKEN` only enrolls new machines: each host receives its own credential
 (kept in `/var/lib/docklet/fleet-credential`) and the token is not stored on it.
