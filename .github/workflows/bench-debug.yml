@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 25
     env:
       DOCK_DATA_DIR: /home/runner/dockdata
+      DOCK_BENCH_MEMORY_MIB: "1024"
     steps:
       - name: install qemu
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
@@ -24,7 +25,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: install dock
         env:
-          DOCK_VERSION: v0.3.1
+          DOCK_VERSION: v0.3.2
         run: |
           curl -fsSL https://usedock.io/install | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -37,9 +38,11 @@ jobs:
         run: |
           dock images pull ubuntu-24.04
           (while sleep 20; do echo "--- $(date +%T)"; dock ls --all | cat; pgrep -fc qemu-system; ps -eo pid,etime,stat,args | grep -E "dock (new|exec|branch|rm|stop|resume)" | grep -v grep | cut -c1-120; done) &
-          timeout 400 bun run bench --provider dock-local --scenario branch-3 --iterations 4 || echo "bench exit $?"
+          timeout 500 bun run bench --provider dock-local --scenario branch-10 --iterations 3 || echo "bench exit $?"
       - name: state
         if: always()
         run: |
-          find "$DOCK_DATA_DIR" -maxdepth 3 | head -60
-          for f in "$DOCK_DATA_DIR"/docks/*/*.log; do echo "=== $f"; tail -12 "$f"; done || true
+          free -m; df -h /home | cat
+          dock ls --all | cat
+          for id in $(dock ls --all --json | grep -o '"id": "[^"]*"' | cut -d'"' -f4 | head -3); do echo "=== $id"; timeout 30 dock exec $id -- systemctl status ssh --no-pager | tail -15; done || true
+          for f in "$DOCK_DATA_DIR"/docks/*/serial.log; do echo "=== $f"; tail -25 "$f"; break; done || true
