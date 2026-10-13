@@ -76,7 +76,8 @@ export DOCK_LOCAL_RUNTIME=gvisor
 
 It needs `dock` v0.3.5 or later, Docker Engine and the gVisor `runsc` runtime.
 There is no silent fallback: without the flag or the variable, local docks stay
-QEMU only. The dock reports `runtime` as `gvisor`. Setup, what persists, the
+QEMU only. The dock reports `runtime` as `gvisor`. `dock branch` and
+`--network off` work on gVisor docks from dock v0.3.6. Setup, what persists, the
 differences from QEMU docks and the trust model are on the
 [gVisor runtime](/local-docks/gvisor) page.
 

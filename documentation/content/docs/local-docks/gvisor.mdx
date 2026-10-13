@@ -6,7 +6,8 @@ description: Run local docks on Linux without KVM, as gVisor containers through 
 On a Linux machine without usable KVM, such as a cloud VM without nested
 virtualization, local docks can run as gVisor containers through Docker. It is
 opt-in and needs `dock` v0.3.5 or later ([Install](/cli#install); run the
-installer again to update). On a machine with KVM, use the default QEMU docks
+installer again to update). `dock branch` and `--network off` need dock v0.3.6
+or later. On a machine with KVM, use the default QEMU docks
 described in [Local docks](/local-docks).
 
 ```sh
@@ -84,9 +85,24 @@ A stopped dock keeps its local port. If another program takes that port,
   storage (`/var/lib/docker`) with no size limit. `docker container prune` or
   `docker system prune` deletes a stopped dock's container and everything
   installed in it; only the `/home/user/work` volume survives.
-- **Not yet supported.** `--network off`, `dock branch` and `dock push` are
-  refused with an error. `dock pull` always creates a QEMU dock, so a pulled dock
-  needs KVM.
+- **Branch.** `dock branch` works from dock v0.3.6. A running source is
+  stopped, its container is committed to a branch image and its
+  `/home/user/work` volume is copied (by a short-lived helper container with no
+  network), then the source is resumed. The branch starts as a new dock with its
+  own token, port and network. With `runsc-suid` the branch carries rootfs
+  changes, such as installed packages; with plain `runsc` only
+  `/home/user/work` carries over. A branch image keeps a copy of the source's
+  rootfs changes on disk until the source and all its branches are removed;
+  `dock rm` removes the branch image.
+- **Network off.** `dock new --runtime gvisor --network off` works from dock
+  v0.3.6. The container runs with no network at all: no internet, no DNS and no
+  route to the host or to other docks. `exec`, `ssh` and `port` still work,
+  because `dock` reaches the guest agent through `docker exec` into the
+  sandbox's own loopback. Each agent call costs one `docker exec`, so they are
+  a bit slower than on a network-on dock. Network off survives stop, resume and
+  branch.
+- **Not supported.** `dock push` is refused with an error. `dock pull` always
+  creates a QEMU dock, so a pulled dock needs KVM.
 - **Speed.** Some syscall-heavy or file-I/O-heavy work is slower than in a VM.
 
 If the `docker` binary is gone, `dock rm` still removes the record and warns
@@ -107,7 +123,8 @@ the hardware virtual machine of a QEMU dock, not a weak one.
 - Anyone who can use Docker on the machine can reach every gVisor dock; access
   to Docker is root-equivalent on most setups.
 - With the network on, a dock can reach services on your machine through the
-  bridge gateway. Treat it as able to do so if the code is hostile.
+  bridge gateway. Treat it as able to do so if the code is hostile; use
+  `--network off` (dock v0.3.6 or later) for untrusted code.
 
 See [Runtimes](/concepts/runtimes#local-engine) and the
 [threat model](/threat-model).
