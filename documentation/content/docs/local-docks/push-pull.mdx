@@ -10,7 +10,9 @@ public, so any client can use them.
 
 Only the disk moves, never memory, so a pushed or pulled dock boots fresh. Both directions need a [microVM](/concepts/docks) host:
 a gVisor dock keeps only `/home/user/work`, so it cannot be exported and an
-import needs a microVM host to land on. On a real fleet
+import needs a microVM host to land on. The same holds for a local
+[gVisor dock](/local-docks/gvisor): `dock push` refuses it, and `dock pull` always
+creates a QEMU dock, never a gVisor one. On a real fleet
 (`RUNTIME_DRIVER=restate`) an import is refused with `runtime_unsupported` up
 front when no online host can take it; the other drivers (the default `fake`
 driver used for development) skip that check. The disk must come from a

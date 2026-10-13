@@ -121,6 +121,10 @@ Local differences:
   not apply.
 - `dock exec` prints the output when the command ends.
 - A new local dock defaults to 2 CPUs, 2048 MiB and a 10 GiB disk.
+- `dock new --runtime gvisor` (or `DOCK_LOCAL_RUNTIME=gvisor`) runs the dock as a
+  gVisor container through Docker, for Linux without KVM. It needs `dock`
+  v0.3.5 or later and refuses `--network off`, `dock branch` and `dock push`;
+  `dock pull` always creates a QEMU dock. See [gVisor runtime](/local-docks/gvisor).
 
 Environment variables for the local engine:
 
@@ -131,6 +135,7 @@ Environment variables for the local engine:
 | `DOCK_DATA_DIR` | Where docks and cached images live. Default: `~/.local/share/dock` (Linux, or `$XDG_DATA_HOME/dock`), `~/Library/Application Support/dock` (macOS), `%LOCALAPPDATA%\dock` (Windows) |
 | `DOCK_DOCKYARD_URL` | Use another Dockyard image index. It is unpinned and the CLI warns |
 | `DOCK_DOCKYARD_SHA256` | SHA-256 of that index; it is verified only when this is set |
+| `DOCK_LOCAL_RUNTIME` | `gvisor` makes new local docks use the gVisor runtime (Linux, Docker and `runsc`), the same as `dock new --runtime gvisor`. Without it local docks are QEMU only |
 | `DOCK_LOCAL_ACCEL` | `tcg` allows slow software emulation, for tests only. Local docks never fall back to it on their own |
 
 ## Log in
@@ -264,7 +269,9 @@ dock doctor
 
 Local engine. Checks QEMU and `qemu-img`, the hardware accelerator, free disk
 space in the data directory (at least 5 GiB) and the Dockyard index, and prints
-a fix for anything missing. It exits 1 when something is missing.
+a fix for anything missing. It exits 1 when something is missing. On Linux it
+tells a `/dev/kvm` permission error from a missing device (`dock` v0.3.5 or
+later) and shows an informational `gvisor` row that never makes it fail.
 
 ### login, context, version
 
@@ -307,4 +314,6 @@ branch` does not read the file.
   [SDK file helpers](/sdks), which run over `exec`.
 - Streaming `exec` output.
 - On the local engine: live fork, a public URL for `dock port`, and `ls
-  --filter` (see [The local context](#the-local-context)).
+  --filter` (see [The local context](#the-local-context)). Local gVisor docks
+  also lack `--network off`, `dock branch` and `dock push`, and `dock pull`
+  cannot create one.

@@ -24,7 +24,9 @@ irm https://usedock.io/install.ps1 | iex
 Local docks need QEMU and your machine's hardware accelerator (KVM on Linux,
 Windows Hypervisor Platform on Windows; macOS is built but not yet tested; arm64 Linux needs `dock` v0.3.0 or later).
 `dock doctor` checks and tells you what to fix. On Windows, see
-[Windows](/local-docks/windows).
+[Windows](/local-docks/windows). On Linux without KVM, the opt-in
+[gVisor runtime](/local-docks/gvisor) (`dock` v0.3.5 or later) runs local docks
+through Docker instead.
 
 ```sh
 dock doctor
