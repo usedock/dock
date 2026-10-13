@@ -84,8 +84,9 @@ A stopped dock keeps its local port. If another program takes that port,
   storage (`/var/lib/docker`) with no size limit. `docker container prune` or
   `docker system prune` deletes a stopped dock's container and everything
   installed in it; only the `/home/user/work` volume survives.
-- **Not yet supported.** `--network off`, `dock branch`, `dock push` and `dock
-  pull` are refused with an error.
+- **Not yet supported.** `--network off`, `dock branch` and `dock push` are
+  refused with an error. `dock pull` always creates a QEMU dock, so a pulled dock
+  needs KVM.
 - **Speed.** Some syscall-heavy or file-I/O-heavy work is slower than in a VM.
 
 If the `docker` binary is gone, `dock rm` still removes the record and warns
