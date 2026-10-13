@@ -1,0 +1,112 @@
+---
+title: gVisor runtime
+description: Run local docks on Linux without KVM, as gVisor containers through Docker.
+---
+
+On a Linux machine without usable KVM, such as a cloud VM without nested
+virtualization, local docks can run as gVisor containers through Docker. It is
+opt-in and needs `dock` v0.3.5 or later ([Install](/cli#install); run the
+installer again to update). On a machine with KVM, use the default QEMU docks
+described in [Local docks](/local-docks).
+
+```sh
+dock new web --runtime gvisor
+# or for every new dock in this shell
+export DOCK_LOCAL_RUNTIME=gvisor
+```
+
+There is no silent fallback: without the flag or the variable, local docks stay
+QEMU only. A Linux `no_accelerator` error and `dock doctor` point here when KVM
+is unusable. `dock ls --json` shows `runtime` as `gvisor`.
+
+## What you need
+
+- Docker Engine.
+- The gVisor `runsc` runtime registered with Docker: [install
+  gVisor](https://gvisor.dev/docs/user_guide/install/), then:
+
+  ```sh
+  sudo runsc install
+  sudo systemctl restart docker
+  ```
+
+`dock new` checks both before it builds anything. The first dock builds a small
+local `dock-local-gvisor:<hash>` image with `docker build` (Ubuntu 24.04,
+python3, git, curl and sudo); nothing is published. `dock doctor` shows an
+informational `gvisor` row that never makes it fail.
+
+## Optional: sudo and a persistent root filesystem
+
+By default gVisor ignores setuid bits and discards writes outside the work
+volume when the container stops. To get `sudo` inside docks and keep the whole
+filesystem across stop and resume, register a second runtime once:
+
+```sh
+sudo runsc install --runtime=runsc-suid -- --allow-suid --overlay2=none
+sudo systemctl restart docker
+```
+
+This adds a separate `runsc-suid` runtime for the same `runsc` binary. Your
+other runsc containers keep the default and are not affected. Only docks
+created after it exists use it; `dock new` prints a note when it is missing and
+`dock doctor` shows which case you are in. A dock keeps the runtime it was
+created with for life, so existing docks do not gain `sudo`. The runtime counts
+only if it points at a `runsc` binary and was registered with both flags.
+
+## What persists
+
+| Setup | `sudo` | What persists across `dock stop` and `dock resume` |
+| --- | --- | --- |
+| `runsc-suid` registered | Passwordless, root inside the sandbox | The whole filesystem, so `sudo apt-get install` packages survive |
+| Plain `runsc` | None (no root, no `apt-get install`) | Only `/home/user/work` |
+
+`dock stop` stops the container and keeps it; `dock resume` starts it again.
+`/home/user/work` is also a named Docker volume, so that data outlives a lost
+container. `dock rm` removes the container, the volume and the network.
+
+A stopped dock keeps its local port. If another program takes that port,
+`dock resume` fails with `port_in_use` and works again once the port is free.
+
+## How it differs from a QEMU dock
+
+`exec`, `ssh` and `port` work as for QEMU docks, through the guest agent on
+`127.0.0.1`. Commands run as `user`. The differences:
+
+- **Network.** Each dock gets its own Docker bridge network, so it cannot reach
+  your other containers or other docks. It can reach the internet and the
+  host's network services through the bridge gateway, for example a service
+  listening on the host's `0.0.0.0`. A QEMU dock refuses the host loopback
+  gateway; a gVisor dock does not. DNS uses the host's upstream resolvers.
+- **Image.** One built-in image, not a [Dockyard](/dockyard) image. No Docker or
+  systemd inside by default.
+- **Disk size.** `--disk` is not enforced. The work volume, and with
+  `runsc-suid` everything written elsewhere in the dock, lives in Docker's
+  storage (`/var/lib/docker`) with no size limit. `docker container prune` or
+  `docker system prune` deletes a stopped dock's container and everything
+  installed in it; only the `/home/user/work` volume survives.
+- **Not yet supported.** `--network off`, `dock branch`, `dock push` and `dock
+  pull` are refused with an error.
+- **Speed.** Some syscall-heavy or file-I/O-heavy work is slower than in a VM.
+
+If the `docker` binary is gone, `dock rm` still removes the record and warns
+with the names to clean up by hand. If Docker is installed but its daemon is
+down, it fails with `docker_unavailable`; retry after starting Docker.
+
+## Trust
+
+gVisor is a strong sandbox. A user-space kernel written in Go intercepts the
+dock's system calls, and only a small, filtered set reaches the host kernel.
+Google runs untrusted code on it in GKE Sandbox. It is a different boundary from
+the hardware virtual machine of a QEMU dock, not a weak one.
+
+- Root in the dock is root inside the sandbox, not on the host.
+- The container runs with Docker's default capabilities, never `--privileged`,
+  and with CPU, memory and process limits. `no-new-privileges` is not set,
+  because it would block `sudo` with `runsc-suid`.
+- Anyone who can use Docker on the machine can reach every gVisor dock; access
+  to Docker is root-equivalent on most setups.
+- With the network on, a dock can reach services on your machine through the
+  bridge gateway. Treat it as able to do so if the code is hostile.
+
+See [Runtimes](/concepts/runtimes#local-engine) and the
+[threat model](/threat-model).

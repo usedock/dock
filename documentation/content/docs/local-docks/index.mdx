@@ -1,6 +1,6 @@
 ---
 title: Local docks
-description: Run docks on your own machine with the dock CLI and QEMU, no account and no control plane.
+description: Run docks on your own machine with the dock CLI, with QEMU or gVisor and no account or control plane.
 ---
 
 The `dock` CLI carries its own engine. With no account and no control plane it
@@ -15,7 +15,8 @@ installer again to update). The CLI is early; its source is in
 ## What you need
 
 QEMU, and your machine's hardware accelerator. The engine never falls back to
-software emulation on its own.
+software emulation on its own. On Linux without usable KVM, see the
+[gVisor runtime](#gvisor-runtime-no-kvm).
 
 | Machine | Accelerator | Status |
 | --- | --- | --- |
@@ -24,8 +25,8 @@ software emulation on its own.
 | macOS | Hypervisor.framework (HVF) | Built, not yet tested (Apple silicon included) |
 
 On Linux, install QEMU (for example `sudo apt install qemu-system-x86
-qemu-utils`) and make sure your user can read and write `/dev/kvm` (for example
-`sudo usermod -aG kvm $USER`, then log in again). On macOS, `brew install qemu`.
+qemu-utils`) and make sure your user can read and write `/dev/kvm` (see
+[KVM errors on Linux](#kvm-errors-on-linux)). On macOS, `brew install qemu`.
 Set `DOCK_QEMU` to use a `qemu-system` binary somewhere else.
 
 Run `dock doctor` to see what is missing:
@@ -36,7 +37,48 @@ dock doctor
 
 It checks QEMU and `qemu-img`, the accelerator, free disk space (at least 5 GiB
 in the data directory) and that the Dockyard image index is reachable. It
-prints a fix for each missing item and exits 1 when something is missing.
+prints a fix for each missing item and exits 1 when something is missing. On
+Linux it also shows an informational `gvisor` row, which never makes it fail.
+
+### KVM errors on Linux
+
+From `dock` v0.3.5, a Linux `no_accelerator` error and `dock doctor` tell two
+cases apart, each with its own fix line:
+
+- **Permission denied.** `/dev/kvm` exists but your user cannot open it. Add
+  your user to the `kvm` group, then log out and back in, or run `newgrp kvm`
+  in the current shell:
+
+  ```sh
+  sudo usermod -aG kvm $USER
+  ls -l /dev/kvm
+  ```
+
+- **No KVM device.** `/dev/kvm` is missing. Enable virtualization (VT-x or
+  AMD-V) in your firmware settings and load the module with `sudo modprobe
+  kvm_intel` or `sudo modprobe kvm_amd`. Inside a virtual machine, enable
+  nested virtualization on the host.
+
+Any other KVM failure gets a general checklist. Every Linux `no_accelerator`
+message ends with a pointer to the gVisor runtime below.
+
+## gVisor runtime (no KVM)
+
+On a Linux machine without usable KVM, such as a cloud VM without nested
+virtualization, you can opt in to local docks that run as gVisor containers
+through Docker:
+
+```sh
+dock new web --runtime gvisor
+# or for every new dock in this shell
+export DOCK_LOCAL_RUNTIME=gvisor
+```
+
+It needs `dock` v0.3.5 or later, Docker Engine and the gVisor `runsc` runtime.
+There is no silent fallback: without the flag or the variable, local docks stay
+QEMU only. The dock reports `runtime` as `gvisor`. Setup, what persists, the
+differences from QEMU docks and the trust model are on the
+[gVisor runtime](/local-docks/gvisor) page.
 
 ## Where things live
 
@@ -55,8 +97,8 @@ time.
 
 ## How it differs from a control plane
 
-A local dock reports `runtime` as `qemu`, and a stopped dock shows as
-`archived` in `--json` output. Defaults are 2 CPUs, 2048 MiB of memory and a
+A local dock reports `runtime` as `qemu` (or `gvisor`, see
+[gVisor runtime](/local-docks/gvisor)), and a stopped dock shows as `archived` in `--json` output. Defaults are 2 CPUs, 2048 MiB of memory and a
 10 GiB disk. The differences from a dock on a control plane:
 
 - **No live fork.** `dock branch` copies a stopped disk. A running dock is

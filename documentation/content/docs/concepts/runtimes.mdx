@@ -44,19 +44,24 @@ system changes). A `gvisor` Dock restarts from the image with only
 The `dock` CLI has its own engine for docks on your own machine, with no control
 plane ([Local docks](/local-docks)). It runs each dock as a QEMU virtual machine
 and reports `runtime` as `qemu`. It boots a [Dockyard](/dockyard) image directly
-with the image's own kernel.
+with the image's own kernel. On Linux without KVM you can opt in to gVisor
+containers through Docker instead, with `dock new --runtime gvisor` (`dock`
+v0.3.5 or later).
 
 | Machine | Accelerator | Status |
 |---|---|---|
 | Linux x86_64 and arm64 | KVM | Available. arm64 needs `dock` v0.3.0 or later and is untested on real hardware |
 | Windows x86_64 | Windows Hypervisor Platform (WHPX) | Available. See [Windows](/local-docks/windows) |
 | macOS | Hypervisor.framework (HVF) | Built, not yet tested |
+| Linux without KVM | gVisor (`runsc`) on Docker, opt-in, reports `runtime` as `gvisor` | Available from `dock` v0.3.5. See [gVisor runtime](/local-docks/gvisor) |
 
 Firecracker (`microvm`) stays the engine for Linux fleet hosts. The local engine
 is for your own machine, and it never falls back to software emulation unless
 you set `DOCK_LOCAL_ACCEL=tcg` (slow, meant for tests).
 
-What the isolation is, stated plainly:
+What the isolation is, stated plainly. This list describes QEMU docks; a local
+gVisor dock is a container behind a user-space kernel, not a virtual machine
+(see [its trust model](/local-docks/gvisor#trust)).
 
 - Each local dock is a hardware virtual machine with its own guest kernel, so
   the boundary is the hypervisor, as with `microvm`.

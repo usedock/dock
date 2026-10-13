@@ -1,4 +1,4 @@
 {
   "title": "Local docks",
-  "pages": ["index", "windows", "push-pull"]
+  "pages": ["index", "windows", "gvisor", "push-pull"]
 }
