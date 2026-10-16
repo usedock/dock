@@ -74,10 +74,15 @@ A stopped dock keeps its local port. If another program takes that port,
 `127.0.0.1`. Commands run as `user`. The differences:
 
 - **Network.** Each dock gets its own Docker bridge network, so it cannot reach
-  your other containers or other docks. It can reach the internet and the
-  host's network services through the bridge gateway, for example a service
-  listening on the host's `0.0.0.0`. A QEMU dock refuses the host loopback
-  gateway; a gVisor dock does not. DNS uses the host's upstream resolvers.
+  your other containers or other docks. It can reach the internet but not
+  services on your machine. From dock v0.3.6, `dock` adds a firewall rule on
+  the host for each dock's bridge that drops anything the dock starts towards
+  the host's own addresses (the bridge gateway, `docker0`, your LAN IP and
+  `127.0.0.1`) and towards ports other containers publish on the host. The rule
+  lives outside the sandbox, so root in the dock cannot remove it, and you need
+  no `sudo`. DNS to the host's upstream resolvers (the `/etc/resolv.conf`
+  nameservers, port 53) stays allowed, and internet access, the agent port and
+  `dock port` keep working. See [Host block](#host-block).
 - **Image.** One built-in image, not a [Dockyard](/dockyard) image. No Docker or
   systemd inside by default.
 - **Disk size.** `--disk` is not enforced. The work volume, and with
@@ -109,6 +114,29 @@ If the `docker` binary is gone, `dock rm` still removes the record and warns
 with the names to clean up by hand. If Docker is installed but its daemon is
 down, it fails with `docker_unavailable`; retry after starting Docker.
 
+## Host block
+
+From dock v0.3.6, a network-on gVisor dock cannot reach services on the host.
+`dock` installs the rule through a short-lived Docker helper container with
+`NET_ADMIN` in the host network (not `--privileged`). It adds a chain
+`DOCK-<id>` for the dock's bridge `dkl<id>` and one jump in the host's `INPUT`
+chain. Only that bridge is matched; your other containers and the rest of the
+firewall are untouched.
+
+- The rule is added on `dock new`, `dock resume` and `dock branch`, and removed
+  on `dock stop` and `dock rm`.
+- It fails closed. If Docker cannot run the helper, `dock new` and
+  `dock resume` refuse with `host_block_failed` instead of starting an
+  unblocked dock. Use `--network off`, or set `DOCK_GVISOR_ALLOW_HOST=1` to run
+  anyway with host access (a warning is printed).
+- A firewall reload or flush on the host (`firewall-cmd --reload`,
+  `ufw reload`, `iptables -F`) removes the rule from a running dock until it is
+  stopped and resumed.
+- A dock created by an older `dock` gets the rule on its next resume.
+- The IPv6 rule is best effort; a warning is shown if it cannot be installed.
+- The rest of your LAN stays reachable: the block is about this machine, not
+  other hosts.
+
 ## Trust
 
 gVisor is a strong sandbox. A user-space kernel written in Go intercepts the
@@ -122,9 +150,10 @@ the hardware virtual machine of a QEMU dock, not a weak one.
   because it would block `sudo` with `runsc-suid`.
 - Anyone who can use Docker on the machine can reach every gVisor dock; access
   to Docker is root-equivalent on most setups.
-- With the network on, a dock can reach services on your machine through the
-  bridge gateway. Treat it as able to do so if the code is hostile; use
-  `--network off` (dock v0.3.6 or later) for untrusted code.
+- From dock v0.3.6 a network-on dock cannot reach services on your machine,
+  even as root in the dock; see [Host block](#host-block). If you set
+  `DOCK_GVISOR_ALLOW_HOST=1` it can, so treat it as able to if the code is
+  hostile. `--network off` (dock v0.3.6 or later) removes the network entirely.
 
 See [Runtimes](/concepts/runtimes#local-engine) and the
 [threat model](/threat-model).
