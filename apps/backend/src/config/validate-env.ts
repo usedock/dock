@@ -30,7 +30,7 @@ const envSchema = z
     BETTER_AUTH_SECRET: z.string().min(32, 'BETTER_AUTH_SECRET must be at least 32 characters'),
     /** Legacy auth base; falls back to PUBLIC_API_URL. */
     BETTER_AUTH_URL: optionalUrl('BETTER_AUTH_URL'),
-    /** Extra comma-separated origins trusted by auth besides PUBLIC_APP_URL. */
+    /** Extra comma-separated origins trusted by auth and credentialed /v1 CORS besides PUBLIC_APP_URL. */
     AUTH_TRUSTED_ORIGINS: z.string().optional(),
     /** Cross-subdomain auth cookie domain; empty disables, unset derives from the public hosts. */
     AUTH_COOKIE_DOMAIN: z.string().optional(),

@@ -21,7 +21,7 @@ import type { RequestUser } from '../jwt-auth.guard';
 @Injectable()
 export class BetterAuthService {
   readonly auth: Auth;
-  /** Dashboard origins allowed to use backend-hosted auth with credentials. */
+  /** Dashboard origins allowed credentialed access to auth and /v1. */
   readonly trustedOrigins: string[];
   private readonly logger = new Logger(BetterAuthService.name);
   private readonly nodeHandler: (req: Request, res: Response) => Promise<void>;

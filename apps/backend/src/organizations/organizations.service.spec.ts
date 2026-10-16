@@ -78,6 +78,8 @@ describe('OrganizationsService', () => {
     ['Ada Lovelace', "Ada Lovelace's org"],
     ['  ', "Ada's org"],
     [undefined, "Ada's org"],
+    ['a'.repeat(120), `${'a'.repeat(94)}'s org`],
+    [`${'a'.repeat(93)}\u{1F600}b`, `${'a'.repeat(93)}\u{1F600}'s org`],
   ])('provisionPersonalOrg with name %j names the org %j', async (name, expected) => {
     const tx = mockTx();
     mockSelectOnce([{ version: 1 }]);

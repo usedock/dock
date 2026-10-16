@@ -55,7 +55,7 @@ export class UsersService {
     await this.db.transaction(async (tx) => {
       await tx
         .insert(profiles)
-        .values({ userId: input.id, displayName: name?.slice(0, 60) })
+        .values({ userId: input.id, displayName: name && Array.from(name).slice(0, 60).join('') })
         .onConflictDoNothing();
       if (input.emailVerified) {
         await tx

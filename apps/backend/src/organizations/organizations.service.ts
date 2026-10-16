@@ -145,7 +145,8 @@ export class OrganizationsService {
     input: { userId: string; email: string; name?: string },
   ): Promise<Organization> {
     const label = input.name?.trim() || input.email.split('@')[0] || 'Personal';
-    const name = `${label}'s org`.slice(0, 100);
+    // Trim the label by code points so the suffix survives and no emoji is split.
+    const name = `${Array.from(label).slice(0, 94).join('')}'s org`;
     const [org] = await tx
       .insert(organizations)
       .values({ name, slug: personalSlug(input.email), seats: DEFAULT_SEATS })
