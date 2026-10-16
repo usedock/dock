@@ -107,6 +107,24 @@ describe('DockTransfersController', () => {
     expect(await read.json()).toEqual({ ok: true, data: { state: 'pending' } });
   });
 
+  it('passes the requested export formats to the service and defaults to none', async () => {
+    await call('POST', '/docks/d1/export', { formats: ['work-tar'] });
+    expect(service.startExport).toHaveBeenLastCalledWith(expect.anything(), 'd1', ['work-tar']);
+    await call('POST', '/docks/d1/export');
+    expect(service.startExport).toHaveBeenLastCalledWith(expect.anything(), 'd1', undefined);
+    // CLIs up to v0.3.4 send an empty object.
+    await call('POST', '/docks/d1/export', {});
+    expect(service.startExport).toHaveBeenLastCalledWith(expect.anything(), 'd1', undefined);
+  });
+
+  it('validates the export body', async () => {
+    service.startExport.mockClear();
+    for (const bad of [{ formats: ['zip'] }, { formats: [] }, { formats: 'disk' }, { formats: ['disk', 'disk'] }, { extra: 1 }]) {
+      expect((await call('POST', '/docks/d1/export', bad)).status).toBe(400);
+    }
+    expect(service.startExport).not.toHaveBeenCalled();
+  });
+
   it('streams a download, and a range with 206 and Content-Range', async () => {
     service.openDownload.mockResolvedValueOnce({ stream: Readable.from([Buffer.from('0123456789')]), size: 10, start: 0, end: 9, partial: false });
     const whole = await call('GET', '/docks/exports/e1/download');

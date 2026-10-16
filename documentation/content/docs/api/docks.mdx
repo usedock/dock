@@ -303,8 +303,10 @@ These six routes move a Dock's disk between control planes; the `dock push`
 and `dock pull` commands drive them. The walkthrough, with the upload and
 download steps, is in [Push and pull](/local-docks/push-pull). The file that
 moves is `rootfs.ext4.zst`, the raw ext4 disk compressed with zstd. Only the
-disk moves, never memory, so an imported or exported Dock boots fresh. Both
-directions need a `microvm` runtime; a `gvisor` Dock cannot be exported.
+disk moves, never memory, so an imported or exported Dock boots fresh. An
+import needs a `microvm` host. A `microvm` Dock exports its disk; a `gvisor`
+Dock exports only its `/home/user/work` directory, as `state.tar.zst`, when the
+client asks for the `work-tar` format.
 
 Imports land only on hosts whose docklet advertises the `verified-imports`
 feature, so older docklets never boot a disk they cannot verify. When no online
@@ -414,8 +416,18 @@ Auth: API key or session. Role: the same as opening the Dock. A Dock with
 connectors, or with secrets from an admins-only Environment, can be exported
 only by its creator or an `admin`.
 
-No body. Response: `{ "exportId": "..." }`. Read it with
-`GET /v1/docks/exports/:exportId`.
+Optional body: `{ "formats": ["disk" | "work-tar"] }`, the formats the client can
+take (default `["disk"]`; at least one, no repeats).
+
+| Dock runtime | Exported when | Format |
+|---|---|---|
+| `microvm` | `disk` is listed (always, by default) | `disk`: `rootfs.ext4.zst`, the compressed ext4 disk |
+| `gvisor` | `work-tar` is listed and the Dock's host advertises the `work-export` feature | `work-tar`: `state.tar.zst`, the compressed tar of `/home/user/work` |
+
+Response: `{ "exportId": "..." }`. Read it with
+`GET /v1/docks/exports/:exportId`. A `work-tar` export has no disk: the Export's
+`baseImage` is the Dock's own `image`, and a pull builds a fresh Dock from that
+image with only the work directory copied in.
 
 The Dock is then re-applied, so its gateway tokens and its dock API key rotate
 and the copy cannot use them. If they cannot be rotated, the export fails with
@@ -424,7 +436,11 @@ one pending export at a time, and an organization 5 live exports.
 
 Errors: `dock_not_found`, `environment_secrets_admin_only`,
 `connector_admin_only`, `zdr_blocks_exports` (403: retention is enabled),
-`runtime_unsupported` (409: not a `microvm` Dock), `dock_not_running` (409: the
+`runtime_unsupported` (409: a `gvisor` Dock was not exported as `work-tar`, so the
+client must be upgraded, or its host does not advertise `work-export`, so the
+docklet must be upgraded), `export_format_unsupported` (400: only `work-tar` was
+requested for a `microvm` Dock), `validation_error` (400: unknown or repeated
+format), `dock_not_running` (409: the
 Dock must be `ready`, `idle` or `running`), `conflict` (an export of this Dock is
 already in progress), `export_limit_reached` (429).
 

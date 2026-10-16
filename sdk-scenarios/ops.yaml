@@ -69,6 +69,7 @@ http:
     method: POST
     path: /v1/docks/{dockId}/export
     status: 202
+    body: [formats]
   docks.exportGet:
     method: GET
     path: /v1/docks/exports/{exportId}
