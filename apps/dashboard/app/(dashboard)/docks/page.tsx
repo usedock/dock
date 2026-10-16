@@ -8,6 +8,7 @@ import { apiSnippetBase, getDefaultApi, type Connector, type Dock, type DockImag
 import { formatAgo, formatDate, formatDuration, messageOf, runtimeLabel, sizeLabel } from '@/lib/format';
 import { branchDisabledReason, dockActions, dockStateLabel } from '@/lib/dock-state';
 import { useInstanceConfig } from '@/lib/use-instance-config';
+import { useNow } from '@/lib/use-now';
 import { useOrg } from '@/components/dashboard/org-context';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { CodeBlock } from '@/components/dashboard/code-block';
@@ -69,7 +70,7 @@ function DocksTable() {
   const [dialogOpenState, setDialogOpenState] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Dock | null>(null);
   const [branchingId, setBranchingId] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
+  const now = useNow();
 
   const [formWorkspace, setFormWorkspace] = useState('');
   const [formName, setFormName] = useState('');
@@ -119,12 +120,6 @@ function DocksTable() {
   useEffect(() => {
     refresh();
   }, [refresh]);
-
-  // Keeps the "for 3h 12m" durations moving without refetching.
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
 
   // The shell header "New dock" button and the command palette land here with
   // ?new=1; derive the open state so there is no effect-driven setState, and

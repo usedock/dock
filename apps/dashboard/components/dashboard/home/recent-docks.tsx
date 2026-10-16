@@ -1,8 +1,8 @@
-import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import type { Dock } from '@/lib/dock-api';
 import { formatAgo } from '@/lib/format';
+import { useNow } from '@/lib/use-now';
 import { recentItems, type Section } from '@/lib/home-summary';
 import { EmptyNote, LoadingRows } from '@/components/dashboard/data-states';
 import { StatePill } from '@/components/dashboard/status-pill';
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { HomeSection, ROW_GROUP, ROW_LINK } from './section';
 
 export function RecentDocks({ docks }: { docks: Section<Dock[]> }) {
-  const [now] = useState(() => Date.now());
+  const now = useNow();
   const rows = Array.isArray(docks) ? recentItems(docks) : [];
   return (
     <HomeSection

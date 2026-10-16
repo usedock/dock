@@ -8,6 +8,7 @@ import { getDefaultApi, type InboxPage, type NotificationItem, type Notification
 import { formatAgo, formatDate, messageOf } from '@/lib/format';
 import { notificationsCopy } from '@/lib/empty-states';
 import { useInstanceConfig } from '@/lib/use-instance-config';
+import { useNow } from '@/lib/use-now';
 import { cn } from '@/lib/utils';
 import { useOrg } from '@/components/dashboard/org-context';
 import { announceNotificationsChanged } from '@/components/dashboard/app-sidebar';
@@ -57,7 +58,7 @@ export default function NotificationsPage() {
   const [prefsError, setPrefsError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  const now = useNow();
 
   const config = useInstanceConfig();
   const billingEnabled = config?.billingEnabled !== false;
@@ -72,7 +73,6 @@ export default function NotificationsPage() {
       .listInbox(undefined, PAGE_SIZE)
       .then((next) => {
         setPage(next);
-        setNow(Date.now());
         setError(null);
       })
       .catch((e: unknown) => setError(messageOf(e, 'Could not load notifications.')));
