@@ -38,24 +38,40 @@ prints a note saying so.
 - A running dock needs `--stop`, as for QEMU; `dock push` stops it first. The
   size and free-space checks run before it is stopped. If the work data does not
   fit the disk, the push fails with `push_too_big`; pass a larger `--disk`.
+- `--disk` smaller than the base image fails early with `push_too_big` and a
+  hint to pass a larger `--disk`, before the dock is stopped.
 - A missing work volume fails. A file name containing a newline or carriage
   return is refused (`push_unsupported_name`). Device, fifo and socket files are
   skipped with a warning.
 
 ### Pull into a gVisor dock
 
-`dock pull <dock> --from <context> --runtime gvisor` creates a stopped gVisor
-dock from the exported disk. The runtime is the flag, else `DOCK_LOCAL_RUNTIME`,
-else `qemu`. On a machine where QEMU or KVM cannot run, the pull fails early
-with a hint to pass `--runtime gvisor`.
+`dock pull <dock> --from <context> [--name N] --runtime gvisor` creates a
+stopped gVisor dock from the exported disk. The runtime is the flag
+(`qemu` or `gvisor`), else `DOCK_LOCAL_RUNTIME`, else `qemu`.
 
-- Only `/home/user/work` is copied out of the disk, with owners mapped to the
-  dock user. Nothing else in the disk is kept. The first `dock resume` boots the
-  dock.
+- The runtime's check runs before the export, so a pull fails early on a
+  machine that cannot run it. Where QEMU or KVM cannot run, the QEMU path fails
+  with a hint to pass `--runtime gvisor`; the gVisor path fails without Docker
+  or `runsc`.
+- The CLI prints a note that only `/home/user/work` is copied. It is copied out
+  of the disk, with owners mapped to the dock user; nothing else in the disk is
+  kept. The first `dock resume` boots the dock.
 - The disk is read inside the gVisor sandbox and is never mounted by the host
   kernel.
 - Pulling a fleet dock that itself runs on gVisor is not supported: it has no
   disk image to export.
+- The import is size-capped. It fails with `import_too_big` when the work
+  directory grows past the cap (the disk size plus a little slack; hard links on
+  the source disk become separate copies), and with `insufficient_space` when
+  Docker's data root is short on free space.
+
+### Interrupted imports
+
+If a pull is killed while the work directory is being copied, the new dock is
+left in the state `import_incomplete`. `dock ls` and `dock doctor` show it, and
+`dock resume`, `dock branch` and `dock push` refuse it. Remove it with
+`dock rm <name>`, then pull again.
 
 ## Push: import a disk
 
