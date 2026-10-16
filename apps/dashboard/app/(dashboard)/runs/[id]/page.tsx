@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { getDefaultApi, type Dock, type GithubRun } from '@/lib/dock-api';
+import { dockStateLabel } from '@/lib/dock-state';
 import { formatDate, messageOf } from '@/lib/format';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { CopyButton } from '@/components/dashboard/copy-button';
@@ -99,7 +100,7 @@ export default function RunDetailPage() {
             ) : (
               '—'
             )}
-            {dock ? <span className="text-muted-foreground"> · {dock.state}</span> : null}
+            {dock ? <span className="text-muted-foreground"> · {dockStateLabel(dock.state)}</span> : null}
           </dd>
         </div>
         <div className="flex flex-col gap-1">

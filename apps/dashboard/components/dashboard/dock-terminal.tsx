@@ -6,6 +6,7 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import { terminalSocketUrl, type DockApi } from '@/lib/dock-api';
 import { messageOf } from '@/lib/format';
+import { EmptyNote } from '@/components/dashboard/data-states';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 
@@ -14,7 +15,7 @@ const DATA = 0;
 const RESIZE = 1;
 const EXIT = 2;
 
-type Status = { kind: 'connecting' } | { kind: 'open' } | { kind: 'closed'; message: string };
+type Status = { kind: 'connecting' } | { kind: 'open' } | { kind: 'closed'; message: string; unavailable?: boolean };
 
 function closeMessage(event: CloseEvent, opened: boolean, exitCode: number | null): string {
   if (exitCode !== null) return `Shell exited with code ${exitCode}.`;
@@ -59,7 +60,7 @@ export function DockTerminal({ api, dockId }: { api: DockApi; dockId: string }) 
     try {
       ticket = (await api.createTerminalTicket(dockId)).ticket;
     } catch (e: unknown) {
-      if (term.current === terminal) setStatus({ kind: 'closed', message: messageOf(e, 'Could not open a terminal.') });
+      if (term.current === terminal) setStatus({ kind: 'closed', message: messageOf(e, 'Could not open a terminal.'), unavailable: true });
       return;
     }
     if (term.current !== terminal) return;
@@ -129,8 +130,22 @@ export function DockTerminal({ api, dockId }: { api: DockApi; dockId: string }) 
     if (mounted) void connect();
   }, [mounted, connect]);
 
+  const unavailable = status.kind === 'closed' && status.unavailable === true;
+
   return (
     <div className="flex flex-col gap-2">
+      {unavailable ? (
+        <div className="flex flex-col items-start gap-3">
+          <div className="w-full">
+            <EmptyNote title="The terminal is unavailable." hint={status.message} />
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => void connect()}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
+      {/* The xterm host stays mounted (hidden) so Retry reuses it. */}
+      <div className={unavailable ? 'hidden' : 'flex flex-col gap-2'}>
       <div className="flex min-h-8 flex-wrap items-center gap-3 text-sm">
         <span className="flex flex-1 items-center gap-2 text-muted-foreground" role="status">
           {status.kind === 'connecting' ? (
@@ -169,6 +184,7 @@ export function DockTerminal({ api, dockId }: { api: DockApi; dockId: string }) 
       <p className="text-xs text-muted-foreground">
         Login shell as the dock user in /home/user/work. Closing this tab hangs the shell up; idle shells close after 30 minutes.
       </p>
+      </div>
     </div>
   );
 }

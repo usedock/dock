@@ -3,9 +3,11 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { MoreHorizontal, Plus } from 'lucide-react';
+import { ChevronDown, MoreHorizontal, Plus } from 'lucide-react';
 import { apiSnippetBase, getDefaultApi, type Connector, type Dock, type DockImage, type Environment, type GithubRun } from '@/lib/dock-api';
 import { formatAgo, formatDate, formatDuration, messageOf, runtimeLabel, sizeLabel } from '@/lib/format';
+import { dockActions, dockStateLabel } from '@/lib/dock-state';
+import { useInstanceConfig } from '@/lib/use-instance-config';
 import { useOrg } from '@/components/dashboard/org-context';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { CodeBlock } from '@/components/dashboard/code-block';
@@ -54,6 +56,7 @@ function DocksTable() {
   const params = useSearchParams();
   const { organizations, workspaces, selectedWorkspaceId } = useOrg();
   const [api] = useState(getDefaultApi);
+  const billingOn = useInstanceConfig()?.billingEnabled !== false;
 
   const query = params.get('q') ?? '';
   const stateFilter = params.get('state') ?? '';
@@ -65,6 +68,7 @@ function DocksTable() {
   const [creating, setCreating] = useState(false);
   const [dialogOpenState, setDialogOpenState] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Dock | null>(null);
+  const [branchingId, setBranchingId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const [formWorkspace, setFormWorkspace] = useState('');
@@ -196,6 +200,20 @@ function DocksTable() {
     }
   }
 
+  async function branch(dock: Dock) {
+    // A second click while the first branch boots would create a second dock.
+    if (branchingId) return;
+    setBranchingId(dock.id);
+    setActionError(null);
+    try {
+      const created = (await api.branchDock(dock.id)) as Dock;
+      router.push(`/docks/${created.id}`);
+    } catch (e: unknown) {
+      setActionError(`Could not branch dock: ${messageOf(e, 'request failed')}`);
+      setBranchingId(null);
+    }
+  }
+
   async function create() {
     if (!workspaceForCreate) {
       setCreateError('Pick a workspace first.');
@@ -208,7 +226,7 @@ function DocksTable() {
     setCreating(true);
     setCreateError(null);
     try {
-      await api.createDock({
+      const created = await api.createDock({
         workspaceId: workspaceForCreate,
         name: formName.trim() || undefined,
         image: formImage,
@@ -221,7 +239,7 @@ function DocksTable() {
       setFormName('');
       setFormConnectors([]);
       closeDialog();
-      refresh();
+      router.push(`/docks/${created.id}`);
     } catch (e: unknown) {
       const msg = CREATE_ERRORS[(e as { code?: string }).code ?? ''] ?? messageOf(e, 'request failed');
       setCreateError(`Could not create dock: ${msg}`);
@@ -370,8 +388,9 @@ function DocksTable() {
               )}
             </div>
             <Collapsible className="col-span-2">
-              <CollapsibleTrigger render={<Button type="button" variant="ghost" size="sm" />}>
+              <CollapsibleTrigger render={<Button type="button" variant="ghost" size="sm" className="group" />}>
                 More options
+                <ChevronDown className="transition-transform group-data-[panel-open]:rotate-180" />
               </CollapsibleTrigger>
               <CollapsibleContent className="mt-2 flex flex-col gap-2">
                 <Label htmlFor="dock-disk">Disk (GB)</Label>
@@ -409,13 +428,13 @@ function DocksTable() {
         />
         <Select value={stateFilter || 'any'} onValueChange={(v) => setParam('state', !v || v === 'any' ? '' : v)}>
           <SelectTrigger aria-label="Filter by state" className="w-44">
-            <SelectValue>{(v: string) => (v === 'any' ? 'Any state' : v)}</SelectValue>
+            <SelectValue>{(v: string) => (v === 'any' ? 'Any state' : dockStateLabel(v))}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="any">Any state</SelectItem>
             {STATES.map((s) => (
               <SelectItem key={s} value={s}>
-                {s}
+                {dockStateLabel(s)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -459,7 +478,7 @@ function DocksTable() {
                 <TableHead>State</TableHead>
                 <TableHead>Spec</TableHead>
                 <TableHead>Address</TableHead>
-                <TableHead>Cost</TableHead>
+                {billingOn ? <TableHead>Cost</TableHead> : null}
                 <TableHead>Created</TableHead>
                 <TableHead>Last snapshot</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -468,6 +487,7 @@ function DocksTable() {
             <TableBody>
               {rows.map((dock) => {
                 const run = runByDock.get(dock.id) ?? null;
+                const actions = dockActions(dock.state, dock.runtime);
                 return (
                   <TableRow key={dock.id}>
                     <TableCell>
@@ -488,7 +508,7 @@ function DocksTable() {
                       <StatePill state={dock.state} />
                       {dock.stateChangedAt ? (
                         <div className="mt-1 text-xs text-muted-foreground" title={formatDate(dock.stateChangedAt)}>
-                          for {formatDuration(now - new Date(dock.stateChangedAt).getTime())}
+                          {dockStateLabel(dock.state)} for {formatDuration(now - new Date(dock.stateChangedAt).getTime())}
                         </div>
                       ) : null}
                     </TableCell>
@@ -498,11 +518,13 @@ function DocksTable() {
                       <div className="mt-1 text-xs text-muted-foreground">{dock.environment ?? '—'}</div>
                     </TableCell>
                     <TableCell className="font-mono text-xs">{dock.ip ?? '—'}</TableCell>
-                    <TableCell>
-                      <Badge variant={dock.billingPausedAt ? 'outline' : 'secondary'}>
-                        {dock.billingPausedAt ? 'Paused' : 'Metered'}
-                      </Badge>
-                    </TableCell>
+                    {billingOn ? (
+                      <TableCell>
+                        <Badge variant={dock.billingPausedAt ? 'outline' : 'secondary'}>
+                          {dock.billingPausedAt ? 'Paused' : 'Metered'}
+                        </Badge>
+                      </TableCell>
+                    ) : null}
                     <TableCell className="text-sm text-muted-foreground" title={formatDate(dock.createdAt)}>
                       {formatAgo(dock.createdAt, now)}
                     </TableCell>
@@ -525,31 +547,19 @@ function DocksTable() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem render={<Link href={`/docks/${dock.id}`} />}>Inspect</DropdownMenuItem>
-                          {run ? (
-                            <DropdownMenuItem
-                              onClick={() => runAction(() => api.branchDock(dock.id), 'Could not branch dock')}
-                            >
-                              Branch
+                          {!run && actions.canResume ? (
+                            <DropdownMenuItem onClick={() => runAction(() => api.resumeDock(dock.id), 'Could not resume dock')}>
+                              Resume
                             </DropdownMenuItem>
-                          ) : (
-                            <>
-                              <DropdownMenuItem
-                                onClick={() => runAction(() => api.resumeDock(dock.id), 'Could not resume dock')}
-                              >
-                                Resume
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => runAction(() => api.stopDock(dock.id), 'Could not stop dock')}
-                              >
-                                Stop
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => runAction(() => api.branchDock(dock.id), 'Could not branch dock')}
-                              >
-                                Branch
-                              </DropdownMenuItem>
-                            </>
-                          )}
+                          ) : null}
+                          {!run && actions.canStop ? (
+                            <DropdownMenuItem onClick={() => runAction(() => api.stopDock(dock.id), 'Could not stop dock')}>
+                              Stop
+                            </DropdownMenuItem>
+                          ) : null}
+                          <DropdownMenuItem disabled={!actions.canBranch || branchingId !== null} onClick={() => branch(dock)}>
+                            {branchingId === dock.id ? 'Branching…' : 'Branch'}
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setDeleteTarget(dock)}>Delete…</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

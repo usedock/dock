@@ -1,4 +1,5 @@
 import { Badge } from '@/components/ui/badge';
+import { dockStateLabel } from '@/lib/dock-state';
 import { cn } from '@/lib/utils';
 
 type Tone = 'live' | 'idle' | 'warn' | 'error';
@@ -47,7 +48,7 @@ export function StatePill({ state, toneMap = DOCK_STATE_TONE }: { state: string;
   return (
     <Badge variant="outline" className="gap-1.5 font-normal">
       <span className={cn('size-1.5 shrink-0 rounded-full', TONE_DOT[tone])} aria-hidden="true" />
-      {state}
+      {dockStateLabel(state)}
     </Badge>
   );
 }
