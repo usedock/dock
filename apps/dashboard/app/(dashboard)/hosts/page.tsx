@@ -7,7 +7,8 @@ import { formatAgo, formatBytes, formatDate, messageOf, runtimeLabel } from '@/l
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import { CodeBlock } from '@/components/dashboard/code-block';
-import { DOCS_URL, hostEnrollLines, isEmailVerificationRequired } from '@/lib/empty-states';
+import { hostEnrollLines, isEmailVerificationRequired } from '@/lib/empty-states';
+import { DOCS_URL } from '@/lib/docs';
 import { HOST_STATE_TONE, StatePill } from '@/components/dashboard/status-pill';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 

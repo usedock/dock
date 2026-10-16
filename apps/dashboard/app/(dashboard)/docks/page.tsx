@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronDown, MoreHorizontal, Plus } from 'lucide-react';
 import { apiSnippetBase, getDefaultApi, type Connector, type Dock, type DockImage, type Environment, type GithubRun } from '@/lib/dock-api';
 import { formatAgo, formatDate, formatDuration, messageOf, runtimeLabel, sizeLabel } from '@/lib/format';
-import { dockActions, dockStateLabel } from '@/lib/dock-state';
+import { branchDisabledReason, dockActions, dockStateLabel } from '@/lib/dock-state';
 import { useInstanceConfig } from '@/lib/use-instance-config';
 import { useOrg } from '@/components/dashboard/org-context';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
@@ -488,6 +488,7 @@ function DocksTable() {
               {rows.map((dock) => {
                 const run = runByDock.get(dock.id) ?? null;
                 const actions = dockActions(dock.state, dock.runtime);
+                const branchReason = branchDisabledReason(dock.state, dock.runtime);
                 return (
                   <TableRow key={dock.id}>
                     <TableCell>
@@ -558,7 +559,10 @@ function DocksTable() {
                             </DropdownMenuItem>
                           ) : null}
                           <DropdownMenuItem disabled={!actions.canBranch || branchingId !== null} onClick={() => branch(dock)}>
-                            {branchingId === dock.id ? 'Branching…' : 'Branch'}
+                            <span className="flex flex-col">
+                              {branchingId === dock.id ? 'Branching…' : 'Branch'}
+                              {branchReason ? <span className="text-xs text-muted-foreground">{branchReason}</span> : null}
+                            </span>
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setDeleteTarget(dock)}>Delete…</DropdownMenuItem>
                         </DropdownMenuContent>

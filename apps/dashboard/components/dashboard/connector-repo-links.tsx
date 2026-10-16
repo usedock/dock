@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getDefaultApi, type ConnectorRepoLink } from '@/lib/dock-api';
+import { DOCS_URL } from '@/lib/docs';
 import { formatDate, messageOf } from '@/lib/format';
 import { ErrorNote } from '@/components/dashboard/data-states';
 import {
@@ -21,7 +22,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 
-const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.usedock.io';
 
 // Same rules as apps/backend/src/connectors/connector-repo-links.service.ts.
 const REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
