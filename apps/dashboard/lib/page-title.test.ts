@@ -3,6 +3,7 @@ import { pageTitle } from './page-title';
 
 describe('pageTitle', () => {
   it('names list and detail routes', () => {
+    expect(pageTitle('/')).toBe('Home | Dock Dashboard');
     expect(pageTitle('/docks')).toBe('Docks | Dock Dashboard');
     expect(pageTitle('/docks/dock_1')).toBe('Dock | Dock Dashboard');
     expect(pageTitle('/snapshots')).toBe('Snapshots & Templates | Dock Dashboard');
@@ -22,7 +23,6 @@ describe('pageTitle', () => {
   });
 
   it('falls back to the product name', () => {
-    expect(pageTitle('/')).toBe('Dock Dashboard');
     expect(pageTitle('/unknown')).toBe('Dock Dashboard');
   });
 });

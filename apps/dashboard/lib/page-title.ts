@@ -31,6 +31,7 @@ const TITLES: [prefix: string, title: string][] = [
 /** Browser tab title for a dashboard pathname. */
 export function pageTitle(pathname: string): string {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  if (path === '/') return `Home | ${SUFFIX}`;
   if (path.startsWith('/docks/')) return `Dock | ${SUFFIX}`;
   const hit = TITLES.find(([prefix]) => path === prefix || path.startsWith(`${prefix}/`));
   return hit ? `${hit[1]} | ${SUFFIX}` : SUFFIX;
