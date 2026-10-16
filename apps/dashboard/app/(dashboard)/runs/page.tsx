@@ -8,6 +8,7 @@ import { formatDate, messageOf } from '@/lib/format';
 import { useOrg } from '@/components/dashboard/org-context';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { CopyButton } from '@/components/dashboard/copy-button';
+import { runsEmptyHint } from '@/lib/empty-states';
 import { RUN_STATE_TONE, StatePill } from '@/components/dashboard/status-pill';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -28,6 +29,8 @@ function RunsTable() {
 
   const [runs, setRuns] = useState<GithubRun[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Null until known; a failed lookup keeps the default hint.
+  const [githubLinked, setGithubLinked] = useState<boolean | null>(null);
 
   const setParam = useCallback(
     (key: string, value: string) => {
@@ -66,6 +69,16 @@ function RunsTable() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!selectedWorkspaceId) return;
+    api
+      .listInstallations(selectedWorkspaceId)
+      .then((rows) => setGithubLinked(rows.length > 0))
+      .catch(() => setGithubLinked(null));
+  }, [api, selectedWorkspaceId]);
+
+  const emptyHint = runsEmptyHint(githubLinked);
 
   const rows = useMemo(() => {
     const list = runs ?? [];
@@ -112,7 +125,19 @@ function RunsTable() {
       ) : runs === null ? (
         <LoadingRows />
       ) : rows.length === 0 ? (
-        <EmptyNote title="No runs here." hint="Mention @dock on a GitHub issue to start the first run." />
+        <EmptyNote
+          title="No runs here."
+          hint={
+            <>
+              {emptyHint.text}{' '}
+              {emptyHint.href ? (
+                <Link href={emptyHint.href} className="text-foreground underline underline-offset-4">
+                  {emptyHint.linkText}
+                </Link>
+              ) : null}
+            </>
+          }
+        />
       ) : (
         <div className="rounded-md border">
           <Table>

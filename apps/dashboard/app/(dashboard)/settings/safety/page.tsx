@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getDefaultApi } from '@/lib/dock-api';
 import { messageOf } from '@/lib/format';
+import { isAccountClosed, visibleAccountActions, type AccountAction } from '@/lib/empty-states';
 import { useOrg } from '@/components/dashboard/org-context';
 import { ErrorNote, LoadingRows } from '@/components/dashboard/data-states';
 import { SettingsSection } from '@/components/dashboard/settings-section';
@@ -22,8 +23,6 @@ import { Switch } from '@/components/ui/switch';
 const RETENTION_PHRASE = 'delete archived dock data';
 // Must match ERASE_CONFIRM_PHRASE in the backend account-closure service.
 const ERASE_PHRASE = 'erase my account data';
-
-type AccountAction = 'close' | 'reopen' | 'erase';
 
 const ACCOUNT_ACTIONS: { id: AccountAction; title: string; detail: string; button: string; destructive: boolean }[] = [
   {
@@ -55,6 +54,7 @@ export default function SafetyPage() {
   const [pendingAction, setPendingAction] = useState<AccountAction | null>(null);
   const [erasePhrase, setErasePhrase] = useState('');
   const [working, setWorking] = useState(false);
+  const [closed, setClosed] = useState(false);
 
   // The scope gate in render covers the unselected case; no sync resets.
   const refresh = useCallback(() => {
@@ -74,6 +74,11 @@ export default function SafetyPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Closed accounts are refused on /v1/me, which is how the page learns the state.
+  useEffect(() => {
+    api.getMe().catch((e: unknown) => setClosed(isAccountClosed(e)));
+  }, [api]);
 
   async function setRetentionEnabled(enabled: boolean) {
     if (!selectedOrgId) return;
@@ -96,8 +101,14 @@ export default function SafetyPage() {
     setWorking(true);
     setActionError(null);
     try {
-      if (pendingAction === 'close') await api.closeAccount();
-      if (pendingAction === 'reopen') await api.reopenAccount();
+      if (pendingAction === 'close') {
+        await api.closeAccount();
+        setClosed(true);
+      }
+      if (pendingAction === 'reopen') {
+        await api.reopenAccount();
+        setClosed(false);
+      }
       if (pendingAction === 'erase') await api.eraseAccount(ERASE_PHRASE);
       setPendingAction(null);
     } catch (e: unknown) {
@@ -115,7 +126,7 @@ export default function SafetyPage() {
 
       <SettingsSection
         title="Zero data retention"
-        description="When on, Dock keeps nothing from archived docks for this organization: archived docks and every template are deleted, and templates stay off."
+        description="When on, Dock keeps nothing from stopped docks for this organization: stopped docks and every template are deleted, and templates stay off."
         footerHint="Owners only, from a browser session."
       >
         {!selectedOrgId ? (
@@ -130,8 +141,8 @@ export default function SafetyPage() {
               <span className="text-sm font-medium">{retention.enabled ? 'On' : 'Off'}</span>
               <span className="text-sm text-muted-foreground">
                 {retention.enabled
-                  ? 'Archived dock data is deleted and templates are disabled.'
-                  : 'Archived docks and templates are kept until you delete them.'}
+                  ? 'Stopped dock data is deleted and templates are disabled.'
+                  : 'Stopped docks and templates are kept until you delete them.'}
               </span>
             </div>
             <Switch
@@ -146,7 +157,7 @@ export default function SafetyPage() {
 
       <SettingsSection title="Account" description="These apply to your whole account, across every organization." danger flush>
         <ul className="divide-y divide-destructive/20">
-          {ACCOUNT_ACTIONS.map((a) => (
+          {ACCOUNT_ACTIONS.filter((a) => visibleAccountActions(closed).includes(a.id)).map((a) => (
             <li key={a.id} className="flex flex-wrap items-center gap-4 px-5 py-3.5">
               <div className="flex min-w-0 flex-1 flex-col">
                 <span className="text-sm font-medium">{a.title}</span>
@@ -180,7 +191,7 @@ export default function SafetyPage() {
             <DialogHeader>
               <DialogTitle>Turn on zero data retention?</DialogTitle>
               <DialogDescription>
-                Archived docks and all templates in this organization are deleted now and cannot be recovered.
+                Stopped docks and all templates in this organization are deleted now and cannot be recovered.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-2">

@@ -6,6 +6,8 @@ import { getDefaultApi } from '@/lib/dock-api';
 import { formatDate, messageOf } from '@/lib/format';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { CopyButton } from '@/components/dashboard/copy-button';
+import { CodeBlock } from '@/components/dashboard/code-block';
+import { CLI_LOGIN_LINES, DOCS_URL } from '@/lib/empty-states';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -99,15 +101,23 @@ export default function ApiKeysPage() {
                 <DialogTitle>New API key</DialogTitle>
                 <DialogDescription>The raw secret is shown exactly once after creation.</DialogDescription>
               </DialogHeader>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="key-name">Name</Label>
-                <Input id="key-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="ci" />
-              </div>
-              <DialogFooter>
-                <Button type="button" disabled={creating || !name.trim()} onClick={create}>
-                  {creating ? 'Creating…' : 'Create key'}
-                </Button>
-              </DialogFooter>
+              <form
+                className="flex flex-col gap-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void create();
+                }}
+              >
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="key-name">Name</Label>
+                  <Input id="key-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="ci" />
+                </div>
+                <DialogFooter>
+                  <Button type="submit" disabled={creating || !name.trim()}>
+                    {creating ? 'Creating…' : 'Create key'}
+                  </Button>
+                </DialogFooter>
+              </form>
             </DialogContent>
           </Dialog>
         }
@@ -121,7 +131,17 @@ export default function ApiKeysPage() {
             <p className="font-mono text-xs break-all">{created.apiKey}</p>
             <CopyButton value={created.apiKey} label="Copy API key" />
           </div>
-          <Button type="button" variant="ghost" size="sm" className="mt-2" onClick={() => setCreated(null)}>
+          <p className="mt-3 font-medium">Use it with the dock CLI:</p>
+          <CodeBlock lines={CLI_LOGIN_LINES} className="mt-1" />
+          <a
+            href={`${DOCS_URL}/cli`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-block underline underline-offset-4"
+          >
+            CLI docs
+          </a>
+          <Button type="button" variant="ghost" size="sm" className="mt-2 block" onClick={() => setCreated(null)}>
             Dismiss (clears the secret)
           </Button>
         </div>
@@ -131,7 +151,7 @@ export default function ApiKeysPage() {
       ) : keys === null ? (
         <LoadingRows />
       ) : keys.length === 0 ? (
-        <EmptyNote title="No API keys." hint="Create one for CI or scripting. Service keys cannot move money or close accounts." />
+        <EmptyNote title="No API keys." hint="Create one for the dock CLI, SDKs, or CI." />
       ) : (
         <div className="rounded-md border">
           <Table>
