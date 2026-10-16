@@ -19,6 +19,7 @@ const HOLDING = [...RUNNING, 'idle'];
 const STOPPED = ['archived', 'archiving'];
 
 export interface DockSummary {
+  total: number;
   running: number;
   stopped: number;
   vcpusInUse: number;
@@ -28,6 +29,7 @@ export interface DockSummary {
 export function summarizeDocks(docks: Dock[]): DockSummary {
   const live = docks.filter((d) => HOLDING.includes(d.state));
   return {
+    total: docks.length,
     running: docks.filter((d) => RUNNING.includes(d.state)).length,
     stopped: docks.filter((d) => STOPPED.includes(d.state)).length,
     vcpusInUse: live.reduce((sum, d) => sum + (d.cpus ?? 0), 0),

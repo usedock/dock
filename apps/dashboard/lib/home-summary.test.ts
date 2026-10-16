@@ -23,16 +23,16 @@ describe('summarizeDocks', () => {
       dock({ state: 'archived', cpus: 8, memoryMiB: 16384 }),
       dock({ state: 'provisioning' }),
     ]);
-    expect(s).toEqual({ running: 2, stopped: 1, vcpusInUse: 6, memoryMiBInUse: 12288 });
+    expect(s).toEqual({ total: 4, running: 2, stopped: 1, vcpusInUse: 6, memoryMiBInUse: 12288 });
   });
 
   it('counts idle docks toward resources but not running', () => {
     const s = summarizeDocks([dock({ state: 'idle', cpus: 2, memoryMiB: 2048 }), dock({ state: 'running', cpus: 1, memoryMiB: 1024 })]);
-    expect(s).toEqual({ running: 1, stopped: 0, vcpusInUse: 3, memoryMiBInUse: 3072 });
+    expect(s).toEqual({ total: 2, running: 1, stopped: 0, vcpusInUse: 3, memoryMiBInUse: 3072 });
   });
 
   it('handles no docks', () => {
-    expect(summarizeDocks([])).toEqual({ running: 0, stopped: 0, vcpusInUse: 0, memoryMiBInUse: 0 });
+    expect(summarizeDocks([])).toEqual({ total: 0, running: 0, stopped: 0, vcpusInUse: 0, memoryMiBInUse: 0 });
   });
 });
 

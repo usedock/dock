@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
 import type { GithubRun } from '@/lib/dock-api';
 import { formatAgo } from '@/lib/format';
 import { recentItems, type Section } from '@/lib/home-summary';
 import { LoadingRows } from '@/components/dashboard/data-states';
 import { RUN_STATE_TONE, StatePill } from '@/components/dashboard/status-pill';
+import { Button } from '@/components/ui/button';
 import { HomeSection, ROW_GROUP, ROW_LINK } from './section';
 
 export function RecentRuns({ runs }: { runs: Section<GithubRun[]> }) {
@@ -15,9 +17,10 @@ export function RecentRuns({ runs }: { runs: Section<GithubRun[]> }) {
       title="Recent runs"
       hint="Issues handed to @dock."
       link={
-        <Link href="/runs" className="text-sm text-muted-foreground hover:text-foreground">
-          View all
-        </Link>
+        <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/runs" />}>
+          View all runs
+          <ArrowRight />
+        </Button>
       }
     >
       {runs === null ? (
