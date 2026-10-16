@@ -125,7 +125,8 @@ Local differences:
 - `dock new --runtime gvisor` (or `DOCK_LOCAL_RUNTIME=gvisor`) runs the dock as a
   gVisor container through Docker, for Linux without KVM. It needs `dock`
   v0.3.5 or later. `dock branch` and `--network off` work on it from v0.3.6;
-  it refuses `dock push`, and `dock pull` always creates a QEMU dock. See [gVisor runtime](/local-docks/gvisor).
+  `dock push` sends only `/home/user/work` from it, and `dock pull --runtime gvisor` (or
+  `DOCK_LOCAL_RUNTIME=gvisor`) creates one from a pulled disk's work directory. See [gVisor runtime](/local-docks/gvisor).
 
 Environment variables for the local engine:
 
@@ -316,4 +317,4 @@ branch` does not read the file.
 - Streaming `exec` output.
 - On the local engine: live fork, a public URL for `dock port`, and `ls
   --filter` (see [The local context](#the-local-context)). Local gVisor docks
-  also lack `dock push`, and `dock pull` cannot create one.
+  push and pull only `/home/user/work`, and `dock pull` cannot export a gVisor dock.
