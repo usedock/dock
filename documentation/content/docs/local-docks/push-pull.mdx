@@ -9,15 +9,71 @@ and `dock pull` commands in the CLI drive the routes below; the routes are
 public, so any client can use them.
 
 Only the disk moves, never memory, so a pushed or pulled dock boots fresh. Both directions need a [microVM](/concepts/docks) host:
-a gVisor dock keeps only `/home/user/work`, so it cannot be exported and an
-import needs a microVM host to land on. The same holds for a local
-[gVisor dock](/local-docks/gvisor): `dock push` refuses it, and `dock pull` always
-creates a QEMU dock, never a gVisor one. On a real fleet
+a gVisor dock on a fleet keeps only `/home/user/work`, so it cannot be exported
+and an import needs a microVM host to land on. A local
+[gVisor dock](/local-docks/gvisor) can push and pull with limits; see
+[gVisor docks](#gvisor-docks). On a real fleet
 (`RUNTIME_DRIVER=restate`) an import is refused with `runtime_unsupported` up
 front when no online host can take it; the other drivers (the default `fake`
 driver used for development) skip that check. The disk must come from a
 [Dockyard](/dockyard) image; a dock built from a base made on the host cannot
 be exported.
+
+## gVisor docks
+
+A local [gVisor dock](/local-docks/gvisor) has no disk image, only the
+`/home/user/work` volume, so push and pull move that directory and nothing else.
+This needs a `dock` release after v0.3.6; v0.3.6 refuses `dock push` on a
+gVisor dock and has no `dock pull --runtime`.
+
+### Push from a gVisor dock
+
+`dock push <dock> --to <context>` writes `/home/user/work` onto a fresh
+[Dockyard](/dockyard) base and uploads that disk through the import routes
+below. Packages and files outside `/home/user/work` do not carry over; the CLI
+prints a note saying so.
+
+- `--image <name>` picks the base (default `ubuntu-24.04`) and `--disk <size>`,
+  for example `--disk 20gb`, the remote disk size (default: the dock's disk
+  size, else 10 GiB). Both are a usage error on a QEMU dock, whose own disk is
+  pushed.
+- A running dock needs `--stop`, as for QEMU; `dock push` stops it first. The
+  size and free-space checks run before it is stopped. If the work data does not
+  fit the disk, the push fails with `push_too_big`; pass a larger `--disk`.
+- `--disk` smaller than the base image fails early with `push_too_big` and a
+  hint to pass a larger `--disk`, before the dock is stopped.
+- A missing work volume fails (`push_failed`). A file name or symlink target
+  containing a newline or carriage return is refused (`push_unsupported_name`). Device, fifo and socket files are
+  skipped with a warning.
+
+### Pull into a gVisor dock
+
+`dock pull <dock> --from <context> [--name N] --runtime gvisor` creates a
+stopped gVisor dock from the exported disk. The runtime is the flag
+(`qemu` or `gvisor`), else `DOCK_LOCAL_RUNTIME`, else `qemu`.
+
+- The runtime's check runs before the export, so a pull fails early on a
+  machine that cannot run it. Where QEMU or KVM cannot run, the QEMU path fails
+  with a hint to pass `--runtime gvisor`; the gVisor path fails without Docker
+  or `runsc`.
+- The CLI prints a note that only `/home/user/work` is copied. It is copied out
+  of the disk, with owners mapped to the dock user; nothing else in the disk is
+  kept. The first `dock resume` boots the dock.
+- The disk is read inside the gVisor sandbox and is never mounted by the host
+  kernel.
+- Pulling a fleet dock that itself runs on gVisor fails with `not_supported`:
+  it has no disk image to export.
+- The import is size-capped. It fails with `import_too_big` when the work
+  directory grows past the cap (the disk size plus a little slack; hard links on
+  the source disk become separate copies), and with `insufficient_space` when
+  Docker's data root is short on free space.
+
+### Interrupted imports
+
+If a pull is killed while the work directory is being copied, the new dock is
+left in the state `import_incomplete`. `dock ls` and `dock doctor` show it, and
+`dock resume`, `dock branch` and `dock push` refuse it. Remove it with
+`dock rm <name>`, then pull again.
 
 ## Push: import a disk
 
