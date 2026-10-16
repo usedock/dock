@@ -29,7 +29,7 @@ async function metadataOrigin(): Promise<string> {
 export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: new URL(await metadataOrigin()),
-    title: { default: 'Dock Dashboard', template: '%s | Dock Dashboard' },
+    // No title here: <PageTitle /> owns it, and a metadata title would replace it on every navigation.
     description: 'Isolated Linux machines for agents. Sign in to manage your docks.',
   };
 }

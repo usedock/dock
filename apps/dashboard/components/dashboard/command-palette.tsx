@@ -34,7 +34,7 @@ import {
 } from '@/components/ui/command';
 import { getDefaultApi, type Dock } from '@/lib/dock-api';
 import { useOrg } from '@/components/dashboard/org-context';
-import { dockSearchValue, paletteDocks } from '@/lib/palette-docks';
+import { dockSearchValue, paletteDocks, shortDockId, workspaceDocks } from '@/lib/palette-docks';
 import { useInstanceConfig, withoutBillingWhenDisabled } from '@/lib/use-instance-config';
 
 const DESTINATIONS = [
@@ -61,6 +61,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
   const { selectedWorkspaceId } = useOrg();
   const [open, setOpen] = useState(false);
   const [docks, setDocks] = useState<Dock[]>([]);
+  const [search, setSearch] = useState('');
   const destinations = withoutBillingWhenDisabled(DESTINATIONS, useInstanceConfig());
 
   useEffect(() => {
@@ -68,6 +69,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setOpen((v) => !v);
+        setSearch('');
       }
     }
     document.addEventListener('keydown', onKeyDown);
@@ -81,7 +83,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     getDefaultApi()
       .listDocks(undefined, true)
       .then((rows) => {
-        if (!cancelled) setDocks(paletteDocks(rows, selectedWorkspaceId));
+        if (!cancelled) setDocks(workspaceDocks(rows, selectedWorkspaceId));
       })
       .catch(() => undefined);
     return () => {
@@ -89,8 +91,13 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     };
   }, [open, selectedWorkspaceId]);
 
+  function changeOpen(next: boolean) {
+    setOpen(next);
+    setSearch('');
+  }
+
   function go(href: string) {
-    setOpen(false);
+    changeOpen(false);
     router.push(href);
   }
 
@@ -101,12 +108,12 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
       {children}
       <CommandDialog
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={changeOpen}
         title="Command palette"
         description="Jump anywhere or start a new dock"
       >
         <Command>
-          <CommandInput placeholder="Jump to… or create a dock" />
+          <CommandInput placeholder="Jump to… or create a dock" value={search} onValueChange={setSearch} />
           <CommandList>
             <CommandEmpty>No matches.</CommandEmpty>
             <CommandGroup heading="Actions">
@@ -120,11 +127,11 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
               <>
                 <CommandSeparator />
                 <CommandGroup heading="Docks">
-                  {docks.map((dock) => (
+                  {paletteDocks(docks, search).map((dock) => (
                     <CommandItem key={dock.id} value={dockSearchValue(dock)} onSelect={() => go(`/docks/${dock.id}`)}>
                       <Container />
-                      {dock.name}
-                      <CommandShortcut>{dock.id}</CommandShortcut>
+                      <span className="truncate">{dock.name}</span>
+                      <CommandShortcut>{shortDockId(dock.id)}</CommandShortcut>
                     </CommandItem>
                   ))}
                 </CommandGroup>
