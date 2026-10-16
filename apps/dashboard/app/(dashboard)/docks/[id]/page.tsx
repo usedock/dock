@@ -68,6 +68,7 @@ function DockDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [browsing, setBrowsing] = useState<string | null>(null);
+  const [branching, setBranching] = useState(false);
 
   const setTab = useCallback(
     (value: string) => {
@@ -115,12 +116,16 @@ function DockDetail() {
   }
 
   async function branch() {
+    // A second click while the first branch boots would create a second dock.
+    if (branching) return;
+    setBranching(true);
     setActionError(null);
     try {
       const created = (await api.branchDock(id)) as Dock;
       router.push(`/docks/${created.id}`);
     } catch (e: unknown) {
       setActionError(`Could not branch dock: ${messageOf(e, 'request failed')}`);
+      setBranching(false);
     }
   }
 
@@ -135,8 +140,7 @@ function DockDetail() {
   if (!dock) return <LoadingRows />;
 
   const fromRun = run !== null;
-  const actions = dockActions(dock.state);
-  const dockRef = dock.name || dock.id;
+  const actions = dockActions(dock.state, dock.runtime);
   const execBlocked = fromRun
     ? 'This dock is driven by its run. Branch it to run commands.'
     : !EXEC_STATES.includes(dock.state)
@@ -179,8 +183,8 @@ function DockDetail() {
                 Stop
               </Button>
             ) : null}
-            <Button type="button" variant="outline" size="sm" disabled={!actions.canBranch} onClick={branch}>
-              Branch
+            <Button type="button" variant="outline" size="sm" disabled={!actions.canBranch || branching} onClick={branch}>
+              {branching ? 'Branching…' : 'Branch'}
             </Button>
             {!fromRun ? (
               <Button type="button" variant="outline" size="sm" onClick={() => setSavingTemplate(true)}>
@@ -266,7 +270,7 @@ function DockDetail() {
         <TabsContent value="connect" className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <h2 className="text-sm font-medium">CLI</h2>
-            <CodeBlock lines={[`dock exec ${dockRef} -- uname -a`, `dock ssh ${dockRef}`]} />
+            <CodeBlock lines={[`dock exec ${dock.id} -- uname -a`, `dock ssh ${dock.id}`]} />
             <p className="text-sm text-muted-foreground">
               Sign in once with <code className="font-mono">dock login</code>.{' '}
               <a href={`${DOCS_URL}/cli`} target="_blank" rel="noreferrer" className="underline underline-offset-4">

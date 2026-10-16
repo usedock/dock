@@ -68,6 +68,7 @@ function DocksTable() {
   const [creating, setCreating] = useState(false);
   const [dialogOpenState, setDialogOpenState] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Dock | null>(null);
+  const [branchingId, setBranchingId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const [formWorkspace, setFormWorkspace] = useState('');
@@ -200,12 +201,16 @@ function DocksTable() {
   }
 
   async function branch(dock: Dock) {
+    // A second click while the first branch boots would create a second dock.
+    if (branchingId) return;
+    setBranchingId(dock.id);
     setActionError(null);
     try {
       const created = (await api.branchDock(dock.id)) as Dock;
       router.push(`/docks/${created.id}`);
     } catch (e: unknown) {
       setActionError(`Could not branch dock: ${messageOf(e, 'request failed')}`);
+      setBranchingId(null);
     }
   }
 
@@ -482,7 +487,7 @@ function DocksTable() {
             <TableBody>
               {rows.map((dock) => {
                 const run = runByDock.get(dock.id) ?? null;
-                const actions = dockActions(dock.state);
+                const actions = dockActions(dock.state, dock.runtime);
                 return (
                   <TableRow key={dock.id}>
                     <TableCell>
@@ -552,8 +557,8 @@ function DocksTable() {
                               Stop
                             </DropdownMenuItem>
                           ) : null}
-                          <DropdownMenuItem disabled={!actions.canBranch} onClick={() => branch(dock)}>
-                            Branch
+                          <DropdownMenuItem disabled={!actions.canBranch || branchingId !== null} onClick={() => branch(dock)}>
+                            {branchingId === dock.id ? 'Branching…' : 'Branch'}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setDeleteTarget(dock)}>Delete…</DropdownMenuItem>
                         </DropdownMenuContent>
