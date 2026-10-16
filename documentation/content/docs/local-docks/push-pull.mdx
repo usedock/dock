@@ -77,8 +77,8 @@ work directory instead. It works from dock v0.3.8 into a local gVisor dock
 (`--runtime gvisor`) or a local QEMU dock (`--runtime qemu`, the default without
 `DOCK_LOCAL_RUNTIME`).
 
-- It needs a control plane with the `work-tar` export and a dock host whose
-  docklet advertises `work-export`. Otherwise the pull fails with
+- It needs a control plane on 0.2.6 or later (the `work-tar` export) and a dock
+  host on docklet v0.3.8 or later (it advertises `work-export`). Otherwise the pull fails with
   `gvisor_export_unsupported`: "this control plane (or the dock's host) cannot
   export gVisor docks yet".
 - Only `/home/user/work` is copied, onto a fresh base. The CLI prints a note,
