@@ -142,10 +142,10 @@ export class OrganizationsService {
   /** Personal org + owner membership + default workspace, inside the caller's tx. */
   async provisionPersonalOrg(
     tx: OrgTx,
-    input: { userId: string; email: string },
+    input: { userId: string; email: string; name?: string },
   ): Promise<Organization> {
-    const local = input.email.split('@')[0] ?? '';
-    const name = `${local || 'Personal'}'s org`.slice(0, 100);
+    const label = input.name?.trim() || input.email.split('@')[0] || 'Personal';
+    const name = `${label}'s org`.slice(0, 100);
     const [org] = await tx
       .insert(organizations)
       .values({ name, slug: personalSlug(input.email), seats: DEFAULT_SEATS })

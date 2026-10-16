@@ -74,6 +74,17 @@ describe('OrganizationsService', () => {
     expect(tx.calls[5].vals).toMatchObject({ plan: 'developer', planVersion: 1, status: 'active' });
   });
 
+  it.each([
+    ['Ada Lovelace', "Ada Lovelace's org"],
+    ['  ', "Ada's org"],
+    [undefined, "Ada's org"],
+  ])('provisionPersonalOrg with name %j names the org %j', async (name, expected) => {
+    const tx = mockTx();
+    mockSelectOnce([{ version: 1 }]);
+    await service.provisionPersonalOrg(tx as never, { userId: 'u1', email: 'Ada@Example.com', name });
+    expect(tx.calls[0].vals).toMatchObject({ name: expected });
+  });
+
   it('create derives the slug and provisions a default workspace', async () => {
     mockSelectOnce([]); // slug free
     mockSelectOnce([{ version: 1 }]); // current developer plan

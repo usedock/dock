@@ -18,6 +18,7 @@ import { buildOpenApiDocument } from './common/openapi-document';
 import { registerBodyLimits } from './common/body-limits';
 import { dockScopeMiddleware } from './auth/dock-scope';
 import { BetterAuthService } from './auth/better-auth/better-auth.service';
+import { credentialedCors } from './common/cors';
 import { publicApiUrl } from './config/instance';
 
 function flattenErrors(errors: ValidationError[], parent = ''): string[] {
@@ -35,6 +36,11 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix('v1');
   const http = app.getHttpAdapter().getInstance();
   registerBodyLimits(http);
+  // Dashboard browsers on another origin need credentialed CORS before auth or routing.
+  // Resolved here so auth misconfiguration fails the boot, not each request.
+  const betterAuthService = app.get(BetterAuthService);
+  const cors = credentialedCors(betterAuthService.trustedOrigins);
+  http.use(['/v1', '/openapi.json'], cors);
   http.use(dockScopeMiddleware);
   app.useGlobalPipes(
     new ValidationPipe({
@@ -57,23 +63,8 @@ async function bootstrap(): Promise<void> {
   instance.get('/openapi.json', (_req: Request, res: Response) => {
     res.json(document);
   });
-  // Better Auth lives outside the /v1 prefix on raw Express: dashboard browsers
-  // on another origin need credentialed CORS, which Nest never sees here.
-  // Resolved here so auth misconfiguration fails the boot, not each request.
-  const betterAuthService = app.get(BetterAuthService);
-  instance.use('/api/auth', (req: Request, res: Response, next: NextFunction) => {
-    const origin = req.headers.origin;
-    if (origin && betterAuthService.trustedOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-      if (req.method === 'OPTIONS') {
-        res.status(204).end();
-        return;
-      }
-    }
+  // Better Auth lives outside the /v1 prefix on raw Express.
+  instance.use('/api/auth', cors, (req: Request, res: Response, next: NextFunction) => {
     betterAuthService.handle(req, res, next);
   });
   app.get(DockTerminalService).attach(app.getHttpServer());

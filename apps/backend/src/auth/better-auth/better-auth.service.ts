@@ -116,6 +116,7 @@ export class BetterAuthService {
                 await this.users.provisionBetterAuthUser({
                   id: user.id,
                   email: user.email,
+                  name: user.name,
                   emailVerified: user.emailVerified ?? false,
                 });
               } catch (err) {
