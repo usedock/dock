@@ -63,12 +63,37 @@ stopped gVisor dock from the exported disk. The runtime is the flag
   kept. The first `dock resume` boots the dock.
 - The disk is read inside the gVisor sandbox and is never mounted by the host
   kernel.
-- Pulling a fleet dock that itself runs on gVisor fails with `not_supported`:
-  it has no disk image to export.
+- Pulling a fleet dock that itself runs on gVisor is covered
+  [below](#pull-a-fleet-gvisor-dock).
 - The import is size-capped. It fails with `import_too_big` when the work
   directory grows past the cap (the disk size plus a little slack; hard links on
   the source disk become separate copies), and with `insufficient_space` when
   Docker's data root is short on free space.
+
+### Pull a fleet gVisor dock
+
+A dock that runs on gVisor in a fleet has no disk image; `dock pull` copies its
+work directory instead. It works from dock v0.3.8 into a local gVisor dock
+(`--runtime gvisor`) or a local QEMU dock (`--runtime qemu`, the default without
+`DOCK_LOCAL_RUNTIME`).
+
+- It needs a control plane with the `work-tar` export and a dock host whose
+  docklet advertises `work-export`. Otherwise the pull fails with
+  `gvisor_export_unsupported`: "this control plane (or the dock's host) cannot
+  export gVisor docks yet".
+- Only `/home/user/work` is copied, onto a fresh base. The CLI prints a note,
+  and `--json` has `"source":"work"`.
+  - A gVisor target owns the files as uid 1001.
+  - A QEMU target is a fresh Dockyard image, the export's `baseImage`. The
+    owner is `user` (uid 1000), and the disk is sized for the base plus the
+    work.
+- The archive is checked before it is unpacked. FIFOs and device nodes are
+  skipped with a warning. Unsafe entries (paths that escape the work directory,
+  writes through symlinks, bad hard links) are refused.
+- An interrupted import shows `import_incomplete`, for both targets (see
+  below).
+- A running remote dock is paused briefly while its work directory is captured.
+- A stopped remote dock cannot be exported yet; `dock resume` it first.
 
 ### Interrupted imports
 

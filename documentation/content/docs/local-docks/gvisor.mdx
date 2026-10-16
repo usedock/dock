@@ -111,7 +111,9 @@ A stopped dock keeps its local port. If another program takes that port,
 - **Push and pull.** With dock v0.3.7 or later, `dock push` sends
   only `/home/user/work`, written onto a fresh Dockyard base, and `dock pull --runtime gvisor` copies only
   `/home/user/work` into a new stopped gVisor dock. Packages and files outside
-  that directory do not move. See [gVisor docks](/local-docks/push-pull#gvisor-docks).
+  that directory do not move. From dock v0.3.8, `dock pull` also takes a gVisor
+  dock from a fleet. See [gVisor docks](/local-docks/push-pull#gvisor-docks) and
+  [Pull a fleet gVisor dock](/local-docks/push-pull#pull-a-fleet-gvisor-dock).
 - **Speed.** Some syscall-heavy or file-I/O-heavy work is slower than in a VM.
 
 If the `docker` binary is gone, `dock rm` still removes the record and warns
