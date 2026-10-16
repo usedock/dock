@@ -11,3 +11,8 @@ export function readResetParams(params: { token?: Param; error?: Param }): { tok
   const token = first(params.token);
   return { token, failed: first(params.error) !== null || token === null };
 }
+
+/** Message for a failed reset request; these fail before the account lookup, so they say nothing about the email. */
+export function requestResetErrorMessage(status: number): string {
+  return status === 429 ? 'Too many requests. Wait a minute and try again.' : 'Could not send a reset link. Try again.';
+}

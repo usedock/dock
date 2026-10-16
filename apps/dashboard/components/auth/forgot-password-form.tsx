@@ -6,9 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { authClient } from '@/lib/auth-client';
-import { resetPasswordRedirectTo } from '@/lib/password-reset';
+import { requestResetErrorMessage, resetPasswordRedirectTo } from '@/lib/password-reset';
 
-// Same confirmation whatever the result, so it never reveals whether the email exists.
+// Same confirmation whether or not the email exists; the backend answers 200 for both.
 export function ForgotPasswordForm() {
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -24,10 +24,14 @@ export function ForgotPasswordForm() {
     }
     setPending(true);
     try {
-      await authClient.requestPasswordReset({
+      const { error } = await authClient.requestPasswordReset({
         email: email.trim(),
         redirectTo: resetPasswordRedirectTo(window.location.origin),
       });
+      if (error) {
+        setError(requestResetErrorMessage(error.status));
+        return;
+      }
       setSent(true);
     } catch {
       setError('Could not reach the server. Try again.');

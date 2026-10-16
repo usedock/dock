@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readResetParams, resetPasswordRedirectTo } from './password-reset';
+import { readResetParams, requestResetErrorMessage, resetPasswordRedirectTo } from './password-reset';
 
 describe('resetPasswordRedirectTo', () => {
   it('points at the dashboard reset page', () => {
@@ -21,5 +21,16 @@ describe('readResetParams', () => {
   it('fails on an error even with a token', () => {
     expect(readResetParams({ error: 'INVALID_TOKEN' }).failed).toBe(true);
     expect(readResetParams({ token: 'abc', error: 'INVALID_TOKEN' }).failed).toBe(true);
+  });
+});
+
+describe('requestResetErrorMessage', () => {
+  it('asks to wait when rate limited', () => {
+    expect(requestResetErrorMessage(429)).toBe('Too many requests. Wait a minute and try again.');
+  });
+
+  it('asks to retry on any other failure', () => {
+    expect(requestResetErrorMessage(403)).toBe('Could not send a reset link. Try again.');
+    expect(requestResetErrorMessage(500)).toBe('Could not send a reset link. Try again.');
   });
 });
