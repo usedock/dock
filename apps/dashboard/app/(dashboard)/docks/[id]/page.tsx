@@ -4,6 +4,8 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { apiSnippetBase, getDefaultApi, type Dock, type GithubRun, type Snapshot } from '@/lib/dock-api';
+import { dockActions, dockStateLabel } from '@/lib/dock-state';
+import { useInstanceConfig } from '@/lib/use-instance-config';
 import { formatBytes, formatDate, messageOf, runtimeLabel, sizeLabel } from '@/lib/format';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { CodeBlock } from '@/components/dashboard/code-block';
@@ -17,6 +19,7 @@ import { SaveTemplateDialog } from '@/components/dashboard/save-template-dialog'
 import { SnapshotFilesDialog } from '@/components/dashboard/snapshot-files-dialog';
 import { StatePill } from '@/components/dashboard/status-pill';
 import { Badge } from '@/components/ui/badge';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -31,6 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const TABS = ['overview', 'terminal', 'connect', 'keys', 'ports', 'snapshots', 'stats'] as const;
 const EXEC_STATES = ['ready', 'idle', 'running'];
+const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.usedock.io';
 
 function Detail({ label, value, mono, copy }: { label: string; value: string; mono?: boolean; copy?: boolean }) {
   return (
@@ -49,6 +53,7 @@ function DockDetail() {
   const router = useRouter();
   const params = useSearchParams();
   const [api] = useState(getDefaultApi);
+  const billingOn = useInstanceConfig()?.billingEnabled !== false;
 
   const tab = params.get('tab') ?? 'overview';
   // Mounted on first visit and kept, so switching tabs does not hang the shell up.
@@ -109,6 +114,16 @@ function DockDetail() {
     }
   }
 
+  async function branch() {
+    setActionError(null);
+    try {
+      const created = (await api.branchDock(id)) as Dock;
+      router.push(`/docks/${created.id}`);
+    } catch (e: unknown) {
+      setActionError(`Could not branch dock: ${messageOf(e, 'request failed')}`);
+    }
+  }
+
   if (error) {
     return (
       <div className="flex flex-col gap-4">
@@ -120,16 +135,29 @@ function DockDetail() {
   if (!dock) return <LoadingRows />;
 
   const fromRun = run !== null;
+  const actions = dockActions(dock.state);
+  const dockRef = dock.name || dock.id;
   const execBlocked = fromRun
     ? 'This dock is driven by its run. Branch it to run commands.'
     : !EXEC_STATES.includes(dock.state)
-      ? `Commands run only on ready docks; this dock is ${dock.state}.`
+      ? `Commands run only on ready docks; this dock is ${dockStateLabel(dock.state)}.`
       : dock.billingPausedAt
         ? 'Billing is paused. Retry the last action.'
         : null;
 
   return (
     <div className="flex flex-col gap-4">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink render={<Link href="/docks" />}>Docks</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>{dock.name}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
       <PageHeader
         title={dock.name}
         description={
@@ -138,7 +166,32 @@ function DockDetail() {
             <CopyButton value={dock.id} label="Copy dock ID" />
           </span>
         }
-        action={<StatePill state={dock.state} />}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <StatePill state={dock.state} />
+            {!fromRun && actions.canResume ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => runAction(() => api.resumeDock(id), 'Could not resume dock')}>
+                Resume
+              </Button>
+            ) : null}
+            {!fromRun && actions.canStop ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => runAction(() => api.stopDock(id), 'Could not stop dock')}>
+                Stop
+              </Button>
+            ) : null}
+            <Button type="button" variant="outline" size="sm" disabled={!actions.canBranch} onClick={branch}>
+              Branch
+            </Button>
+            {!fromRun ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => setSavingTemplate(true)}>
+                Save template
+              </Button>
+            ) : null}
+            <Button type="button" variant="destructive" size="sm" className="ml-2" onClick={() => setConfirmDelete(true)}>
+              Delete
+            </Button>
+          </div>
+        }
       />
       {actionError ? <ErrorNote message={actionError} /> : null}
 
@@ -155,7 +208,7 @@ function DockDetail() {
 
         <TabsContent value="overview" className="flex flex-col gap-4">
           <dl className="grid grid-cols-2 gap-4 rounded-md border p-4 sm:grid-cols-3">
-            <Detail label="State" value={dock.state} />
+            <Detail label="State" value={dockStateLabel(dock.state)} />
             <Detail label="Size" value={sizeLabel(dock)} />
             <Detail label="Runtime" value={runtimeLabel(dock.runtime)} />
             <Detail
@@ -172,7 +225,7 @@ function DockDetail() {
             <Detail label="IP" value={dock.ip ?? '—'} mono copy />
             <Detail label="Host" value={dock.hostId ?? '—'} mono copy />
             <Detail label="Setup" value={dock.setupStatus ?? 'pending'} />
-            <Detail label="Cost" value={dock.billingPausedAt ? 'Paused' : 'Metered'} />
+            {billingOn ? <Detail label="Cost" value={dock.billingPausedAt ? 'Paused' : 'Metered'} /> : null}
             <Detail label="Created" value={formatDate(dock.createdAt)} />
           </dl>
           {dock.setupError ? <ErrorNote message={dock.setupError} /> : null}
@@ -199,36 +252,6 @@ function DockDetail() {
               . It stops when the run completes; branch it to keep working.
             </p>
           ) : null}
-          <div className="flex flex-wrap gap-2">
-            {fromRun ? (
-              <>
-                <Button type="button" variant="outline" onClick={() => runAction(() => api.branchDock(id), 'Could not branch dock')}>
-                  Branch
-                </Button>
-                <Button type="button" variant="destructive" onClick={() => setConfirmDelete(true)}>
-                  Delete
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button type="button" variant="outline" onClick={() => runAction(() => api.resumeDock(id), 'Could not resume dock')}>
-                  Resume
-                </Button>
-                <Button type="button" variant="outline" onClick={() => runAction(() => api.stopDock(id), 'Could not stop dock')}>
-                  Stop
-                </Button>
-                <Button type="button" variant="outline" onClick={() => runAction(() => api.branchDock(id), 'Could not branch dock')}>
-                  Branch
-                </Button>
-                <Button type="button" variant="outline" onClick={() => setSavingTemplate(true)}>
-                  Save template
-                </Button>
-                <Button type="button" variant="destructive" onClick={() => setConfirmDelete(true)}>
-                  Delete
-                </Button>
-              </>
-            )}
-          </div>
           <DockExecPanel api={api} dockId={dock.id} disabledReason={execBlocked} />
         </TabsContent>
 
@@ -242,20 +265,25 @@ function DockDetail() {
 
         <TabsContent value="connect" className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <h2 className="text-sm font-medium">Run a command</h2>
-            <CodeBlock
-              lines={[
-                `curl -X POST ${apiSnippetBase()}/v1/docks/${dock.id}/exec \\`,
-                '  -H "Authorization: Bearer $DOCK_API_KEY" \\',
-                '  -H "Content-Type: application/json" \\',
-                `  -d '{"command": "uname -a", "timeoutSeconds": 60}'`,
-              ]}
-            />
+            <h2 className="text-sm font-medium">CLI</h2>
+            <CodeBlock lines={[`dock exec ${dockRef} -- uname -a`, `dock ssh ${dockRef}`]} />
+            <p className="text-sm text-muted-foreground">
+              Sign in once with <code className="font-mono">dock login</code>.{' '}
+              <a href={`${DOCS_URL}/cli`} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+                CLI docs
+              </a>
+            </p>
           </div>
           <div className="flex flex-col gap-2">
             <h2 className="text-sm font-medium">API</h2>
             <CodeBlock
               lines={[
+                '# run a command',
+                `curl -X POST ${apiSnippetBase()}/v1/docks/${dock.id}/exec \\`,
+                '  -H "Authorization: Bearer $DOCK_API_KEY" \\',
+                '  -H "Content-Type: application/json" \\',
+                `  -d '{"command": "uname -a", "timeoutSeconds": 60}'`,
+                '',
                 '# resume',
                 `curl -X POST ${apiSnippetBase()}/v1/docks/${dock.id}/resume \\`,
                 '  -H "Authorization: Bearer $DOCK_API_KEY"',
