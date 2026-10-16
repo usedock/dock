@@ -181,7 +181,7 @@ function EnvironmentDetail() {
     });
   }
 
-  const outdated =(versions ?? []).filter((v) => env && v.version < env.currentVersion && v.dockCount > 0);
+  const outdated = (versions ?? []).filter((v) => env && v.version < env.currentVersion && v.dockCount > 0);
 
   return (
     <div className="flex flex-col gap-4">

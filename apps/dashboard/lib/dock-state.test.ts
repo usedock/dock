@@ -14,6 +14,8 @@ describe('branchDisabledReason', () => {
   it('asks to wait while a dock is transitioning', () => {
     expect(branchDisabledReason('archiving', 'microvm')).toBe('Wait for the dock to finish stopping');
     expect(branchDisabledReason('provisioning')).toBe('Wait for the dock to finish provisioning');
+    expect(branchDisabledReason('provisioned')).toBe('Wait for the dock to finish provisioning');
+    expect(branchDisabledReason('cloning')).toBe('Wait for the dock to finish cloning');
   });
 
   it('explains other states', () => {
