@@ -5,7 +5,7 @@ import { HomeSection, ROW_GROUP } from './section';
 
 export function GettingStarted({ items }: { items: ChecklistItem[] }) {
   return (
-    <HomeSection title="Getting started" hint="A few steps to get the most out of Dock.">
+    <HomeSection title="Getting started" hint="Set up this workspace.">
       <ul className={ROW_GROUP}>
         {items.map((item) => (
           <li key={item.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">

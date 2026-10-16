@@ -1,7 +1,9 @@
 import type { Dock } from './dock-api';
 
-// Live tone states in status-pill: the dock holds its vCPUs and memory.
+// Emerald-tone states in status-pill.
 const RUNNING = ['running', 'ready'];
+// Idle docks are stopped-by-policy but still hold compute.
+const HOLDING = [...RUNNING, 'idle'];
 const STOPPED = ['archived', 'archiving'];
 
 export interface DockSummary {
@@ -12,9 +14,9 @@ export interface DockSummary {
 }
 
 export function summarizeDocks(docks: Dock[]): DockSummary {
-  const live = docks.filter((d) => RUNNING.includes(d.state));
+  const live = docks.filter((d) => HOLDING.includes(d.state));
   return {
-    running: live.length,
+    running: docks.filter((d) => RUNNING.includes(d.state)).length,
     stopped: docks.filter((d) => STOPPED.includes(d.state)).length,
     vcpusInUse: live.reduce((sum, d) => sum + (d.cpus ?? 0), 0),
     memoryMiBInUse: live.reduce((sum, d) => sum + (d.memoryMiB ?? 0), 0),

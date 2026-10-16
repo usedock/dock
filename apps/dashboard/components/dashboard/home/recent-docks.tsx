@@ -44,7 +44,8 @@ export function RecentDocks({ docks }: { docks: Section<Dock[]> }) {
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{d.name}</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  <span className="font-mono">{d.id}</span> · {d.image ?? 'ubuntu-24.04'}
+                  <span className="font-mono">{d.id}</span>
+                  {d.image ? ` · ${d.image}` : ''}
                 </span>
               </span>
               <StatePill state={d.state} />
