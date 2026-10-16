@@ -10,6 +10,15 @@ export function dockStateLabel(state: string): string {
   return LABELS[state] ?? state;
 }
 
+/** Why Branch is unavailable for a dock, or null when it is allowed. */
+export function branchDisabledReason(state: string, runtime?: string | null): string | null {
+  if (dockActions(state, runtime).canBranch) return null;
+  if (state === 'archived') return 'Resume the dock to branch it';
+  // "provisioned" is still setting up, so it reads as provisioning.
+  if (BUSY.includes(state)) return `Wait for the dock to finish ${state === 'provisioned' ? 'provisioning' : dockStateLabel(state)}`;
+  return `Cannot branch a dock that is ${dockStateLabel(state)}`;
+}
+
 /** Lifecycle actions a dock state allows, matching the backend transitions. */
 export function dockActions(state: string, runtime?: string | null): { canStop: boolean; canResume: boolean; canBranch: boolean; busy: boolean } {
   return {

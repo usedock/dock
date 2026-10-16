@@ -1,7 +1,5 @@
 /** Copy and gating rules for the actionable empty states; kept pure so they are testable. */
 
-export const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.usedock.io';
-
 type Coded = { code?: unknown } | null | undefined;
 
 /** Instance-admin endpoints refuse an unverified email with this code. */

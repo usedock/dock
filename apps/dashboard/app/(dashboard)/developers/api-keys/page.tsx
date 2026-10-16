@@ -7,7 +7,8 @@ import { formatDate, messageOf } from '@/lib/format';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import { CodeBlock } from '@/components/dashboard/code-block';
-import { cliLoginLines, DOCS_URL } from '@/lib/empty-states';
+import { cliLoginLines } from '@/lib/empty-states';
+import { DOCS_URL } from '@/lib/docs';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
