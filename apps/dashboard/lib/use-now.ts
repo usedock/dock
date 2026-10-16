@@ -2,12 +2,9 @@
 
 import { useEffect, useState } from 'react';
 
-type VisibilityTarget = Pick<Document, 'hidden' | 'addEventListener' | 'removeEventListener'>;
+export type VisibilityTarget = Pick<Document, 'hidden' | 'addEventListener' | 'removeEventListener'>;
 
-/**
- * Calls `onTick` every `intervalMs` while the document is visible, and once
- * immediately when it becomes visible again. Returns a stop function.
- */
+/** Ticks every `intervalMs` while visible, and once on becoming visible; returns a stop function. */
 export function startTicker(doc: VisibilityTarget, intervalMs: number, onTick: () => void): () => void {
   const timer = setInterval(() => {
     if (!doc.hidden) onTick();

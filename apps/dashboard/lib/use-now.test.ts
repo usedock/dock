@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startTicker } from './use-now';
+import { startTicker, type VisibilityTarget } from './use-now';
 
 function fakeDoc() {
   const listeners = new Set<() => void>();
@@ -21,7 +21,7 @@ describe('startTicker', () => {
   it('ticks every interval', () => {
     const doc = fakeDoc();
     const onTick = vi.fn();
-    startTicker(doc as never, 1000, onTick);
+    startTicker(doc as unknown as VisibilityTarget, 1000, onTick);
     vi.advanceTimersByTime(3000);
     expect(onTick).toHaveBeenCalledTimes(3);
   });
@@ -29,7 +29,7 @@ describe('startTicker', () => {
   it('skips ticks while hidden and refreshes when visible again', () => {
     const doc = fakeDoc();
     const onTick = vi.fn();
-    startTicker(doc as never, 1000, onTick);
+    startTicker(doc as unknown as VisibilityTarget, 1000, onTick);
     doc.hidden = true;
     vi.advanceTimersByTime(3000);
     doc.fire();
@@ -42,7 +42,7 @@ describe('startTicker', () => {
   it('clears the interval and listener on stop', () => {
     const doc = fakeDoc();
     const onTick = vi.fn();
-    const stop = startTicker(doc as never, 1000, onTick);
+    const stop = startTicker(doc as unknown as VisibilityTarget, 1000, onTick);
     stop();
     vi.advanceTimersByTime(5000);
     expect(onTick).not.toHaveBeenCalled();
