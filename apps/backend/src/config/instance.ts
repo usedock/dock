@@ -48,7 +48,7 @@ export function publicAppUrl(config: ConfigReader): string {
   return withoutTrailingSlash(config.get<string>('PUBLIC_APP_URL') || HOSTED_APP_URL);
 }
 
-/** Origins allowed to call backend-hosted auth with credentials. */
+/** Origins allowed to call backend-hosted auth and /v1 with credentials. */
 export function authTrustedOrigins(config: ConfigReader): string[] {
   const explicit = config.get<string>('AUTH_TRUSTED_ORIGINS');
   const extras =

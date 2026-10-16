@@ -114,6 +114,32 @@ describe('UsersService', () => {
     });
   });
 
+  it.each([
+    ['  Quinn Ada ', 'Quinn Ada'],
+    ['   ', undefined],
+    [null, undefined],
+  ])('provisionBetterAuthUser name %j defaults the profile display name to %j', async (name, expected) => {
+    const values = vi.fn(() => ({ onConflictDoNothing: vi.fn() }));
+    const tx = { insert: vi.fn(() => ({ values })), update: vi.fn() };
+    db.transaction.mockImplementation(async (fn: (t: typeof tx) => Promise<void>) => fn(tx));
+    await service.provisionBetterAuthUser({ id: 'u9', email: 'quinn@example.com', name, emailVerified: false });
+    expect(values).toHaveBeenCalledWith({ userId: 'u9', displayName: expected });
+    expect(orgs.provisionPersonalOrg).toHaveBeenCalledWith(tx, {
+      userId: 'u9',
+      email: 'quinn@example.com',
+      name: expected,
+    });
+  });
+
+  it('provisionBetterAuthUser caps the display name at 60 characters without splitting an emoji', async () => {
+    const values = vi.fn(() => ({ onConflictDoNothing: vi.fn() }));
+    const tx = { insert: vi.fn(() => ({ values })), update: vi.fn() };
+    db.transaction.mockImplementation(async (fn: (t: typeof tx) => Promise<void>) => fn(tx));
+    const name = `${'a'.repeat(59)}\u{1F600}b`;
+    await service.provisionBetterAuthUser({ id: 'u9', email: 'quinn@example.com', name, emailVerified: false });
+    expect(values).toHaveBeenCalledWith({ userId: 'u9', displayName: `${'a'.repeat(59)}\u{1F600}` });
+  });
+
   it('provisionBetterAuthUser skips verification sync when unverified', async () => {
     const tx = {
       insert: vi.fn(() => ({ values: vi.fn(() => ({ onConflictDoNothing: vi.fn() })) })),

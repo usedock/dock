@@ -47,18 +47,23 @@ export class UsersService {
   async provisionBetterAuthUser(input: {
     id: string;
     email: string;
+    name?: string | null;
     emailVerified: boolean;
   }): Promise<void> {
     const email = this.normalize(input.email);
+    const name = input.name?.trim() || undefined;
     await this.db.transaction(async (tx) => {
-      await tx.insert(profiles).values({ userId: input.id }).onConflictDoNothing();
+      await tx
+        .insert(profiles)
+        .values({ userId: input.id, displayName: name && Array.from(name).slice(0, 60).join('') })
+        .onConflictDoNothing();
       if (input.emailVerified) {
         await tx
           .update(users)
           .set({ emailVerified: true, emailVerifiedAt: new Date(), updatedAt: new Date() })
           .where(eq(users.id, input.id));
       }
-      await this.orgs.provisionPersonalOrg(tx, { userId: input.id, email });
+      await this.orgs.provisionPersonalOrg(tx, { userId: input.id, email, name });
     });
   }
 }
