@@ -8,11 +8,11 @@ plane (push), and a fleet dock comes down to a laptop (pull). The `dock push`
 and `dock pull` commands in the CLI drive the routes below; the routes are
 public, so any client can use them.
 
-Only the disk moves, never memory, so a pushed or pulled dock boots fresh. Both directions need a [microVM](/concepts/docks) host:
-a gVisor dock on a fleet keeps only `/home/user/work`, so it exports that
-directory as `state.tar.zst` (the `work-tar` format, see
-[Import and export](/api/docks#import-and-export)) rather than a disk, and an
-import needs a microVM host to land on. A local
+Only the disk moves, never memory, so a pushed or pulled dock boots fresh. An
+import needs a [microVM](/concepts/docks) host to land on. A gVisor dock on a
+fleet keeps only `/home/user/work`, so it exports that directory as
+`state.tar.zst` (the `work-tar` format, see
+[Import and export](/api/docks#import-and-export)) rather than a disk. A local
 [gVisor dock](/local-docks/gvisor) can push and pull with limits; see
 [gVisor docks](#gvisor-docks). On a real fleet
 (`RUNTIME_DRIVER=restate`) an import is refused with `runtime_unsupported` up

@@ -243,7 +243,7 @@ The export and its object are removed at `expiresAt`, 24 hours after it starts.
 | `diskGiB` | integer | Disk in GiB. |
 | `sizeBytes` | integer, nullable | Size of the compressed file (`rootfs.ext4.zst` or `state.tar.zst`); `null` until ready. |
 | `sha256` | string, nullable | sha256 of the compressed file; `null` until ready. |
-| `dataBytes` | integer, nullable | Data size of the disk once decompressed as a sparse file (its non-zero 64 KiB blocks, not the virtual `diskGiB`). `dock pull` uses it to check free space; `null` until ready, and for exports whose host did not report it. |
+| `dataBytes` | integer, nullable | For `disk`, the data size of the disk once decompressed as a sparse file (its non-zero 64 KiB blocks, not the virtual `diskGiB`); for `work-tar`, the size of the decompressed tar. `dock pull` uses it to check free space; `null` until ready, and for exports whose host did not report it. |
 | `baseImage` | string, nullable | Dockyard image whose kernel boots the disk (`disk`), or the Dock's `image` to start the new Dock from (`work-tar`); `null` until ready. |
 | `url` | string, nullable | Download URL of the exported file (`rootfs.ext4.zst` for `disk`, `state.tar.zst` for `work-tar`); `null` until ready. A presigned URL (supports `Range`) or the control-plane path `/v1/docks/exports/:exportId/download`. |
 | `expiresAt` | timestamp | When the export and its object are removed. |

@@ -112,6 +112,9 @@ describe('DockTransfersController', () => {
     expect(service.startExport).toHaveBeenLastCalledWith(expect.anything(), 'd1', ['work-tar']);
     await call('POST', '/docks/d1/export');
     expect(service.startExport).toHaveBeenLastCalledWith(expect.anything(), 'd1', undefined);
+    // CLIs up to v0.3.4 send an empty object.
+    await call('POST', '/docks/d1/export', {});
+    expect(service.startExport).toHaveBeenLastCalledWith(expect.anything(), 'd1', undefined);
   });
 
   it('validates the export body', async () => {
