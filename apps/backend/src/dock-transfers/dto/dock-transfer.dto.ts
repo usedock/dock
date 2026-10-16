@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ImportDockDto {
@@ -58,4 +58,17 @@ export class CompleteImportDto {
   @ValidateNested({ each: true })
   @Type(() => UploadedPartDto)
   parts!: UploadedPartDto[];
+}
+
+export const EXPORT_FORMATS = ['disk', 'work-tar'] as const;
+export type ExportFormat = (typeof EXPORT_FORMATS)[number];
+
+export class StartExportDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayUnique()
+  @IsIn(EXPORT_FORMATS, { each: true })
+  @ApiProperty({ required: false, enum: EXPORT_FORMATS, isArray: true, default: ['disk'], description: 'Formats the client can take; a gVisor dock exports only when work-tar is listed' })
+  formats?: ExportFormat[];
 }

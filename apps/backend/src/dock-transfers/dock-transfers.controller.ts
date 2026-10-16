@@ -4,7 +4,7 @@ import type { Response } from 'express';
 import type { RequestUser } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { dockView } from '../docks/dock-view';
-import { CompleteImportDto, ImportDockDto } from './dto/dock-transfer.dto';
+import { CompleteImportDto, ImportDockDto, StartExportDto } from './dto/dock-transfer.dto';
 import { RangeNotSatisfiableException } from './dock-transfer-errors';
 import { DockTransfersService } from './dock-transfers.service';
 
@@ -45,8 +45,8 @@ export class DockTransfersController {
 
   @Post('docks/:id/export')
   @HttpCode(HttpStatus.ACCEPTED)
-  startExport(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    return this.transfers.startExport(user.id, id);
+  startExport(@CurrentUser() user: RequestUser, @Param('id') id: string, @Body() dto: StartExportDto) {
+    return this.transfers.startExport(user.id, id, dto?.formats);
   }
 
   @Get('docks/exports/:exportId')

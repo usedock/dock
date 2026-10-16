@@ -61,6 +61,8 @@ export const dockExports = pgTable(
     /** Space the flattened disk's data takes decompressed and written sparse, so a pull sizes its free-space check; null for exports whose host did not report it. */
     dataBytes: bigint('data_bytes', { mode: 'number' }),
     baseImage: text('base_image'),
+    /** `disk` is the microVM rootfs.ext4.zst; `work-tar` is a gVisor dock's work directory as state.tar.zst. */
+    format: text('format').notNull().$type<'disk' | 'work-tar'>().default('disk'),
     storeSnapshotId: text('store_snapshot_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),

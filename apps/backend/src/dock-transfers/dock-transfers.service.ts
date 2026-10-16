@@ -10,7 +10,7 @@ import { DocksService, checkedSize } from '../docks/docks.service';
 import { EnvironmentsService } from '../environments/environments.service';
 import { FleetObjectsService } from '../fleet/fleet-objects.service';
 import { deadlineFromConfig } from '../fleet/host-command-queue';
-import { EGRESS_ON_RESUME, VERIFIED_IMPORTS } from '../hosts/host-features';
+import { EGRESS_ON_RESUME, VERIFIED_IMPORTS, WORK_EXPORT } from '../hosts/host-features';
 import { HostsService } from '../hosts/hosts.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { RetentionService } from '../retention/retention.service';
@@ -19,6 +19,7 @@ import {
   EXPORT_BASE_UNSUPPORTED,
   EXPORT_FAILED,
   EXPORT_INTERRUPTED,
+  ExportFormatUnsupportedException,
   ExportNotFoundException,
   ImportChecksumMismatchException,
   ImportEgressUnsupportedException,
@@ -29,9 +30,12 @@ import {
   RuntimeUnsupportedException,
   TransferLimitException,
 } from './dock-transfer-errors';
+import type { ExportFormat } from './dto/dock-transfer.dto';
 
-/** The one object of an import or export generation. */
+/** The one object of an import or a disk export generation. */
 export const DISK_OBJECT = 'rootfs.ext4.zst';
+/** The one object of a work-tar export generation. */
+export const WORK_TAR_OBJECT = 'state.tar.zst';
 
 const MIB = 1024 ** 2;
 const GIB = 1024 ** 3;
@@ -75,6 +79,7 @@ export interface ImportStarted {
 
 export interface ExportView {
   state: DockExport['state'];
+  format: ExportFormat;
   error?: string;
   image: string;
   cpus: number;
@@ -109,6 +114,11 @@ export interface DownloadHandle {
 /** Part size for a disk: the floor, or larger when the part count would pass the S3 cap. */
 export function partSizeFor(sizeBytes: number): number {
   return Math.max(MIN_PART_SIZE, Math.ceil(sizeBytes / MAX_PARTS / MIB) * MIB);
+}
+
+/** The object a format's export holds. */
+export function exportObject(format: ExportFormat): string {
+  return format === 'work-tar' ? WORK_TAR_OBJECT : DISK_OBJECT;
 }
 
 export function exportDownloadPath(exportId: string): string {
@@ -452,13 +462,13 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
 
   // Export
 
-  async startExport(callerId: string, dockId: string): Promise<{ exportId: string }> {
+  async startExport(callerId: string, dockId: string, formats: ExportFormat[] = ['disk']): Promise<{ exportId: string }> {
     // Same gate as opening the dock: connector and admins-only environment rules apply to its disk.
     const { dock, orgId } = await this.docks.loadReadableDock(callerId, dockId);
     if (await this.retention.policyOn(this.db, orgId)) {
       throw new ForbiddenException({ code: 'zdr_blocks_exports', message: 'Exports are disabled while retention is enabled' });
     }
-    if (dock.runtime !== 'microvm') throw new RuntimeUnsupportedException('Only microVM docks can be exported; a gVisor dock keeps just its work directory');
+    const format = await this.exportFormat(dock, formats);
     if (!['ready', 'idle', 'running'].includes(dock.state)) throw new DockNotRunningException(dock.state);
     const now = new Date();
     const live = await this.db
@@ -471,10 +481,27 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
     if (live.length >= MAX_LIVE_EXPORTS) throw new TransferLimitException('export_limit_reached', `At most ${MAX_LIVE_EXPORTS} exports can be live at once; they expire after 24 hours`);
     const [row] = await this.db
       .insert(dockExports)
-      .values({ organizationId: orgId, dockId: dock.id, createdBy: callerId, image: dock.image, cpus: dock.cpus, memoryMiB: dock.memoryMiB, diskGiB: dock.diskGiB, expiresAt: new Date(now.getTime() + DAY_MS) })
+      .values({ organizationId: orgId, dockId: dock.id, createdBy: callerId, image: dock.image, cpus: dock.cpus, memoryMiB: dock.memoryMiB, diskGiB: dock.diskGiB, format, expiresAt: new Date(now.getTime() + DAY_MS) })
       .returning();
     void this.runExport(row, dock, orgId).catch((err) => this.log.error(`Export ${row.id} crashed: ${(err as Error).message}`));
     return { exportId: row.id };
+  }
+
+  /** A microVM dock exports its disk; a gVisor dock its work directory, only for a client that asked for it and a host that can produce it. */
+  private async exportFormat(dock: Dock, formats: ExportFormat[]): Promise<ExportFormat> {
+    if (dock.runtime === 'microvm') {
+      if (!formats.includes('disk')) throw new ExportFormatUnsupportedException();
+      return 'disk';
+    }
+    if (!formats.includes('work-tar')) {
+      throw new RuntimeUnsupportedException('This dock runs on gVisor and keeps only its work directory; upgrade your dock client to export it as work-tar');
+    }
+    // The fake driver places nothing, so tests and dev boxes pass.
+    if (this.config.get<string>('RUNTIME_DRIVER') === 'restate') {
+      const host = dock.hostId ? await this.hosts.getById(dock.hostId) : null;
+      if (!host?.features.includes(WORK_EXPORT)) throw new RuntimeUnsupportedException("This dock's host cannot export a gVisor dock yet; upgrade the host's docklet");
+    }
+    return 'work-tar';
   }
 
   /** Captures, rotates the source's gateway tokens, then publishes: a disk copy never becomes downloadable while its tokens are live. */
@@ -494,7 +521,9 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
       await this.failExport(row.id, EXPORT_FAILED);
       return;
     }
-    const refusal = !capture.baseImage ? EXPORT_BASE_UNSUPPORTED : !SHA256_RE.test(capture.sha256) ? EXPORT_FAILED : null;
+    // A work-tar export starts from a fresh copy of the dock's image, so the host reports no base.
+    const baseImage = row.format === 'work-tar' ? dock.image : capture.baseImage;
+    const refusal = !baseImage ? EXPORT_BASE_UNSUPPORTED : !SHA256_RE.test(capture.sha256) ? EXPORT_FAILED : null;
     if (refusal) {
       await this.dropGeneration(capture.snapshotId);
       await this.failExport(row.id, refusal);
@@ -502,7 +531,7 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
     }
     const [ready] = await this.db
       .update(dockExports)
-      .set({ state: 'ready', sizeBytes: capture.sizeBytes, sha256: capture.sha256, dataBytes: capture.dataBytes, baseImage: capture.baseImage, storeSnapshotId: capture.snapshotId })
+      .set({ state: 'ready', sizeBytes: capture.sizeBytes, sha256: capture.sha256, dataBytes: capture.dataBytes, baseImage, storeSnapshotId: capture.snapshotId })
       .where(and(eq(dockExports.id, row.id), eq(dockExports.state, 'pending')))
       .returning({ id: dockExports.id });
     // The sweeper gave up on this export while it ran, so its object has no owner.
@@ -543,6 +572,7 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
     const row = await this.loadExport(callerId, exportId);
     const view: ExportView = {
       state: row.state,
+      format: row.format,
       ...(row.error ? { error: row.error } : {}),
       image: row.image,
       cpus: row.cpus,
@@ -557,7 +587,7 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
       urlExpiresAt: null,
     };
     if (row.state !== 'ready' || !row.storeSnapshotId) return view;
-    const signed = await this.objects.presignObject(row.storeSnapshotId, DISK_OBJECT, 'get');
+    const signed = await this.objects.presignObject(row.storeSnapshotId, exportObject(row.format), 'get');
     if (signed.mode === 'direct') return { ...view, url: signed.url, urlExpiresAt: new Date(Date.now() + signed.expiresInSeconds * 1000) };
     // No host-reachable store address: the download goes through the control plane.
     return { ...view, url: exportDownloadPath(row.id), urlExpiresAt: row.expiresAt };
@@ -567,14 +597,15 @@ export class DockTransfersService implements OnModuleInit, OnModuleDestroy {
   async openDownload(callerId: string, exportId: string, range?: string): Promise<DownloadHandle> {
     const row = await this.loadExport(callerId, exportId);
     if (row.state !== 'ready' || !row.storeSnapshotId) throw new ConflictException({ code: 'conflict', message: 'Export is not ready' });
-    const size = row.sizeBytes ?? (await this.objects.objectSize(row.storeSnapshotId, DISK_OBJECT)) ?? 0;
+    const object = exportObject(row.format);
+    const size = row.sizeBytes ?? (await this.objects.objectSize(row.storeSnapshotId, object)) ?? 0;
     const parsed = parseRange(range, size);
     if (parsed === 'unsatisfiable') throw new RangeNotSatisfiableException(size);
     if (!parsed) {
-      const { stream } = await this.objects.getObject(row.storeSnapshotId, DISK_OBJECT);
+      const { stream } = await this.objects.getObject(row.storeSnapshotId, object);
       return { stream, size, start: 0, end: size - 1, partial: false };
     }
-    const stream = await this.objects.getObjectRange(row.storeSnapshotId, DISK_OBJECT, parsed.start, parsed.end - parsed.start + 1);
+    const stream = await this.objects.getObjectRange(row.storeSnapshotId, object, parsed.start, parsed.end - parsed.start + 1);
     return { stream, size, start: parsed.start, end: parsed.end, partial: true };
   }
 

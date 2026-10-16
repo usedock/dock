@@ -62,6 +62,7 @@ describe('DockTransfersService', () => {
     dockId,
     createdBy: 'u1',
     state: 'pending',
+    format: 'disk',
     error: null,
     image: 'ubuntu-24.04',
     cpus: 2,
@@ -154,7 +155,7 @@ describe('DockTransfersService', () => {
       getObject: vi.fn(),
       getObjectRange: vi.fn(),
     };
-    hosts = { listOnline: vi.fn().mockResolvedValue([{ id: 'h1', runtime: 'microvm', features: ['verified-imports'] }]) };
+    hosts = { listOnline: vi.fn().mockResolvedValue([{ id: 'h1', runtime: 'microvm', features: ['verified-imports'] }]), getById: vi.fn() };
     retention = { policyOn: vi.fn().mockResolvedValue(false) };
     config = { get: vi.fn().mockReturnValue('fake') };
     provider = new FakeComputeProvider();
@@ -607,9 +608,51 @@ describe('DockTransfersService', () => {
       expect((await catchErr(service.startExport('u1', dockId))).body.code).toBe('dock_not_found');
     });
 
-    it('refuses a gVisor dock with runtime_unsupported', async () => {
-      docks.loadReadableDock.mockResolvedValueOnce({ dock: dockRow({ runtime: 'gvisor' }), orgId });
-      expect(await catchErr(service.startExport('u1', dockId))).toMatchObject({ status: 409, body: { code: 'runtime_unsupported' } });
+    it('refuses a gVisor dock that did not opt in to work-tar', async () => {
+      for (const formats of [undefined, ['disk' as const]]) {
+        docks.loadReadableDock.mockResolvedValueOnce({ dock: dockRow({ runtime: 'gvisor' }), orgId });
+        const err = await catchErr(service.startExport('u1', dockId, formats));
+        expect(err).toMatchObject({ status: 409, body: { code: 'runtime_unsupported' } });
+        expect(err.body.message).toContain('upgrade your dock client');
+      }
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('refuses an opted-in gVisor dock whose host lacks work-export', async () => {
+      config.get.mockReturnValue('restate');
+      for (const host of [{ features: ['verified-imports'] }, null]) {
+        hosts.getById.mockResolvedValueOnce(host);
+        docks.loadReadableDock.mockResolvedValueOnce({ dock: dockRow({ runtime: 'gvisor', hostId: 'g1' }), orgId });
+        const err = await catchErr(service.startExport('u1', dockId, ['work-tar']));
+        expect(err).toMatchObject({ status: 409, body: { code: 'runtime_unsupported' } });
+        expect(err.body.message).toContain('upgrade the host');
+      }
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('creates a work-tar export for an opted-in gVisor dock on a work-export host', async () => {
+      config.get.mockReturnValue('restate');
+      hosts.getById.mockResolvedValueOnce({ id: 'g1', features: ['work-export'] });
+      docks.loadReadableDock.mockResolvedValueOnce({ dock: dockRow({ runtime: 'gvisor', hostId: 'g1' }), orgId });
+      live();
+      vi.spyOn(provider, 'captureDisk').mockReturnValue(new Promise(() => undefined));
+      await expect(service.startExport('u1', dockId, ['disk', 'work-tar'])).resolves.toEqual({ exportId: importId });
+      expect(hosts.getById).toHaveBeenCalledWith('g1');
+      expect(inserted[0]).toMatchObject({ dockId, format: 'work-tar' });
+    });
+
+    it('exports a microVM dock as disk, also when work-tar is listed too', async () => {
+      for (const formats of [undefined, ['disk' as const, 'work-tar' as const]]) {
+        live();
+        vi.spyOn(provider, 'captureDisk').mockReturnValue(new Promise(() => undefined));
+        await service.startExport('u1', dockId, formats);
+        expect(inserted.at(-1)).toMatchObject({ format: 'disk' });
+      }
+    });
+
+    it('refuses a microVM dock when only work-tar is requested', async () => {
+      expect(await catchErr(service.startExport('u1', dockId, ['work-tar']))).toMatchObject({ status: 400, body: { code: 'export_format_unsupported' } });
+      expect(db.insert).not.toHaveBeenCalled();
     });
 
     it('refuses a dock that is not running', async () => {
@@ -737,6 +780,22 @@ describe('DockTransfersService', () => {
     });
   });
 
+  describe('running a work-tar export', () => {
+    beforeEach(() => db.select.mockImplementation(() => selectQ([])));
+
+    it('uses the dock image as the base even when the host reports none', async () => {
+      vi.spyOn(provider, 'captureDisk').mockResolvedValue({ snapshotId: 'gen-w', sizeBytes: 321, sha256: SHA, dataBytes: 777, baseImage: '' });
+      await service.runExport(exportRow({ format: 'work-tar' }) as never, dockRow({ runtime: 'gvisor', image: 'ubuntu-24.04' }) as never, orgId);
+      expect(updated.at(-1)).toMatchObject({ state: 'ready', sizeBytes: 321, sha256: SHA, dataBytes: 777, baseImage: 'ubuntu-24.04', storeSnapshotId: 'gen-w' });
+    });
+
+    it('still refuses a disk export without a base', async () => {
+      vi.spyOn(provider, 'captureDisk').mockResolvedValue({ snapshotId: 'gen-d', sizeBytes: 321, sha256: SHA, dataBytes: null, baseImage: '' });
+      await service.runExport(exportRow() as never, dockRow() as never, orgId);
+      expect(updated.at(-1)).toMatchObject({ state: 'failed', error: 'export_base_unsupported' });
+    });
+  });
+
   describe('reading an export', () => {
     const ready = (overrides: Record<string, unknown> = {}) =>
       exportRow({ state: 'ready', sizeBytes: 1234, sha256: SHA, dataBytes: 9999, baseImage: 'ubuntu-24.04', storeSnapshotId: 'gen-x', ...overrides });
@@ -750,6 +809,14 @@ describe('DockTransfersService', () => {
       expect(first).toMatchObject({ state: 'ready', image: 'ubuntu-24.04', cpus: 2, memoryMiB: 4096, diskGiB: 20, sizeBytes: 1234, sha256: SHA, dataBytes: 9999, baseImage: 'ubuntu-24.04' });
       expect(objects.presignObject).toHaveBeenCalledWith('gen-x', 'rootfs.ext4.zst', 'get');
       expect(first.urlExpiresAt!.getTime() - Date.now()).toBeGreaterThan(14 * 60_000);
+    });
+
+    it('serves state.tar.zst for a work-tar export and reports its format', async () => {
+      queueSelects([ready({ format: 'work-tar' })], [{ id: dockId }], [ready()], [{ id: dockId }]);
+      expect(await service.getExport('u1', exportId)).toMatchObject({ format: 'work-tar' });
+      expect(objects.presignObject).toHaveBeenLastCalledWith('gen-x', 'state.tar.zst', 'get');
+      expect(await service.getExport('u1', exportId)).toMatchObject({ format: 'disk' });
+      expect(objects.presignObject).toHaveBeenLastCalledWith('gen-x', 'rootfs.ext4.zst', 'get');
     });
 
     it('points at the download route when the store cannot be reached directly', async () => {

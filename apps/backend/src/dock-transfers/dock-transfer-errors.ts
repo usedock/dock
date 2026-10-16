@@ -21,6 +21,13 @@ export class RuntimeUnsupportedException extends ConflictException {
   }
 }
 
+/** Only work-tar was requested, and a microVM dock has no work-dir tarball to give. */
+export class ExportFormatUnsupportedException extends BadRequestException {
+  constructor(message = 'A microVM dock exports its whole disk; request the disk format') {
+    super({ code: 'export_format_unsupported', message });
+  }
+}
+
 export class ImportNotFoundException extends NotFoundException {
   constructor() {
     super({ code: 'import_not_found', message: 'Import not found' });
