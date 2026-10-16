@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,7 +58,15 @@ export function LoginForm({ next = '/' }: { next?: string }) {
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="login-password">Password</Label>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="login-password">Password</Label>
+          <Link
+            href="/auth/forgot-password"
+            className="text-xs text-muted-foreground underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Forgot password?
+          </Link>
+        </div>
         <PasswordInput
           id="login-password"
           autoComplete="current-password"

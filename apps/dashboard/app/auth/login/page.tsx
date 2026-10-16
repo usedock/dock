@@ -6,10 +6,16 @@ import { signInProviders } from '@/lib/instance';
 import { Logo } from '@/components/logo';
 import { LoginForm } from '@/components/auth/login-form';
 import { SocialButtons } from '@/components/auth/social-buttons';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string | string[] }> }) {
-  const next = safeNext((await searchParams).next);
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string | string[]; reset?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  const next = safeNext(params.next);
   const session = await getDashboardSession();
   if (session) redirect(next);
 
@@ -30,6 +36,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             <Separator className="flex-1 shrink" />
           </div>
         </>
+      ) : null}
+      {params.reset === '1' ? (
+        <Alert role="status">
+          <AlertDescription>Password updated. Sign in with your new password.</AlertDescription>
+        </Alert>
       ) : null}
       <LoginForm next={next} />
       <p className="text-center text-sm text-muted-foreground">

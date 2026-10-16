@@ -17,6 +17,8 @@ describe('pageTitle', () => {
   it('names auth pages and tolerates a trailing slash', () => {
     expect(pageTitle('/auth/login')).toBe('Sign in | Dock Dashboard');
     expect(pageTitle('/auth/signup/')).toBe('Create account | Dock Dashboard');
+    expect(pageTitle('/auth/forgot-password')).toBe('Forgot password | Dock Dashboard');
+    expect(pageTitle('/auth/reset-password')).toBe('Reset password | Dock Dashboard');
   });
 
   it('falls back to the product name', () => {
