@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { CircleAlert, CreditCard, HardDrive, OctagonX, type LucideIcon } from 'lucide-react';
 import { getDefaultApi, type InboxPage, type NotificationItem, type NotificationPreference } from '@/lib/dock-api';
 import { formatAgo, formatDate, messageOf } from '@/lib/format';
+import { notificationsCopy } from '@/lib/empty-states';
 import { useInstanceConfig } from '@/lib/use-instance-config';
 import { cn } from '@/lib/utils';
 import { useOrg } from '@/components/dashboard/org-context';
@@ -32,7 +33,7 @@ const ALERTS: Record<string, { label: string; detail: string; icon: LucideIcon }
   },
   stop_refused: {
     label: 'Dock could not be stopped',
-    detail: 'The final snapshot failed, so the dock keeps running with billing paused.',
+    detail: notificationsCopy(true).stopRefusedDetail,
     icon: OctagonX,
   },
   disk_warning: { label: 'Disk almost full', detail: 'A dock crossed 80% of its disk.', icon: HardDrive },
@@ -58,7 +59,10 @@ export default function NotificationsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
-  const billingEnabled = useInstanceConfig()?.billingEnabled !== false;
+  const config = useInstanceConfig();
+  const billingEnabled = config?.billingEnabled !== false;
+  // Billing wording only once the instance confirms billing, so self-hosts never flash it.
+  const copy = notificationsCopy(config?.billingEnabled === true);
   const role = organizations.find((o) => o.id === selectedOrgId)?.role;
   const canManageOrg = role === 'owner' || role === 'admin';
 
@@ -170,7 +174,7 @@ export default function NotificationsPage() {
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Notifications"
-        description="Dock and billing alerts for you and your organizations."
+        description={copy.subtitle}
         action={
           unread > 0 ? (
             <Button type="button" variant="outline" size="sm" onClick={() => void markAllRead()}>
@@ -199,7 +203,7 @@ export default function NotificationsPage() {
         tab === 'unread' && page.notifications.length > 0 ? (
           <EmptyNote title="All caught up." hint="Nothing unread. Earlier alerts are under All." />
         ) : (
-          <EmptyNote title="No notifications yet." hint="Disk warnings, unresponsive docks, and billing alerts show up here." />
+          <EmptyNote title="No notifications yet." hint={copy.emptyHint} />
         )
       ) : (
         <div className="rounded-md border">
@@ -294,7 +298,9 @@ export default function NotificationsPage() {
                         <li key={pref.type} className="grid grid-cols-[1fr_5.5rem_4.5rem] items-center gap-4 px-5 py-3">
                           <div className="flex min-w-0 flex-col">
                             <span className="text-sm font-medium">{alert.label}</span>
-                            <span className="text-sm text-muted-foreground">{alert.detail}</span>
+                            <span className="text-sm text-muted-foreground">
+                              {pref.type === 'stop_refused' ? copy.stopRefusedDetail : alert.detail}
+                            </span>
                           </div>
                           <Switch
                             aria-label={`Send ${alert.label} alerts for this organization`}
