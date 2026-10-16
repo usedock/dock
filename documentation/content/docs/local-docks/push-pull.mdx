@@ -23,6 +23,8 @@ be exported.
 
 A local [gVisor dock](/local-docks/gvisor) has no disk image, only the
 `/home/user/work` volume, so push and pull move that directory and nothing else.
+This needs a `dock` release after v0.3.6; v0.3.6 refuses `dock push` on a
+gVisor dock and has no `dock pull --runtime`.
 
 ### Push from a gVisor dock
 
@@ -40,8 +42,8 @@ prints a note saying so.
   fit the disk, the push fails with `push_too_big`; pass a larger `--disk`.
 - `--disk` smaller than the base image fails early with `push_too_big` and a
   hint to pass a larger `--disk`, before the dock is stopped.
-- A missing work volume fails. A file name containing a newline or carriage
-  return is refused (`push_unsupported_name`). Device, fifo and socket files are
+- A missing work volume fails (`push_failed`). A file name or symlink target
+  containing a newline or carriage return is refused (`push_unsupported_name`). Device, fifo and socket files are
   skipped with a warning.
 
 ### Pull into a gVisor dock
@@ -59,8 +61,8 @@ stopped gVisor dock from the exported disk. The runtime is the flag
   kept. The first `dock resume` boots the dock.
 - The disk is read inside the gVisor sandbox and is never mounted by the host
   kernel.
-- Pulling a fleet dock that itself runs on gVisor is not supported: it has no
-  disk image to export.
+- Pulling a fleet dock that itself runs on gVisor fails with `not_supported`:
+  it has no disk image to export.
 - The import is size-capped. It fails with `import_too_big` when the work
   directory grows past the cap (the disk size plus a little slack; hard links on
   the source disk become separate copies), and with `insufficient_space` when

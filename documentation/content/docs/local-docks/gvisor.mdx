@@ -108,8 +108,8 @@ A stopped dock keeps its local port. If another program takes that port,
   sandbox's own loopback. Each agent call costs one `docker exec`, so they are
   a bit slower than on a network-on dock. Network off survives stop, resume and
   branch.
-- **Push and pull.** `dock push` sends only `/home/user/work`, written onto a
-  fresh Dockyard base, and `dock pull --runtime gvisor` copies only
+- **Push and pull.** With a `dock` release after v0.3.6, `dock push` sends
+  only `/home/user/work`, written onto a fresh Dockyard base, and `dock pull --runtime gvisor` copies only
   `/home/user/work` into a new stopped gVisor dock. Packages and files outside
   that directory do not move. See [gVisor docks](/local-docks/push-pull#gvisor-docks).
 - **Speed.** Some syscall-heavy or file-I/O-heavy work is slower than in a VM.
@@ -135,8 +135,8 @@ firewall are untouched.
   anyway with host access (a warning is printed).
 - A firewall reload or flush on the host (`firewall-cmd --reload`,
   `ufw reload`, `iptables -F`) removes the rule from a running dock until it is
-  stopped and resumed. `dock doctor` reports a running network-on dock whose
-  rule is gone, with the fix `dock stop <dock> && dock resume <dock>`.
+  stopped and resumed. From the `dock` release after v0.3.6, `dock doctor`
+  reports a running network-on dock whose rule is gone, with the fix `dock stop <dock> && dock resume <dock>`.
 - A dock created by an older `dock` gets the rule on its next resume.
 - IPv6 is best effort: the same rule is added when `ip6tables` works on the
   host, and a warning is shown if adding it fails. Docks have no global IPv6
