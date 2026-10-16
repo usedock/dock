@@ -74,11 +74,13 @@ A stopped dock keeps its local port. If another program takes that port,
 `127.0.0.1`. Commands run as `user`. The differences:
 
 - **Network.** Each dock gets its own Docker bridge network, so it cannot reach
-  your other containers or other docks. It can reach the internet but not
-  services on your machine. From dock v0.3.6, `dock` adds a firewall rule on
-  the host for each dock's bridge that drops anything the dock starts towards
-  the host's own addresses (the bridge gateway, `docker0`, your LAN IP and
-  `127.0.0.1`) and towards ports other containers publish on the host. The rule
+  your other containers or other docks. It can reach the internet. From dock
+  v0.3.6 it cannot reach services on your machine: `dock` adds a firewall rule
+  on the host for each dock's bridge that drops anything the dock starts towards
+  the host's own addresses (the bridge gateway, `docker0`, your LAN IP;
+  `127.0.0.1` is not routable from a dock anyway) and towards ports other
+  containers publish on the host. With an older `dock`, a gVisor dock can reach
+  host services through the bridge gateway. The rule
   lives outside the sandbox, so root in the dock cannot remove it, and you need
   no `sudo`. DNS to the host's upstream resolvers (the `/etc/resolv.conf`
   nameservers, port 53) stays allowed, and internet access, the agent port and
@@ -133,7 +135,9 @@ firewall are untouched.
   `ufw reload`, `iptables -F`) removes the rule from a running dock until it is
   stopped and resumed.
 - A dock created by an older `dock` gets the rule on its next resume.
-- The IPv6 rule is best effort; a warning is shown if it cannot be installed.
+- IPv6 is best effort: the same rule is added when `ip6tables` works on the
+  host, and a warning is shown if adding it fails. Docks have no global IPv6
+  address.
 - The rest of your LAN stays reachable: the block is about this machine, not
   other hosts.
 
@@ -151,7 +155,9 @@ the hardware virtual machine of a QEMU dock, not a weak one.
 - Anyone who can use Docker on the machine can reach every gVisor dock; access
   to Docker is root-equivalent on most setups.
 - From dock v0.3.6 a network-on dock cannot reach services on your machine,
-  even as root in the dock; see [Host block](#host-block). If you set
+  even as root in the dock, as long as the rule is in place: a firewall reload
+  on the host removes it until the dock is stopped and resumed; see
+  [Host block](#host-block). If you set
   `DOCK_GVISOR_ALLOW_HOST=1` it can, so treat it as able to if the code is
   hostile. `--network off` (dock v0.3.6 or later) removes the network entirely.
 
