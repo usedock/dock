@@ -4,7 +4,9 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { apiSnippetBase, getDefaultApi, type Dock, type GithubRun, type Snapshot } from '@/lib/dock-api';
-import { dockActions, dockStateLabel } from '@/lib/dock-state';
+import { DOCS_URL } from '@/lib/docs';
+import { branchDisabledReason, dockActions, dockStateLabel } from '@/lib/dock-state';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useInstanceConfig } from '@/lib/use-instance-config';
 import { formatBytes, formatDate, messageOf, runtimeLabel, sizeLabel } from '@/lib/format';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
@@ -34,7 +36,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const TABS = ['overview', 'terminal', 'connect', 'keys', 'ports', 'snapshots', 'stats'] as const;
 const EXEC_STATES = ['ready', 'idle', 'running'];
-const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.usedock.io';
 
 function Detail({ label, value, mono, copy }: { label: string; value: string; mono?: boolean; copy?: boolean }) {
   return (
@@ -141,6 +142,7 @@ function DockDetail() {
 
   const fromRun = run !== null;
   const actions = dockActions(dock.state, dock.runtime);
+  const branchReason = branchDisabledReason(dock.state, dock.runtime);
   const execBlocked = fromRun
     ? 'This dock is driven by its run. Branch it to run commands.'
     : !EXEC_STATES.includes(dock.state)
@@ -183,9 +185,20 @@ function DockDetail() {
                 Stop
               </Button>
             ) : null}
-            <Button type="button" variant="outline" size="sm" disabled={!actions.canBranch || branching} onClick={branch}>
-              {branching ? 'Branching…' : 'Branch'}
-            </Button>
+            {branchReason ? (
+              <Tooltip>
+                <TooltipTrigger render={<span tabIndex={0} />}>
+                  <Button type="button" variant="outline" size="sm" disabled className="pointer-events-none">
+                    Branch
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{branchReason}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Button type="button" variant="outline" size="sm" disabled={branching} onClick={branch}>
+                {branching ? 'Branching…' : 'Branch'}
+              </Button>
+            )}
             {!fromRun ? (
               <Button type="button" variant="outline" size="sm" onClick={() => setSavingTemplate(true)}>
                 Save template

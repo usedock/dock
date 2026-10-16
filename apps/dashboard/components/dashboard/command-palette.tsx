@@ -60,7 +60,9 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
   const router = useRouter();
   const { selectedWorkspaceId } = useOrg();
   const [open, setOpen] = useState(false);
-  const [docks, setDocks] = useState<Dock[]>([]);
+  const [loaded, setLoaded] = useState<{ workspaceId: string | null; docks: Dock[] }>({ workspaceId: null, docks: [] });
+  // Docks fetched for another workspace are never shown.
+  const docks = loaded.workspaceId === selectedWorkspaceId ? loaded.docks : [];
   const [search, setSearch] = useState('');
   const destinations = withoutBillingWhenDisabled(DESTINATIONS, useInstanceConfig());
 
@@ -83,7 +85,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     getDefaultApi()
       .listDocks(undefined, true)
       .then((rows) => {
-        if (!cancelled) setDocks(workspaceDocks(rows, selectedWorkspaceId));
+        if (!cancelled) setLoaded({ workspaceId: selectedWorkspaceId, docks: workspaceDocks(rows, selectedWorkspaceId) });
       })
       .catch(() => undefined);
     return () => {

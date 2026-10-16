@@ -44,10 +44,10 @@ import {
 import { SignOutButton } from '@/components/auth/sign-out-button';
 import { Logo } from '@/components/logo';
 import { getDefaultApi } from '@/lib/dock-api';
+import { DOCS_URL } from '@/lib/docs';
 import { useInstanceConfig, withoutBillingWhenDisabled } from '@/lib/use-instance-config';
 import { useOrg } from './org-context';
 
-const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.usedock.io';
 
 const PRIMARY = [
   { href: '/docks', label: 'Docks', icon: Container },

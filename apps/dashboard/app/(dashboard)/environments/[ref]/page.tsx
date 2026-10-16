@@ -1,11 +1,13 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { getDefaultApi, type Environment, type EnvironmentVersion, type RevealedSecrets, type UpgradeSkippedDock } from '@/lib/dock-api';
 import { describeSkippedDocks, formatBytes, formatDate, messageOf } from '@/lib/format';
+import { dockCountLabel, providerLabel, resolveEnvTab } from '@/lib/environment-view';
 import { useOrg } from '@/components/dashboard/org-context';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,8 +26,6 @@ import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-
-const TABS = ['repos', 'vars', 'settings', 'versions', 'secrets'] as const;
 
 type PostureKey = 'passSecrets' | 'passGithub' | 'passAgentsCredentials' | 'passDockCredentials' | 'safeForThirdParties';
 
@@ -56,7 +56,7 @@ function EnvironmentDetail() {
   const isAdmin = ['admin', 'owner'].includes(organizations.find((o) => o.id === selectedOrgId)?.role ?? '');
   const [api] = useState(getDefaultApi);
 
-  const tab = params.get('tab') ?? 'repos';
+  const tab = resolveEnvTab(params.get('tab'));
   const [env, setEnv] = useState<Environment | null>(null);
   const [versions, setVersions] = useState<EnvironmentVersion[] | null>(null);
   const [revealed, setRevealed] = useState<RevealedSecrets | null>(null);
@@ -141,10 +141,61 @@ function EnvironmentDetail() {
     }
   }
 
-  const outdated = (versions ?? []).filter((v) => env && v.version < env.currentVersion && v.dockCount > 0);
+  // Clear the inputs only once the save succeeded.
+  function addRepo(e: FormEvent) {
+    e.preventDefault();
+    const fullName = repoFullName.trim();
+    if (!fullName || !selectedOrgId) return;
+    const payload: Record<string, unknown> = { provider: repoProvider, repositoryId: fullName, fullName };
+    if (repoBranch.trim()) payload.baseBranch = repoBranch.trim();
+    if (repoSetup.trim()) payload.setupScript = repoSetup;
+    void runAction(() => api.addRepo(name, selectedOrgId, payload), 'Could not add repository').then((ok) => {
+      if (!ok) return;
+      setRepoFullName('');
+      setRepoBranch('');
+      setRepoSetup('');
+    });
+  }
+
+  function saveVar(e: FormEvent) {
+    e.preventDefault();
+    const key = varKey.trim();
+    const value = varValue;
+    if (!key || !selectedOrgId) return;
+    void runAction(() => api.setVar(name, selectedOrgId, key, value), 'Could not set variable').then((ok) => {
+      if (!ok) return;
+      setVarKey('');
+      setVarValue('');
+    });
+  }
+
+  function saveFile(e: FormEvent) {
+    e.preventDefault();
+    const path = filePath.trim();
+    const contents = fileContents;
+    if (!path || !selectedOrgId) return;
+    void runAction(() => api.setFile(name, selectedOrgId, { path, contents }), 'Could not save file').then((ok) => {
+      if (!ok) return;
+      setFilePath('');
+      setFileContents('');
+    });
+  }
+
+  const outdated =(versions ?? []).filter((v) => env && v.version < env.currentVersion && v.dockCount > 0);
 
   return (
     <div className="flex flex-col gap-4">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink render={<Link href="/environments" />}>Environments</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>{name}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
       <PageHeader
         title={name}
         description="What docks in this environment boot with. Each content change saves a new version; existing docks keep theirs until upgraded."
@@ -164,7 +215,7 @@ function EnvironmentDetail() {
       {skipped.length ? (
         <div role="alert" className="rounded-md border border-destructive/40 px-4 py-3 text-sm">
           <p>
-            {skipped.length} dock(s) were not moved because they are bound to an earlier environment with this name.
+            {dockCountLabel(skipped.length)} {skipped.length === 1 ? 'was' : 'were'} not moved because {skipped.length === 1 ? 'it is' : 'they are'} bound to an earlier environment with this name.
             Resume each one onto this environment to rebind it; resuming also moves it to the latest version.
           </p>
           <ul className="mt-2 list-disc pl-5 font-mono text-xs">
@@ -181,7 +232,7 @@ function EnvironmentDetail() {
       ) : env === null ? (
         <LoadingRows />
       ) : (
-        <Tabs value={TABS.includes(tab as (typeof TABS)[number]) ? tab : 'repos'} onValueChange={setTab}>
+        <Tabs value={tab} onValueChange={setTab}>
           <TabsList aria-label="Environment sections">
             <TabsTrigger value="repos">Repositories</TabsTrigger>
             <TabsTrigger value="vars">Variables & files</TabsTrigger>
@@ -191,16 +242,16 @@ function EnvironmentDetail() {
           </TabsList>
 
           <TabsContent value="repos" className="flex flex-col gap-3">
-            <div className="grid grid-cols-1 gap-3 rounded-md border p-4 sm:grid-cols-3">
+            <form onSubmit={addRepo} className="grid grid-cols-1 gap-3 rounded-md border p-4 sm:grid-cols-3">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="repo-provider">Provider</Label>
                 <Select value={repoProvider} onValueChange={(v) => setRepoProvider(v ?? 'github')}>
                   <SelectTrigger id="repo-provider" className="w-full">
-                    <SelectValue />
+                    <SelectValue>{(v: string) => providerLabel(v)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="github">github</SelectItem>
-                    <SelectItem value="gitlab">gitlab</SelectItem>
+                    <SelectItem value="github">GitHub</SelectItem>
+                    <SelectItem value="gitlab">GitLab</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -248,27 +299,11 @@ function EnvironmentDetail() {
                   )}{' '}
                   GitLab needs a GITLAB_TOKEN variable.
                 </p>
-                <Button
-                  type="button"
-                  disabled={!repoFullName.trim()}
-                  onClick={() => {
-                    const fullName = repoFullName.trim();
-                    const payload: Record<string, unknown> = { provider: repoProvider, repositoryId: fullName, fullName };
-                    if (repoBranch.trim()) payload.baseBranch = repoBranch.trim();
-                    if (repoSetup.trim()) payload.setupScript = repoSetup;
-                    // Clear the inputs only once the save succeeded.
-                    void runAction(() => api.addRepo(name, selectedOrgId, payload), 'Could not add repository').then((ok) => {
-                      if (!ok) return;
-                      setRepoFullName('');
-                      setRepoBranch('');
-                      setRepoSetup('');
-                    });
-                  }}
-                >
+                <Button type="submit" disabled={!repoFullName.trim()}>
                   Add repository
                 </Button>
               </div>
-            </div>
+            </form>
             {env.repos.length === 0 ? (
               <EmptyNote title="No repositories." hint="Docks in this environment boot with these cloned." />
             ) : (
@@ -287,7 +322,7 @@ function EnvironmentDetail() {
                     {env.repos.map((r) => (
                       <TableRow key={r.id}>
                         <TableCell className="font-medium">{r.fullName}</TableCell>
-                        <TableCell className="font-mono text-xs">{r.provider}</TableCell>
+                        <TableCell className="text-xs">{providerLabel(r.provider)}</TableCell>
                         <TableCell className="font-mono text-xs">{r.baseBranch ?? 'default'}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{r.hasSetupScript ? 'script' : '—'}</TableCell>
                         <TableCell className="text-right">
@@ -309,7 +344,7 @@ function EnvironmentDetail() {
           </TabsContent>
 
           <TabsContent value="vars" className="flex flex-col gap-3">
-            <div className="grid grid-cols-1 gap-3 rounded-md border p-4 sm:grid-cols-3">
+            <form onSubmit={saveVar} className="grid grid-cols-1 gap-3 rounded-md border p-4 sm:grid-cols-3">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="var-key">Key</Label>
                 <Input id="var-key" value={varKey} onChange={(e) => setVarKey(e.target.value)} placeholder="DATABASE_URL" />
@@ -325,24 +360,11 @@ function EnvironmentDetail() {
                 />
               </div>
               <div className="flex items-end">
-                <Button
-                  type="button"
-                  disabled={!varKey.trim()}
-                  onClick={() => {
-                    const key = varKey.trim();
-                    const value = varValue;
-                    // Clear the inputs only once the save succeeded.
-                    void runAction(() => api.setVar(name, selectedOrgId, key, value), 'Could not set variable').then((ok) => {
-                      if (!ok) return;
-                      setVarKey('');
-                      setVarValue('');
-                    });
-                  }}
-                >
+                <Button type="submit" disabled={!varKey.trim()}>
                   Set variable
                 </Button>
               </div>
-            </div>
+            </form>
             {env.varNames.length === 0 ? (
               <EmptyNote title="No variables." hint="Exported in every dock shell, SSH session, and command." />
             ) : (
@@ -376,7 +398,7 @@ function EnvironmentDetail() {
                 </Table>
               </div>
             )}
-            <div className="grid grid-cols-1 gap-3 rounded-md border p-4">
+            <form onSubmit={saveFile} className="grid grid-cols-1 gap-3 rounded-md border p-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="file-path">File path</Label>
                 <Input
@@ -399,24 +421,11 @@ function EnvironmentDetail() {
                 <p className="text-xs text-muted-foreground">
                   Relative to /home/user. A path inside a repository folder lands in that clone.
                 </p>
-                <Button
-                  type="button"
-                  disabled={!filePath.trim()}
-                  onClick={() => {
-                    const path = filePath.trim();
-                    const contents = fileContents;
-                    // Clear the inputs only once the save succeeded.
-                    void runAction(() => api.setFile(name, selectedOrgId, { path, contents }), 'Could not save file').then((ok) => {
-                      if (!ok) return;
-                      setFilePath('');
-                      setFileContents('');
-                    });
-                  }}
-                >
+                <Button type="submit" disabled={!filePath.trim()}>
                   Save file
                 </Button>
               </div>
-            </div>
+            </form>
             {env.files.length > 0 ? (
               <div className="rounded-md border">
                 <Table>
@@ -582,7 +591,7 @@ function EnvironmentDetail() {
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-4">
               <p className="text-sm text-muted-foreground">
                 {outdated.length
-                  ? `${outdated.reduce((n, v) => n + v.dockCount, 0)} dock(s) run an older version. Upgrading applies v${env.currentVersion} to running docks now and to stopped docks when they resume.`
+                  ? `${dockCountLabel(outdated.reduce((n, v) => n + v.dockCount, 0))} run an older version. Upgrading applies v${env.currentVersion} to running docks now and to stopped docks when they resume.`
                   : 'Every dock runs the latest version.'}
               </p>
               <Button

@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { dockActions, dockStateLabel } from './dock-state';
+import { branchDisabledReason, dockActions, dockStateLabel } from './dock-state';
+
+describe('branchDisabledReason', () => {
+  it('is null when branching is allowed', () => {
+    expect(branchDisabledReason('ready', 'microvm')).toBeNull();
+    expect(branchDisabledReason('archived', 'gvisor')).toBeNull();
+  });
+
+  it('asks to resume a stopped microVM dock', () => {
+    expect(branchDisabledReason('archived', 'microvm')).toBe('Resume the dock to branch it');
+  });
+
+  it('asks to wait while a dock is transitioning', () => {
+    expect(branchDisabledReason('archiving', 'microvm')).toBe('Wait for the dock to finish stopping');
+    expect(branchDisabledReason('provisioning')).toBe('Wait for the dock to finish provisioning');
+  });
+
+  it('explains other states', () => {
+    expect(branchDisabledReason('error')).toBe('Cannot branch a dock that is error');
+  });
+});
 
 describe('dockStateLabel', () => {
   it('shows stopped and stopping for archived states', () => {

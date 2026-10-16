@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getDefaultApi, type Connector, type ConnectorCredentialType } from '@/lib/dock-api';
+import { DOCS_URL } from '@/lib/docs';
 import { formatDate, messageOf } from '@/lib/format';
 import { ConnectorRepoLinks } from '@/components/dashboard/connector-repo-links';
 import { useOrg } from '@/components/dashboard/org-context';
@@ -25,7 +26,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.usedock.io';
 
 interface Entry {
   label: string;
