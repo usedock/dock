@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { readResetParams, requestResetErrorMessage, resetPasswordRedirectTo } from './password-reset';
+import {
+  isInvalidTokenError,
+  newPasswordProblem,
+  readResetParams,
+  requestResetErrorMessage,
+  resetPasswordRedirectTo,
+} from './password-reset';
 
 describe('resetPasswordRedirectTo', () => {
   it('points at the dashboard reset page', () => {
@@ -32,5 +38,31 @@ describe('requestResetErrorMessage', () => {
   it('asks to retry on any other failure', () => {
     expect(requestResetErrorMessage(403)).toBe('Could not send a reset link. Try again.');
     expect(requestResetErrorMessage(500)).toBe('Could not send a reset link. Try again.');
+  });
+});
+
+describe('newPasswordProblem', () => {
+  const ok = 'a'.repeat(12);
+
+  it('accepts 12 to 128 matching characters', () => {
+    expect(newPasswordProblem(ok, ok)).toBeNull();
+    expect(newPasswordProblem('a'.repeat(128), 'a'.repeat(128))).toBeNull();
+  });
+
+  it('rejects too short and too long passwords', () => {
+    expect(newPasswordProblem('a'.repeat(11), 'a'.repeat(11))).toBe('Password must be at least 12 characters.');
+    expect(newPasswordProblem('a'.repeat(129), 'a'.repeat(129))).toBe('Password must be at most 128 characters.');
+  });
+
+  it('rejects a mismatched confirmation', () => {
+    expect(newPasswordProblem(ok, `${ok}b`)).toBe('Passwords do not match.');
+  });
+});
+
+describe('isInvalidTokenError', () => {
+  it('is true only for INVALID_TOKEN', () => {
+    expect(isInvalidTokenError({ code: 'INVALID_TOKEN' })).toBe(true);
+    expect(isInvalidTokenError({ code: 'PASSWORD_TOO_LONG' })).toBe(false);
+    expect(isInvalidTokenError({})).toBe(false);
   });
 });

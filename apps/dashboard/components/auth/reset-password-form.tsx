@@ -8,8 +8,12 @@ import { Label } from '@/components/ui/label';
 import { authClient } from '@/lib/auth-client';
 import { PasswordInput } from '@/components/auth/password-input';
 import { PasswordStrength } from '@/components/auth/password-strength';
-
-const MIN_PASSWORD_LENGTH = 12;
+import {
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  isInvalidTokenError,
+  newPasswordProblem,
+} from '@/lib/password-reset';
 
 // Sets a new password from the emailed token, then returns to sign-in.
 export function ResetPasswordForm({ token }: { token: string }) {
@@ -24,12 +28,9 @@ export function ResetPasswordForm({ token }: { token: string }) {
     e.preventDefault();
     setError(null);
     setApiFailed(false);
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
-      return;
-    }
-    if (password !== confirm) {
-      setError('Passwords do not match.');
+    const problem = newPasswordProblem(password, confirm);
+    if (problem) {
+      setError(problem);
       return;
     }
     setPending(true);
@@ -37,13 +38,14 @@ export function ResetPasswordForm({ token }: { token: string }) {
       const { error } = await authClient.resetPassword({ newPassword: password, token });
       if (error) {
         setError(error.message ?? 'Could not reset your password.');
-        setApiFailed(true);
+        setApiFailed(isInvalidTokenError(error));
+        setPending(false);
         return;
       }
+      // Stay pending through navigation so a second click cannot resend the used token.
       router.push('/auth/login?reset=1');
     } catch {
       setError('Could not reach the server. Try again.');
-    } finally {
       setPending(false);
     }
   };
@@ -58,6 +60,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
           id="reset-password"
           autoComplete="new-password"
           placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+          maxLength={MAX_PASSWORD_LENGTH}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           aria-invalid={error !== null}
@@ -72,6 +75,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
           id="reset-confirm"
           autoComplete="new-password"
           placeholder="Repeat the password"
+          maxLength={MAX_PASSWORD_LENGTH}
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
           aria-invalid={error !== null}
