@@ -44,11 +44,10 @@ function rules(password: string) {
 }
 
 // Live meter for the signup password field. Single-hue fill keeps the signal
-// color rare; the mono label carries severity. Collapses when empty.
+// color rare; the mono label carries severity.
 export function PasswordStrength({ password, id = 'signup-password-strength' }: { password: string; id?: string }) {
   const reduce = useReducedMotion();
   const score = getPasswordStrength(password);
-  const visible = password.length > 0 && score > 0;
   const items = rules(password);
 
   const segments = (
@@ -75,8 +74,8 @@ export function PasswordStrength({ password, id = 'signup-password-strength' }: 
   const label = score === 0 ? '' : LABELS[score as Exclude<PasswordScore, 0>];
   const labelRow = (
     <div className="flex items-baseline justify-between gap-3">
-      {reduce || !visible ? (
-        <p role="status" aria-live="polite" className={cn('font-mono text-[11px] tracking-[0.12em] uppercase', score <= 1 ? 'text-destructive' : score === 2 ? 'text-muted-foreground' : 'text-primary')}>
+      {reduce ? (
+        <p role="status" aria-live="polite" className={cn('min-h-4 font-mono text-[11px] tracking-[0.12em] uppercase', score <= 1 ? 'text-destructive' : score === 2 ? 'text-muted-foreground' : 'text-primary')}>
           {label}
         </p>
       ) : (
@@ -89,7 +88,7 @@ export function PasswordStrength({ password, id = 'signup-password-strength' }: 
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className={cn('font-mono text-[11px] tracking-[0.12em] uppercase', score <= 1 ? 'text-destructive' : score === 2 ? 'text-muted-foreground' : 'text-primary')}
+            className={cn('min-h-4 font-mono text-[11px] tracking-[0.12em] uppercase', score <= 1 ? 'text-destructive' : score === 2 ? 'text-muted-foreground' : 'text-primary')}
           >
             {label}
           </motion.p>
@@ -124,40 +123,12 @@ export function PasswordStrength({ password, id = 'signup-password-strength' }: 
     </ul>
   );
 
-  if (reduce) {
-    return (
-      <div id={id} className="flex flex-col gap-1.5">
-        {visible && (
-          <>
-            {segments}
-            {labelRow}
-            {checklist}
-          </>
-        )}
-      </div>
-    );
-  }
-
+  // Always rendered (neutral when empty) so the form below never shifts.
   return (
-    <div id={id} className="flex flex-col">
-      <AnimatePresence initial={false}>
-        {visible && (
-          <motion.div
-            key="meter"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
-            className="overflow-hidden"
-          >
-            <div className="flex flex-col gap-1.5 pt-1 pb-0.5">
-              {segments}
-              {labelRow}
-              {checklist}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div id={id} className="flex flex-col gap-1.5 pt-1 pb-0.5">
+      {segments}
+      {labelRow}
+      {checklist}
     </div>
   );
 }

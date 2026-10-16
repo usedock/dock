@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { authClient } from '@/lib/auth-client';
+import { PasswordInput } from '@/components/auth/password-input';
 import { PasswordStrength } from '@/components/auth/password-strength';
 
 const MIN_PASSWORD_LENGTH = 12;
@@ -17,7 +17,6 @@ export function SignupForm({ next = '/' }: { next?: string }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -93,30 +92,16 @@ export function SignupForm({ next = '/' }: { next?: string }) {
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="signup-password">Password</Label>
-        <div className="relative">
-          <Input
-            id="signup-password"
-            type={showPassword ? 'text' : 'password'}
-            autoComplete="new-password"
-            placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            aria-invalid={error !== null}
-            aria-describedby={describedBy}
-            className="h-10 pr-10"
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setShowPassword((v) => !v)}
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
-            aria-pressed={showPassword}
-            className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-          >
-            {showPassword ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-          </Button>
-        </div>
+        <PasswordInput
+          id="signup-password"
+          autoComplete="new-password"
+          placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          aria-invalid={error !== null}
+          aria-describedby={describedBy}
+          className="h-10"
+        />
         <PasswordStrength password={password} />
       </div>
       {error && (

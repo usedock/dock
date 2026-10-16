@@ -32,6 +32,9 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from '@/components/ui/command';
+import { getDefaultApi, type Dock } from '@/lib/dock-api';
+import { useOrg } from '@/components/dashboard/org-context';
+import { dockSearchValue, paletteDocks } from '@/lib/palette-docks';
 import { useInstanceConfig, withoutBillingWhenDisabled } from '@/lib/use-instance-config';
 
 const DESTINATIONS = [
@@ -55,7 +58,9 @@ const PaletteContext = createContext<{ setOpen: (open: boolean) => void } | null
 /** Hosts the cmd/ctrl+K palette and its open state for the whole dashboard shell. */
 export function CommandPaletteProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const { selectedWorkspaceId } = useOrg();
   const [open, setOpen] = useState(false);
+  const [docks, setDocks] = useState<Dock[]>([]);
   const destinations = withoutBillingWhenDisabled(DESTINATIONS, useInstanceConfig());
 
   useEffect(() => {
@@ -68,6 +73,21 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
+
+  // Fetched on open; failures just leave the group empty.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getDefaultApi()
+      .listDocks(undefined, true)
+      .then((rows) => {
+        if (!cancelled) setDocks(paletteDocks(rows, selectedWorkspaceId));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedWorkspaceId]);
 
   function go(href: string) {
     setOpen(false);
@@ -96,6 +116,20 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
                 <CommandShortcut>N</CommandShortcut>
               </CommandItem>
             </CommandGroup>
+            {docks.length > 0 && (
+              <>
+                <CommandSeparator />
+                <CommandGroup heading="Docks">
+                  {docks.map((dock) => (
+                    <CommandItem key={dock.id} value={dockSearchValue(dock)} onSelect={() => go(`/docks/${dock.id}`)}>
+                      <Container />
+                      {dock.name}
+                      <CommandShortcut>{dock.id}</CommandShortcut>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            )}
             <CommandSeparator />
             <CommandGroup heading="Go to">
               {destinations.map((item) => (
