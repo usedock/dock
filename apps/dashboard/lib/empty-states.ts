@@ -28,17 +28,34 @@ export function runsEmptyHint(githubLinked: boolean | null): { text: string; hre
   return { text: 'Mention @dock on a GitHub issue to start the first run.' };
 }
 
-export const HOST_ENROLL_LINES = [
-  '# On the control plane machine (deploy/self-host), print the fleet token:',
-  'grep ^FLEET_TOKEN= .env',
-  '# On the new Linux machine, from a usedock/docklet checkout:',
-  'read -rs DOCKLET_FLEET_TOKEN && export DOCKLET_FLEET_TOKEN',
-  'sudo --preserve-env=DOCKLET_FLEET_TOKEN bash scripts/bootstrap-host.sh \\',
-  '  --fleet-url https://dock.example.com \\',
-  '  --runtime microvm',
-];
+/** Enrollment command from the self-hosting docs, pointed at this instance's public URL. */
+export function hostEnrollLines(fleetUrl: string): string[] {
+  return [
+    '# On the control plane machine (deploy/self-host), print the fleet token:',
+    'grep ^FLEET_TOKEN= .env',
+    '# On the new Linux machine, from a usedock/docklet checkout:',
+    'read -rs DOCKLET_FLEET_TOKEN && export DOCKLET_FLEET_TOKEN',
+    'sudo --preserve-env=DOCKLET_FLEET_TOKEN bash scripts/bootstrap-host.sh \\',
+    `  --fleet-url ${fleetUrl} \\`,
+    '  --runtime microvm',
+  ];
+}
 
-export const CLI_LOGIN_LINES = ['dock login', '# or, non-interactively:', 'echo "$DOCK_API_KEY" | dock login'];
+const HOSTED_API_URL = 'https://api.usedock.io';
+
+/** A bare `dock login` targets the cloud context, so a self-hosted key first needs a context for this URL. */
+export function cliLoginLines(apiUrl: string): string[] {
+  const login = ['dock login', '# or, non-interactively:', 'echo "$DOCK_API_KEY" | dock login'];
+  if (apiUrl.replace(/\/+$/, '') === HOSTED_API_URL) return login;
+  let name = 'self-hosted';
+  try {
+    const host = new URL(apiUrl).hostname;
+    if (/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(host)) name = host;
+  } catch {
+    // Keep the fallback name when the URL does not parse.
+  }
+  return [`dock context add ${name} --url ${apiUrl}`, `dock context use ${name}`, ...login];
+}
 
 export function notificationsCopy(billingEnabled: boolean) {
   return {

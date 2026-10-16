@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { isAccountClosed, isEmailVerificationRequired, notificationsCopy, runsEmptyHint, visibleAccountActions } from './empty-states';
+import {
+  cliLoginLines,
+  hostEnrollLines,
+  isAccountClosed,
+  isEmailVerificationRequired,
+  notificationsCopy,
+  runsEmptyHint,
+  visibleAccountActions,
+} from './empty-states';
 
 describe('error codes', () => {
   it('detects the unverified-email and closed-account codes only', () => {
@@ -30,5 +38,26 @@ describe('notificationsCopy', () => {
   it('drops billing wording when billing is off', () => {
     expect(JSON.stringify(notificationsCopy(false)).toLowerCase()).not.toContain('billing');
     expect(JSON.stringify(notificationsCopy(true)).toLowerCase()).toContain('billing');
+  });
+});
+
+describe('hostEnrollLines', () => {
+  it('points bootstrap-host.sh at this instance, not a placeholder', () => {
+    const lines = hostEnrollLines('https://dock.acme.dev');
+    expect(lines).toContain('  --fleet-url https://dock.acme.dev \\');
+    const text = lines.join(' ');
+    expect(text).not.toContain('example.com');
+  });
+});
+
+describe('cliLoginLines', () => {
+  it('logs in directly against the hosted API', () => {
+    expect(cliLoginLines('https://api.usedock.io/')[0]).toBe('dock login');
+  });
+
+  it('adds and selects a context first for a self-hosted API, since bare login targets cloud', () => {
+    const lines = cliLoginLines('https://dock.acme.dev');
+    expect(lines.slice(0, 2)).toEqual(['dock context add dock.acme.dev --url https://dock.acme.dev', 'dock context use dock.acme.dev']);
+    expect(lines).toContain('dock login');
   });
 });

@@ -59,8 +59,10 @@ export default function NotificationsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
-  const billingEnabled = useInstanceConfig()?.billingEnabled !== false;
-  const copy = notificationsCopy(billingEnabled);
+  const config = useInstanceConfig();
+  const billingEnabled = config?.billingEnabled !== false;
+  // Billing wording only once the instance confirms billing, so self-hosts never flash it.
+  const copy = notificationsCopy(config?.billingEnabled === true);
   const role = organizations.find((o) => o.id === selectedOrgId)?.role;
   const canManageOrg = role === 'owner' || role === 'admin';
 

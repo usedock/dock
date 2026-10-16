@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
-import { getDefaultApi } from '@/lib/dock-api';
+import { apiSnippetBase, getDefaultApi } from '@/lib/dock-api';
 import { formatDate, messageOf } from '@/lib/format';
 import { EmptyNote, ErrorNote, LoadingRows, PageHeader } from '@/components/dashboard/data-states';
 import { CopyButton } from '@/components/dashboard/copy-button';
 import { CodeBlock } from '@/components/dashboard/code-block';
-import { CLI_LOGIN_LINES, DOCS_URL } from '@/lib/empty-states';
+import { cliLoginLines, DOCS_URL } from '@/lib/empty-states';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -132,7 +132,7 @@ export default function ApiKeysPage() {
             <CopyButton value={created.apiKey} label="Copy API key" />
           </div>
           <p className="mt-3 font-medium">Use it with the dock CLI:</p>
-          <CodeBlock lines={CLI_LOGIN_LINES} className="mt-1" />
+          <CodeBlock lines={cliLoginLines(apiSnippetBase())} className="mt-1" />
           <a
             href={`${DOCS_URL}/cli`}
             target="_blank"
