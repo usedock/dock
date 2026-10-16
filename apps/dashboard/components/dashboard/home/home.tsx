@@ -1,13 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { Plus } from 'lucide-react';
 import { getDefaultApi, type Dock, type GithubRun, type HostSummary } from '@/lib/dock-api';
 import { useInstanceConfig } from '@/lib/use-instance-config';
 import { useOrg } from '@/components/dashboard/org-context';
 import { PageHeader } from '@/components/dashboard/data-states';
-import { Button } from '@/components/ui/button';
 import { gettingStarted } from '@/lib/home-summary';
 import { StatStrip } from './stat-strip';
 import { RecentDocks } from './recent-docks';
@@ -37,10 +34,9 @@ function useSection<T>(load: (() => Promise<T>) | null, scope: string): Section<
 }
 
 export function Home() {
-  const { selectedOrgId, selectedWorkspaceId, workspaces } = useOrg();
+  const { selectedOrgId, selectedWorkspaceId } = useOrg();
   const config = useInstanceConfig();
   const [api] = useState(getDefaultApi);
-  const workspace = workspaces.find((w) => w.id === selectedWorkspaceId);
 
   const docks = useSection<Dock[]>(() => api.listDocks(undefined, true), 'all');
   const runs = useSection<GithubRun[]>(
@@ -70,20 +66,11 @@ export function Home() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Home"
-        description={`${workspace ? `${workspace.name}. ` : ''}Your docks, runs and setup at a glance.`}
-        action={
-          <Button size="sm" nativeButton={false} render={<Link href="/docks?new=1" />}>
-            <Plus />
-            New dock
-          </Button>
-        }
-      />
+      <PageHeader title="Home" description="Your docks, runs and setup at a glance." />
       <StatStrip docks={docks} />
-      <div className="grid gap-8 lg:grid-cols-[1.4fr_1fr]">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <RecentDocks docks={docks} />
-        <div className="flex flex-col gap-8">
+        <div className="flex min-w-0 flex-col gap-8">
           {showRuns ? <RecentRuns runs={runs} /> : null}
           {checklistReady && !checklist.allDone ? <GettingStarted items={checklist.items} /> : null}
           {showHosts ? <HostsGroup hosts={hosts} /> : null}
