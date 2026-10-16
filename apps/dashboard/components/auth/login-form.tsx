@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/auth/password-input';
 import { authClient } from '@/lib/auth-client';
 
 // Email + password sign-in. Failures never reveal whether the email exists.
@@ -57,9 +58,8 @@ export function LoginForm({ next = '/' }: { next?: string }) {
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="login-password">Password</Label>
-        <Input
+        <PasswordInput
           id="login-password"
-          type="password"
           autoComplete="current-password"
           placeholder="Your password"
           value={password}

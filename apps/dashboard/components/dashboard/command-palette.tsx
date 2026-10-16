@@ -32,6 +32,9 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from '@/components/ui/command';
+import { getDefaultApi, type Dock } from '@/lib/dock-api';
+import { useOrg } from '@/components/dashboard/org-context';
+import { dockSearchValue, paletteDocks, shortDockId, workspaceDocks } from '@/lib/palette-docks';
 import { useInstanceConfig, withoutBillingWhenDisabled } from '@/lib/use-instance-config';
 
 const DESTINATIONS = [
@@ -55,7 +58,10 @@ const PaletteContext = createContext<{ setOpen: (open: boolean) => void } | null
 /** Hosts the cmd/ctrl+K palette and its open state for the whole dashboard shell. */
 export function CommandPaletteProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const { selectedWorkspaceId } = useOrg();
   const [open, setOpen] = useState(false);
+  const [docks, setDocks] = useState<Dock[]>([]);
+  const [search, setSearch] = useState('');
   const destinations = withoutBillingWhenDisabled(DESTINATIONS, useInstanceConfig());
 
   useEffect(() => {
@@ -63,14 +69,35 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setOpen((v) => !v);
+        setSearch('');
       }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  // Fetched on open; failures just leave the group empty.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getDefaultApi()
+      .listDocks(undefined, true)
+      .then((rows) => {
+        if (!cancelled) setDocks(workspaceDocks(rows, selectedWorkspaceId));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedWorkspaceId]);
+
+  function changeOpen(next: boolean) {
+    setOpen(next);
+    setSearch('');
+  }
+
   function go(href: string) {
-    setOpen(false);
+    changeOpen(false);
     router.push(href);
   }
 
@@ -81,12 +108,12 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
       {children}
       <CommandDialog
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={changeOpen}
         title="Command palette"
         description="Jump anywhere or start a new dock"
       >
         <Command>
-          <CommandInput placeholder="Jump to… or create a dock" />
+          <CommandInput placeholder="Jump to… or create a dock" value={search} onValueChange={setSearch} />
           <CommandList>
             <CommandEmpty>No matches.</CommandEmpty>
             <CommandGroup heading="Actions">
@@ -96,6 +123,20 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
                 <CommandShortcut>N</CommandShortcut>
               </CommandItem>
             </CommandGroup>
+            {docks.length > 0 && (
+              <>
+                <CommandSeparator />
+                <CommandGroup heading="Docks">
+                  {paletteDocks(docks, search).map((dock) => (
+                    <CommandItem key={dock.id} value={dockSearchValue(dock)} onSelect={() => go(`/docks/${dock.id}`)}>
+                      <Container />
+                      <span className="truncate">{dock.name}</span>
+                      <CommandShortcut>{shortDockId(dock.id)}</CommandShortcut>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            )}
             <CommandSeparator />
             <CommandGroup heading="Go to">
               {destinations.map((item) => (

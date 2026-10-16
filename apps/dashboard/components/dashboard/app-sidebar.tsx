@@ -190,7 +190,7 @@ export function AppSidebar({ userEmail }: { userEmail: string }) {
               }
             >
               <span className="flex flex-1 items-center gap-2 truncate">
-                <span className="flex-1 truncate font-mono">{selectedWorkspace?.name ?? 'No workspace'}</span>
+                <span className="flex-1 truncate">{selectedWorkspace?.name ?? 'No workspace'}</span>
                 <ChevronsUpDown className="size-3.5 shrink-0" />
               </span>
             </DropdownMenuTrigger>
