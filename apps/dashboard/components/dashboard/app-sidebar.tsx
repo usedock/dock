@@ -12,6 +12,7 @@ import {
   Container,
   CreditCard,
   GitBranch,
+  House,
   KeyRound,
   KeySquare,
   Layers,
@@ -50,6 +51,7 @@ import { useOrg } from './org-context';
 
 
 const PRIMARY = [
+  { href: '/', label: 'Home', icon: House },
   { href: '/docks', label: 'Docks', icon: Container },
   { href: '/snapshots', label: 'Snapshots & Templates', icon: Camera },
   { href: '/environments', label: 'Environments', icon: Layers },
@@ -93,7 +95,7 @@ function NavItems({
   return (
     <>
       {items.map((item) => {
-        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+        const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(`${item.href}/`));
         return (
           <SidebarMenuItem key={item.href}>
             <SidebarMenuButton render={<Link href={item.href} />} isActive={active} tooltip={item.label}>
