@@ -24,6 +24,8 @@ const TITLES: [prefix: string, title: string][] = [
   ['/settings', 'Settings'],
   ['/auth/login', 'Sign in'],
   ['/auth/signup', 'Create account'],
+  ['/auth/forgot-password', 'Forgot password'],
+  ['/auth/reset-password', 'Reset password'],
 ];
 
 /** Browser tab title for a dashboard pathname. */
