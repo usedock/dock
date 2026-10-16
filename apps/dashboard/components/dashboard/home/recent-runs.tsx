@@ -2,10 +2,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import type { GithubRun } from '@/lib/dock-api';
 import { formatAgo } from '@/lib/format';
-import { recentItems } from '@/lib/home-summary';
+import { recentItems, type Section } from '@/lib/home-summary';
 import { LoadingRows } from '@/components/dashboard/data-states';
 import { RUN_STATE_TONE, StatePill } from '@/components/dashboard/status-pill';
-import type { Section } from './home';
 import { HomeSection, ROW_GROUP, ROW_LINK } from './section';
 
 export function RecentRuns({ runs }: { runs: Section<GithubRun[]> }) {

@@ -1,8 +1,20 @@
 import type { Dock } from './dock-api';
 
+/** Each home section settles on its own: null while loading, 'error' when its call failed or cannot run. */
+export type Section<T> = T | null | 'error';
+
+/**
+ * A section's value for the current scope. A stale scope reads as loading; a null scope
+ * (no org or workspace selected) loads while the selection is pending, then reads as unavailable.
+ */
+export function sectionValue<T>(stored: { scope: string; value: Section<T> }, scope: string | null, pending: boolean): Section<T> {
+  if (scope === null) return pending ? null : 'error';
+  return stored.scope === scope ? stored.value : null;
+}
+
 // Emerald-tone states in status-pill.
 const RUNNING = ['running', 'ready'];
-// Idle docks are stopped-by-policy but still hold compute.
+// Idle docks are live (gray dot, not emerald) and hold compute.
 const HOLDING = [...RUNNING, 'idle'];
 const STOPPED = ['archived', 'archiving'];
 

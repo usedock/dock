@@ -1,6 +1,5 @@
 import type { Dock } from '@/lib/dock-api';
-import { formatMemoryInUse, summarizeDocks } from '@/lib/home-summary';
-import type { Section } from './home';
+import { formatMemoryInUse, summarizeDocks, type Section } from '@/lib/home-summary';
 
 function Cell({ label, value, live = false }: { label: string; value: string; live?: boolean }) {
   return (

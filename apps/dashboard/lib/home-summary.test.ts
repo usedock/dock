@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Dock } from './dock-api';
-import { formatMemoryInUse, gettingStarted, recentItems, summarizeDocks } from './home-summary';
+import { formatMemoryInUse, gettingStarted, recentItems, sectionValue, summarizeDocks } from './home-summary';
 
 const dock = (over: Partial<Dock>): Dock => ({
   id: 'd',
@@ -66,5 +66,20 @@ describe('gettingStarted', () => {
   it('is done when everything exists, and treats failed checks as done', () => {
     expect(gettingStarted({ docks: 1, sshKeys: 2, githubLinked: true, environments: 1 }).allDone).toBe(true);
     expect(gettingStarted({ docks: 1, sshKeys: null, githubLinked: null, environments: null }).allDone).toBe(true);
+  });
+});
+
+describe('sectionValue', () => {
+  const stored = { scope: 'ws-a', value: [1, 2] };
+
+  it('returns the value only for the scope it was loaded for', () => {
+    expect(sectionValue(stored, 'ws-a', false)).toEqual([1, 2]);
+    expect(sectionValue(stored, 'ws-b', false)).toBeNull();
+    expect(sectionValue({ scope: 'ws-a', value: 'error' }, 'ws-a', false)).toBe('error');
+  });
+
+  it('loads while the selection is pending, then settles as unavailable with no selection', () => {
+    expect(sectionValue(stored, null, true)).toBeNull();
+    expect(sectionValue(stored, null, false)).toBe('error');
   });
 });

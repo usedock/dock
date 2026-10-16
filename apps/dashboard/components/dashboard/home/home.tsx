@@ -5,22 +5,19 @@ import { getDefaultApi, type Dock, type GithubRun, type HostSummary } from '@/li
 import { useInstanceConfig } from '@/lib/use-instance-config';
 import { useOrg } from '@/components/dashboard/org-context';
 import { PageHeader } from '@/components/dashboard/data-states';
-import { gettingStarted } from '@/lib/home-summary';
+import { gettingStarted, sectionValue, type Section } from '@/lib/home-summary';
 import { StatStrip } from './stat-strip';
 import { RecentDocks } from './recent-docks';
 import { RecentRuns } from './recent-runs';
 import { GettingStarted } from './getting-started';
 import { HostsGroup } from './hosts-group';
 
-/** Each section settles on its own: null while loading, 'error' when its call failed. */
-export type Section<T> = T | null | 'error';
-
-function useSection<T>(load: (() => Promise<T>) | null, scope: string): Section<T> {
+function useSection<T>(scope: string | null, load: (scope: string) => Promise<T>, pending = false): Section<T> {
   const [state, setState] = useState<{ scope: string; value: Section<T> }>({ scope: '', value: null });
   useEffect(() => {
-    if (!load) return;
+    if (scope === null) return;
     let live = true;
-    load().then(
+    load(scope).then(
       (value) => live && setState({ scope, value }),
       () => live && setState({ scope, value: 'error' }),
     );
@@ -30,26 +27,20 @@ function useSection<T>(load: (() => Promise<T>) | null, scope: string): Section<
     // load is rebuilt each render; scope carries its identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope]);
-  return state.scope === scope ? state.value : null;
+  return sectionValue(state, scope, pending);
 }
 
 export function Home() {
-  const { selectedOrgId, selectedWorkspaceId } = useOrg();
+  const { selectedOrgId, selectedWorkspaceId, loading: orgLoading } = useOrg();
   const config = useInstanceConfig();
   const [api] = useState(getDefaultApi);
 
-  const docks = useSection<Dock[]>(() => api.listDocks(undefined, true), 'all');
-  const runs = useSection<GithubRun[]>(
-    selectedWorkspaceId ? () => api.listRuns(selectedWorkspaceId) : null,
-    selectedWorkspaceId ?? '-',
-  );
-  const sshKeys = useSection(() => api.listSshKeys(), 'all');
-  const installs = useSection(
-    selectedWorkspaceId ? () => api.listInstallations(selectedWorkspaceId) : null,
-    selectedWorkspaceId ?? '-',
-  );
-  const environments = useSection(selectedOrgId ? () => api.listEnvironments(selectedOrgId) : null, selectedOrgId ?? '-');
-  const hosts = useSection<HostSummary[]>(() => api.listHosts(), 'all');
+  const docks = useSection<Dock[]>('all', () => api.listDocks(undefined, true));
+  const runs = useSection<GithubRun[]>(selectedWorkspaceId, (id) => api.listRuns(id), orgLoading);
+  const sshKeys = useSection('all', () => api.listSshKeys());
+  const installs = useSection(selectedWorkspaceId, (id) => api.listInstallations(id), orgLoading);
+  const environments = useSection(selectedOrgId, (id) => api.listEnvironments(id), orgLoading);
+  const hosts = useSection<HostSummary[]>('all', () => api.listHosts());
 
   const count = (s: Section<unknown[]>) => (Array.isArray(s) ? s.length : null);
   const githubLinked = config?.githubAppConfigured === false ? null : Array.isArray(installs) ? installs.length > 0 : null;
