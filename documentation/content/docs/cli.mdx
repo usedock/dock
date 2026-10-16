@@ -125,7 +125,7 @@ Local differences:
 - `dock new --runtime gvisor` (or `DOCK_LOCAL_RUNTIME=gvisor`) runs the dock as a
   gVisor container through Docker, for Linux without KVM. It needs `dock`
   v0.3.5 or later. `dock branch` and `--network off` work on it from v0.3.6;
-  with a `dock` release after v0.3.6, `dock push` sends only `/home/user/work`
+  with dock v0.3.7 or later, `dock push` sends only `/home/user/work`
   from it, and `dock pull --runtime gvisor` (or `DOCK_LOCAL_RUNTIME=gvisor`)
   creates one from a pulled disk's work directory. See [gVisor runtime](/local-docks/gvisor).
 

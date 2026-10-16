@@ -23,7 +23,7 @@ be exported.
 
 A local [gVisor dock](/local-docks/gvisor) has no disk image, only the
 `/home/user/work` volume, so push and pull move that directory and nothing else.
-This needs a `dock` release after v0.3.6; v0.3.6 refuses `dock push` on a
+This needs dock v0.3.7 or later ([Install](/cli#install); run the installer again to update); v0.3.6 and earlier refuse `dock push` on a
 gVisor dock and has no `dock pull --runtime`.
 
 ### Push from a gVisor dock
