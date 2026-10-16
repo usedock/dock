@@ -93,7 +93,8 @@ work directory instead. It works from dock v0.3.8 into a local gVisor dock
 - An interrupted import shows `import_incomplete`, for both targets (see
   below).
 - A running remote dock is paused briefly while its work directory is captured.
-- A stopped remote dock cannot be exported yet; `dock resume` it first.
+- A stopped remote dock cannot be exported yet (`dock_not_running`); `dock
+  resume` it first.
 
 ### Interrupted imports
 
@@ -257,7 +258,7 @@ past the end can restart.
 | `part_too_large` | A proxy part is bigger than `partSize` |
 | `part_upload_busy` | 429: the part waited 60 seconds for the organization's or the control plane's share of in-flight proxy parts. Retryable: send the same part again |
 | `payload_too_large` | 413: a request body is over the route's size limit (any route, not only imports) |
-| `runtime_unsupported` | 409: no online microVM host has a docklet that verifies imported disks (checked only with `RUNTIME_DRIVER=restate`), or the dock to export is not a microVM dock |
+| `runtime_unsupported` | 409: no online microVM host has a docklet that verifies imported disks (checked only with `RUNTIME_DRIVER=restate`), or a gVisor dock is exported without the `work-tar` format or from a host that does not advertise `work-export` (`dock pull` reports `gvisor_export_unsupported`) |
 | `import_egress_unsupported` | 409, at start (only with `RUNTIME_DRIVER=restate`): the default Environment has an egress allowlist and no host that verifies imports confines egress on resume; upgrade the docklets |
 | `host_egress_unsupported` | 503, from complete: no suitable host can apply the default Environment's egress allowlist. Retryable: the uploaded disk is kept |
 | `range_not_satisfiable` | 416, from the download: the `Range` starts at or past the end of the file, or ends before it starts; `Content-Range: bytes */<size>` carries the size |
